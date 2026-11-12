@@ -1,0 +1,41 @@
+# Render: despliega el robot gratis con un solo archivo.
+# En Render: New → Blueprint → conecta tu repositorio → Apply.
+# Después pon las variables de entorno en el panel (las mismas del .env).
+# La URL pública que te da Render es la que pegas en Meta como webhook.
+services:
+  - type: web
+    name: robot-whatsapp-python
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: VERIFY_TOKEN
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GOOGLE_SHEETS_ID
+        value: 1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: CALENDAR_ID
+        value: primary
+      - key: TIMEZONE
+        value: America/Mazatlan
+      - key: DURACION_CITA_MINUTOS
+        value: "60"
+      - key: PAUSA_HUMANO_HORAS
+        value: "2"
+      - key: ESPERA_AGRUPAR_SEGUNDOS
+        value: "7"
