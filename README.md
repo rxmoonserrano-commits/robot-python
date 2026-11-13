@@ -12,15 +12,15 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 135 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 144 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
-> `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py`). El **12 de
-> noviembre de 2026 el robot contestó su primer mensaje real** por
-> WhatsApp (fuera de horario, proponiendo el
+> `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
+> `test_v2_11.py`). El **12 de noviembre de 2026 el robot contestó su
+> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -420,6 +420,51 @@ entero y prohíbe inventar, sigue pidiendo solo JSON, y de punta a
 punta la respuesta comercial llega al cliente con botones y la
 propuesta se guarda.
 
+## Versión 2.11 — Comercialmente voraz, sin parecer desesperada
+
+**El análisis (en vivo, 2026-11-12 22:31–22:33):** 26 mensajes de
+cliente y 1 sola cita. El robot informaba bien y no vendía nada: en
+cinco intercambios nunca ofreció una cita. Cada respuesta terminaba
+en pregunta genérica y el cliente tenía que hacer todo el trabajo.
+
+**Qué se corrigió (solo el prompt, en `robot/agent.py` y
+`guion-robot.md`):**
+1. **Cada respuesta acerca a la cita.** Beneficio primero, precio
+   después, cita al final. Cada mensaje termina con un paso concreto
+   hacia la cita, nunca con una pregunta genérica.
+2. **Dos opciones concretas, nunca un sí o no.** "¿mañana a las 9:00
+   o el sábado a las 10:00?" es más fácil de contestar que "¿quieres
+   agendar?".
+3. **Guion para "lo voy a pensar":** no discutir, no bajar el precio,
+   no repetir la pregunta. "Claro, piénsalo con calma. Te aparto el
+   lugar hasta mañana sin compromiso, ¿te parece?"
+4. **Prohibido rogar, repetir e inventar urgencia o descuentos.** La
+   urgencia es solo la disponibilidad real (la próxima apertura).
+5. **Calificar en la plática:** qué le duele, desde cuándo, si ya se
+   había atendido antes. Máximo 3 preguntas, una a la vez.
+6. **Prohibido cerrar con "¿tienes alguna otra duda?"** y "¿te
+   gustaría saber más?".
+
+**Corrección honesta del análisis anterior:** en la v2.10 se dijo que
+el robot había inventado "primera valoración gratis", "se descuenta si
+te haces el tratamiento" y "sin corona". Al revisar la hoja de
+Conocimiento, esos tres datos **sí están ahí** (detalle de Ortodoncia,
+de Revisión y de Implante). El robot no inventó nada; el problema era
+la forma de comunicar, no el dato.
+
+**Pendiente de decisión del dueño (no se hizo en v2.11):** el
+seguimiento a quien se queda callado a mitad de la plática. Hoy el
+robot no manda recordatorios por WhatsApp (regla del dueño). La
+propuesta es que, cuando un cliente caliente se enfría, le llegue al
+dueño un correo con el borrador del seguimiento y el humano decida si
+lo manda.
+
+**Pruebas nuevas:** `test_v2_11.py`, 9 casos: cada regla voraz está
+en el prompt (cita en cada respuesta, dos opciones, guion de "lo voy
+a pensar", prohibiciones, calificación), el JSON sigue igual, y de
+punta a punta la oferta con dos opciones llega al cliente con botones
+y la propuesta se guarda.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -453,6 +498,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_8.py` | 6 pruebas nuevas de la v2.8 (timeout con reintento, prosa sin JSON, historial recortado): `python test_v2_8.py` |
 | `test_v2_9.py` | 7 pruebas nuevas de la v2.9 (Gemini 4 Hydrogen, 503 con espera larga, Flash-Lite): `python test_v2_9.py` |
 | `test_v2_10.py` | 8 pruebas nuevas de la v2.10 (prompt comercial: Ana, método, cero inventos): `python test_v2_10.py` |
+| `test_v2_11.py` | 9 pruebas nuevas de la v2.11 (voraz sin parecer desesperada): `python test_v2_11.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |
