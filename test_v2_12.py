@@ -145,21 +145,23 @@ def main():
 
         agent_mod.generar_texto = generar_falso
         preguntar_agente("buenas noches", CONOCIMIENTO, FOTOS, [])
-        prompt = prompts[0]
+        prompt = " ".join(prompts[0].split())
 
-        caso("(a) Lee todo el historial y contesta todo junto",
-             "Lee todo el historial antes de contestar" in prompt
-             and "contesta todo junto en una sola respuesta" in prompt)
+        # (v2.13) El historial ya no se "lee": el estado llega calculado
+        # por código en el bloque "[Estado del cliente]".
+        caso("(a) El prompt usa el Estado del cliente, calculado por código",
+             '"[Estado del cliente]"' in prompt and "Léelo primero" in prompt
+             and "si ya le ofreciste una cita" in prompt)
         caso("(b) No repite la oferta si ya se ofreció y no contestaron",
-             "Si ya ofreciste la cita en tu último mensaje" in prompt
-             and "NO la repitas" in prompt
+             "ya le ofreciste una cita y no ha contestado" in prompt
+             and "NO repitas la oferta" in prompt
              and "los horarios quedaron arriba" in prompt)
         caso("(c) Si solo saludó, no ofrece cita: saluda y pregunta",
-             "Si el cliente solo saludó" in prompt
-             and "NO ofrezcas" in prompt and "una cita todavía" in prompt
+             "el cliente solo saludó" in prompt
+             and "NO ofrezcas cita todavía" in prompt
              and "pregúntale qué necesita" in prompt)
         caso("(d) De noche: la clínica cerró, el robot atiende igual",
-             "El negocio está cerrado, tú no" in prompt
+             "el negocio está cerrado, tú no" in prompt
              and "La clínica ya cerró por hoy, pero yo te atiendo igual" in prompt
              and 'Nunca digas "ya cerramos"' in prompt)
         caso("(g) Lo voraz de la v2.11 sigue: dos opciones y 'lo voy a pensar'",

@@ -145,15 +145,16 @@ def main():
 
         agent_mod.generar_texto = generar_falso
         preguntar_agente("¿cuánto cuesta la limpieza?", CONOCIMIENTO, FOTOS, [])
-        prompt = prompts[0]
+        prompt = " ".join(prompts[0].split())
 
+        # (v2.13) "Cada respuesta acerca a la cita" ahora vive en la
+        # decisión por etapa (pregunto), no en una sección aparte.
         caso("(a) Cada respuesta acerca a la cita: beneficio, precio, cita",
-             "Tu meta en cada mensaje es acercar al cliente a la cita" in prompt
-             and "Beneficio primero" in prompt and "precio después, cita al final" in prompt)
-        caso("(b) Ofrece DOS opciones concretas, nunca un sí o no",
+             "Beneficio primero" in prompt and "precio después, cita al final" in prompt
+             and "DOS opciones concretas de día y hora" in prompt)
+        caso("(b) Ofrece DOS opciones concretas de día y hora",
              "DOS opciones concretas de día y hora" in prompt
-             and "¿mañana a las 9:00 o el sábado a las 10:00?" in prompt
-             and "nunca un sí o no" in prompt)
+             and "para mañana a las 9:00 o el sábado a las 10:00?" in prompt)
         caso("(c) Prohíbe cerrar con preguntas genéricas",
              'Nunca termines con "¿tienes alguna otra duda?"' in prompt
              and 'ni "¿te gustaría saber' in prompt)
@@ -161,13 +162,13 @@ def main():
              'lo voy a pensar' in prompt
              and "Te aparto el lugar hasta mañana sin compromiso" in prompt
              and "no bajes el precio" in prompt)
-        caso("(e) Prohíbe rogar, repetir e inventar urgencia o descuentos",
-             "Nunca ruegues" in prompt and "nunca repitas la misma pregunta" in prompt
-             and "nunca inventes urgencia" in prompt
-             and "La urgencia es solo la disponibilidad real" in prompt)
+        caso("(e) Prohíbe inventar urgencia o descuentos y bajar el precio",
+             "Nunca inventes urgencia ni descuentos" in prompt
+             and "la urgencia es solo la disponibilidad real" in prompt
+             and "No discutas, no bajes el precio" in prompt)
         caso("(f) Califica en la plática: qué le duele, desde cuándo, atendido antes",
-             "Califica en la plática" in prompt and "qué le duele, desde cuándo" in prompt
-             and "Máximo 3 preguntas" in prompt)
+             "pregúntale qué le duele, desde cuándo y si es urgente" in prompt
+             and "máximo 3 preguntas, una a la vez" in prompt)
         caso("(g) El prompt sigue pidiendo solo JSON con los mismos campos",
              "ÚNICAMENTE con un JSON válido" in prompt
              and "respuesta_texto" in prompt and "fecha_cita" in prompt)

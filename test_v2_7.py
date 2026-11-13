@@ -167,7 +167,7 @@ def main():
              gemini_mod._candidatos() == ["gemini-9.9-flash", "gemini-3.5-flash-lite"],
              f"candidatos={gemini_mod._candidatos()}")
 
-        def llamar_falso(modelo, partes):
+        def llamar_falso(modelo, partes, json_mode=False):
             if modelo in ("gemini-9.9-flash", "gemini-3.5-flash-lite"):
                 raise GeminiError(ERROR_GOOGLE)
             if modelo == "gemini-3.8-flash":

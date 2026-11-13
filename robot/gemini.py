@@ -46,6 +46,15 @@ _MODELOS_RETIRADOS = ("gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro")
 _ULTIMO_MODELO_OK: str | None = None
 
 
+def ultimo_modelo() -> str:
+    """El modelo que contestó por última vez, o "" si ninguno lo ha hecho.
+
+    (v2.13) Para saber en Diagnóstico si las respuestas malas vienen
+    del modelo chico de respaldo y no del principal.
+    """
+    return _ULTIMO_MODELO_OK or ""
+
+
 class GeminiError(RuntimeError):
     """Algo falló hablando con Gemini (clave, cuota, red, modelo retirado)."""
 
@@ -62,8 +71,16 @@ def _modelo_sugerido(texto_error: str) -> str:
     return encontrado.group(1) if encontrado else ""
 
 
-def _llamar(modelo: str, partes: list[dict]) -> str:
+def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
     """Un POST a Gemini. Devuelve el texto de la respuesta.
+
+    (v2.13) Frenos de calidad, que antes no existían: la llamada iba
+    sin temperatura (el modelo contestaba con la creatividad por
+    defecto, variable) y sin pedir JSON en la API (se pedía solo en
+    el texto del prompt y luego se hacía malabares con regex).
+    Ahora, en modo JSON: temperatura 0.3 (sigue reglas, no inventa),
+    JSON obligatorio en la API y tope de 600 tokens. La transcripción
+    de audio sigue en texto plano (json_mode=False).
 
     (v2.5) Si Gemini responde 429 (cuota por minuto) o 500/502/503
     (Google saturado), se reintenta UNA vez tras 2 segundos antes de
@@ -80,12 +97,14 @@ def _llamar(modelo: str, partes: list[dict]) -> str:
     los 60 s cuando el modelo está frío y contesta a los 70.
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
+    config = {"temperature": 0.3, "maxOutputTokens": 600}
+    if json_mode:
+        config["response_mime_type"] = "application/json"
+    cuerpo = {"contents": [{"parts": partes}], "generationConfig": config}
     ultimo_error: GeminiError | None = None
     for intento in range(3):
         try:
-            respuesta = requests.post(
-                url, json={"contents": [{"parts": partes}]}, timeout=120
-            )
+            respuesta = requests.post(url, json=cuerpo, timeout=120)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
             ultimo_error = GeminiError(f"Gemini tardó demasiado o se cortó la red: {exc}")
             if intento == 0:
@@ -134,7 +153,7 @@ def _candidatos() -> list[str]:
     return orden or ["gemini-4-hydrogen"]
 
 
-def _probar_candidatos(partes: list[dict]) -> str:
+def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
     """Prueba los modelos en orden. Si Google dice 'usa este otro',
     lo agrega a la lista y lo prueba solo (autocuración).
 
@@ -149,7 +168,7 @@ def _probar_candidatos(partes: list[dict]) -> str:
         modelo = candidatos[i]
         i += 1
         try:
-            texto = _llamar(modelo, partes)
+            texto = _llamar(modelo, partes, json_mode=json_mode)
         except GeminiError as exc:
             ultimo_error = exc
             sugerido = _modelo_sugerido(str(exc))
@@ -164,10 +183,14 @@ def _probar_candidatos(partes: list[dict]) -> str:
 
 def generar_texto(prompt: str) -> str:
     """Pide texto a Gemini. Prueba los modelos en orden; si Google
-    retira uno, usa el que Google sugiere, solo."""
+    retira uno, usa el que Google sugiere, solo.
+
+    (v2.13) Modo JSON: la API devuelve JSON válido y el modelo va con
+    temperatura 0.3, para que siga las reglas en vez de improvisar.
+    """
     if not settings.gemini_api_key:
         raise GeminiError("Falta GEMINI_API_KEY en el .env. Ver README, paso 2.")
-    return _probar_candidatos([{"text": prompt}])
+    return _probar_candidatos([{"text": prompt}], json_mode=True)
 
 
 def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:

@@ -140,3 +140,26 @@ que nunca duerma, o el plan pago de Render cuando haya ingresos.
    en el código, para que no vuelva a pasar.
 
 **Versión de este plan:** 2026-11-12, con el robot v2.3.
+
+
+## Puerta de calidad: conversaciones doradas (v2.13)
+
+Las pruebas de arriba revisan piezas (que el prompt diga la regla,
+que el flujo no se rompa). No revisan que la IA se comporte bien
+hablando con un cliente de verdad. Para eso están las conversaciones
+doradas: `test_conversaciones_doradas.py`.
+
+Son 8 conversaciones completas contra la IA real (Gemini, con la
+clave de verdad): saludo de noche, precio tras saludar, "lo voy a
+pensar", oferta pendiente + pregunta nueva, cliente enojado, "sí
+gracias" tras un fallo, piden servicios, cambio de cita de noche.
+Cada una se juzga por lo que contesta el robot, no por lo que dice
+el prompt.
+
+Se corre así (desde la carpeta del robot, con la clave en el entorno):
+
+    GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py
+
+Regla: si una conversación dorada falla, esa versión NO se sube a
+Render. Y cada error nuevo que aparezca en vivo se agrega como una
+conversación dorada nueva, para que no vuelva a pasar.

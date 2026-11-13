@@ -12,16 +12,19 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 151 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 169 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
 > `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
-> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py`). El **12 de
-> noviembre de 2026 el robot contestó su primer mensaje real** por
-> WhatsApp (fuera de horario, proponiendo el
+> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 18 de la v2.13
+> en `test_v2_13.py`). Y hay 8 **conversaciones doradas** aparte
+> (`test_conversaciones_doradas.py`): conversaciones completas contra
+> la IA real, que se corren con la clave de Gemini antes de cada
+> despliegue. El **12 de noviembre de 2026 el robot contestó su
+> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -501,6 +504,61 @@ lo voraz de la v2.11 sigue intacto, y de punta a punta un saludo
 recibe un saludo con pregunta, sin botones de cita ni propuesta
 guardada.
 
+## Versión 2.13 — El motor nuevo (estado + revisor + puerta de calidad)
+
+**El problema (análisis completo, 2026-11-12 23:28):** arreglar un
+error con un párrafo más en el prompt creaba el siguiente. El GUION
+ya se contradecía a sí mismo (la v2.11 ordenaba terminar cada
+respuesta con una oferta; la v2.12 prohibía repetirla). La respuesta
+de la IA se mandaba sin que nadie la revisara. La IA tenía que
+deducir en qué iba la conversación de 8 filas crudas de la hoja.
+La llamada a Gemini iba sin temperatura baja ni JSON obligatorio en
+la API. Y las 151 pruebas probaban que el prompt *dijera* la regla,
+no que el robot *se comportara* bien hablando con un cliente.
+
+**Qué se corrigió (arquitectura, no otro párrafo):**
+1. **Estado por código** (`robot/estado.py`): antes de llamar a la IA,
+   el código calcula en qué va el cliente (etapa: saludo / pregunto /
+   oferta_pendiente / agendado / nuevo; si ya se le ofreció cita y
+   cuál; cuál fue el último mensaje del robot) y se lo pasa como datos
+   en el bloque "[Estado del cliente]". La IA deja de deducir y se
+   pone a decidir.
+2. **GUION corto y sin contradicciones** (`robot/agent.py`, 55 líneas
+   en vez de ~120): quién eres, decide según la etapa, cómo hablas
+   (2 ejemplos), 3 límites duros. La regla voraz y la de no repetir
+   quedan en una sola frase: ofrece la cita solo cuando acabas de dar
+   información nueva; nunca repitas una oferta pendiente.
+3. **Revisor antes de mandar** (`robot/revision.py`): reglas por
+   código, sin otra llamada a la IA. R1: no repetir la oferta (se
+   quita la frase, el resto queda). R2: no ofrecer cita en un saludo.
+   R3: "ya cerramos" se cambia por "la clínica ya cerró por hoy,
+   pero yo te atiendo igual". Lo corregido queda en Diagnóstico
+   (componente "revision", estado "CORREGIDO"). La falla técnica
+   ("dame un momento") no se toca.
+4. **Frenos en la llamada a Gemini** (`robot/gemini.py`): temperatura
+   0.3, JSON obligatorio en la API y tope de 600 tokens en modo texto.
+   El audio sigue en texto plano. Además el agente guarda qué modelo
+   contestó (`RespuestaAgente.modelo`), para saber si las respuestas
+   malas vienen del modelo chico de respaldo.
+5. **Conversaciones doradas** (`test_conversaciones_doradas.py`): 8
+   conversaciones completas contra la IA real (saludo de noche, precio
+   tras saludar, "lo voy a pensar", oferta pendiente + pregunta nueva,
+   cliente enojado, "sí gracias" tras un fallo, piden servicios,
+   cambio de cita de noche). Se corren con la clave de Gemini antes
+   de desplegar: si una falla, esa versión NO se sube. Cada error
+   nuevo en vivo se agrega como una dorada nueva.
+
+**Pruebas nuevas:** `test_v2_13.py`, 18 casos: el estado (7), el
+revisor (7: R1, R2, R3, apartar el lugar no se quita, hablar de la
+agenda no se quita, respuesta limpia intacta), los frenos de Gemini
+(2: JSON con temperatura 0.3 y tope; audio en texto plano), y la
+integración en vivo (3: el estado viaja al agente, la oferta repetida
+se quita antes de mandar, la corrección queda en Diagnóstico). Las
+pruebas viejas de prompt de la v2.10–v2.12 se actualizaron a la
+frase nueva del GUION reescrito (la regla es la misma, la frase
+cambió); además ahora se comparan con los saltos de línea aplanados,
+para que el sentido no dependa de dónde se parte cada línea.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -536,6 +594,8 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_10.py` | 8 pruebas nuevas de la v2.10 (prompt comercial: Ana, método, cero inventos): `python test_v2_10.py` |
 | `test_v2_11.py` | 9 pruebas nuevas de la v2.11 (voraz sin parecer desesperada): `python test_v2_11.py` |
 | `test_v2_12.py` | 7 pruebas nuevas de la v2.12 (espera 15 s, no repetir oferta, saludo sin cita, noche): `python test_v2_12.py` |
+| `test_v2_13.py` | 18 pruebas nuevas de la v2.13 (estado, revisor, frenos de Gemini, integración): `python test_v2_13.py` |
+| `test_conversaciones_doradas.py` | 8 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |

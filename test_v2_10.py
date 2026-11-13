@@ -140,20 +140,25 @@ def main():
 
         agent_mod.generar_texto = generar_falso
         r = preguntar_agente("¿cuánto cuesta la limpieza?", CONOCIMIENTO, FOTOS, [])
-        prompt = prompts[0]
+        prompt = " ".join(prompts[0].split())
 
         caso("(a) El prompt tiene personaje: Ana, recepcionista, a la orden",
              "Te llamas Ana" in prompt and "recepcionista" in prompt
              and "a la orden" in prompt,
              f"prompt={prompt[:200]}")
-        caso("(b) El prompt trae el método: Entiende, Responde, Avanza",
-             "ENTIENDE" in prompt and "RESPONDE JUSTO LO QUE PREGUNTÓ" in prompt
-             and "AVANZA" in prompt,
-             "falta un paso del método")
+        # (v2.13) El método ya no es "Entiende, Responde, Avanza" en tres
+        # pasos: es decidir según la etapa del cliente (ver robot/estado.py).
+        caso("(b) El prompt decide según la etapa y ofrece la cita",
+             "Decide según la etapa" in prompt
+             and "DOS opciones concretas de día y hora" in prompt
+             and "Beneficio primero" in prompt
+             and "precio después, cita al final" in prompt,
+             "falta la decisión por etapa")
         caso("(b) El prompt ordena ofrecer la cita después de cada precio",
-             "¿Te la agendo" in prompt and "Ese horario está libre" in prompt)
+             "¿Te la agendo" in prompt and "para mañana a las 9:00" in prompt)
         caso("(c) El prompt prohíbe el catálogo entero (máximo 3 servicios)",
-             "catálogo entero" in prompt and "solo los 3 más pedidos" in prompt)
+             "pregunta cuál les interesa" in prompt
+             and "da solo los 3 más pedidos" in prompt)
         caso("(d) El prompt prohíbe inventar: solo Conocimiento, palabra por palabra",
              "palabra por palabra" in prompt and "Déjame confirmarlo" in prompt
              and "Nunca inventes precios, descuentos, promociones" in prompt)

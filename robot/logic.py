@@ -117,6 +117,7 @@ Calendar, correo). En producción son los reales; en las pruebas
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import unicodedata
@@ -125,6 +126,8 @@ from zoneinfo import ZoneInfo
 
 from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
+from .estado import estado_cliente
+from .revision import revisar_respuesta
 from .ritmo import enviar_con_ritmo
 
 PAUSA = timedelta(hours=2)
@@ -854,7 +857,22 @@ def atender_mensaje(
             "recuérdale esa fecha; si dice que le va, confirma; si prefiere otra, pregunta cuál."
         )
     contexto.append("Responde su mensaje con calma, como una persona, usando tu criterio.")
-    mensaje_agente = "[Contexto: " + " ".join(contexto) + f"]\n{texto}"
+    # (v2.13) Estado del cliente, calculado por código: la IA ya no
+    # tiene que deducir en qué va la conversación leyendo las filas
+    # crudas de la hoja. Se lo pasamos como datos, no como prosa.
+    leer_cliente_fn = getattr(deps, "leer_cliente", lambda t: None)
+    try:
+        fila_cliente = leer_cliente_fn(telefono) or {}
+    except Exception:
+        fila_cliente = {}
+    estado = estado_cliente(
+        historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre
+    )
+    mensaje_agente = (
+        "[Contexto: " + " ".join(contexto) + "]\n"
+        "[Estado del cliente: " + json.dumps(estado, ensure_ascii=False) + "]\n"
+        f"{texto}"
+    )
 
     # 6. El agente decide qué responder y qué hacer. Mientras piensa,
     # la burbuja se refresca cada 20 segundos.
@@ -868,6 +886,24 @@ def atender_mensaje(
         respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
     finally:
         parar.set()
+
+    # (v2.13) Revisor: segunda mirada antes de mandar. Si la respuesta
+    # repite una oferta pendiente, ofrece cita en un saludo o dice
+    # "ya cerramos", se corrige aquí, no en el teléfono del cliente.
+    # La falla técnica ("dame un momento") no se toca: es honesta.
+    # Lo corregido queda en Diagnóstico, para ver qué se atrapó.
+    if not respuesta.falla_tecnica:
+        texto_revisado, violaciones = revisar_respuesta(
+            respuesta.respuesta_texto, estado, nombre
+        )
+        if violaciones:
+            _diagnostico(
+                deps, fecha, "revision", "CORREGIDO",
+                "Reglas corregidas antes de mandar: " + ", ".join(violaciones)
+                + f" (modelo: {getattr(respuesta, 'modelo', '') or 'sin dato'})",
+                telefono, texto,
+            )
+            respuesta.respuesta_texto = texto_revisado
 
     # 7. Foto: solo si está en la lista blanca. Si no, se borra sin avisar al cliente.
     foto = respuesta.foto_oficial_url_or_null
