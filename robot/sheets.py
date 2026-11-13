@@ -288,6 +288,27 @@ _COLUMNAS_PROPUESTA = ["telefono", "nombre", "motivo", "fecha_cita",
                        "fecha_bonita", "creado_en"]
 
 
+def registrar_diagnostico(fecha, componente: str, estado: str, detalle: str,
+                          telefono: str = "", contexto: str = "") -> None:
+    """Escribe una fila en la pestaña Diagnóstico (v2.7).
+
+    Es el "parte de salud" del robot, para que el dueño (o su
+    asistente) vea qué le duele sin entrar a los registros de Render:
+    la autoprueba de Gemini al arrancar, cada vez que Gemini falla,
+    cada vez que WhatsApp rechaza un envío. Columnas: fecha,
+    componente, estado, detalle, telefono, contexto.
+    Best-effort: si la hoja falla, solo queda en el registro.
+    """
+    try:
+        agregar_fila("Diagnóstico", [
+            fecha.isoformat() if hasattr(fecha, "isoformat") else str(fecha),
+            str(componente), str(estado), str(detalle)[:500],
+            str(telefono), str(contexto)[:300],
+        ])
+    except Exception as exc:  # noqa: BLE001 - el diagnóstico nunca rompe nada
+        print(f"[diagnostico] No pude escribir en la hoja: {exc}")
+
+
 def leer_propuestas() -> list[dict]:
     """Todas las propuestas guardadas. Si la pestaña no existe aún, []."""
     try:

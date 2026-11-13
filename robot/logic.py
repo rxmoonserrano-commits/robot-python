@@ -667,6 +667,10 @@ class Dependencias:
     def marcar_leido_y_escribiendo(self, message_id): ...
     def enviar_botones(self, telefono, texto, botones): ...
     def alerta_error(self, motivo, telefono, ultimo_mensaje, fecha): ...
+    def registrar_diagnostico(self, fecha, componente, estado, detalle,
+                              telefono="", contexto=""):
+        """Escribe en la pestaña Diagnóstico (v2.7). Por defecto: nada."""
+        ...
 
 
 def _avisar_por_correo(avisar, *args) -> None:
@@ -682,6 +686,22 @@ def _avisar_por_correo(avisar, *args) -> None:
         avisar(*args)
     except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
         print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+
+
+def _diagnostico(deps: Dependencias, fecha, componente: str, estado: str,
+                 detalle: str, telefono: str = "", contexto: str = "") -> None:
+    """Escribe en la pestaña Diagnóstico, sin romper nada (v2.7).
+
+    Es lo que permite revisar la salud del robot desde la hoja, sin
+    entrar a Render: si Gemini falla, si el token muere, si la
+    autoprueba sale mal, queda escrito aquí con fecha y detalle.
+    """
+    try:
+        registrar = getattr(deps, "registrar_diagnostico", None)
+        if registrar is not None:
+            registrar(fecha, componente, estado, detalle, telefono, contexto)
+    except Exception as exc:  # noqa: BLE001 - el diagnóstico nunca rompe nada
+        print(f"[diagnostico] No pude escribir en la hoja: {exc}")
 
 
 def _refrescar_escribiendo(deps: Dependencias, message_id: str, parar: threading.Event) -> None:
@@ -752,8 +772,27 @@ def atender_mensaje(
     # y sin llamar al agente. Vale de noche (fuera de horario) y de día:
     # si el cliente ya aceptó la fecha, no hay nada que preguntarle.
     # Si la propuesta es vieja (más de 48 h), se descarta y se sigue normal.
+    # (v2.7) PERO: un "sí" solo confirma si el último mensaje del robot
+    # fue la propuesta. Si lo último que el robot dijo fue "dame un
+    # momento" (Gemini falló), un "sí gracias" es cortesía, no una
+    # confirmación: el 12 de noviembre de 2026 un "sí gracias" confirmó
+    # una cita que ya estaba ocupada y el robot contestó "esa hora ya
+    # se ocupó". En ese caso el "sí" va al agente, que atiende normal.
+    historial = deps.leer_historial(telefono)
+    ultimo_robot = None
+    for fila in reversed(historial or []):
+        if fila.get("quien_hablo") == "robot":
+            ultimo_robot = fila
+            break
+    ultimo_fue_fallo = bool(
+        ultimo_robot
+        and (
+            ultimo_robot.get("motivo") == "falla tecnica"
+            or str(ultimo_robot.get("mensaje", "")).startswith("Dame un momento")
+        )
+    )
     propuesta = _CITAS_PENDIENTES.get(telefono)
-    if propuesta and _es_afirmacion(texto):
+    if propuesta and _es_afirmacion(texto) and not ultimo_fue_fallo:
         creado_en = propuesta.get("creado_en")
         vigente = True
         if creado_en:
@@ -776,9 +815,10 @@ def atender_mensaje(
         return _atender_cambio_cancelacion(deps, telefono, nombre, fecha, intencion, con_ritmo)
 
     # 4. Cargar lo que el robot necesita saber.
+    # (El historial ya se cargó arriba, en el paso 3b, para saber si
+    # el último mensaje del robot fue un fallo.)
     conocimiento = deps.leer_conocimiento()
     fotos = deps.leer_fotos()
-    historial = deps.leer_historial(telefono)
 
     # 5. Contexto para el agente (v2.6): la IA contesta SIEMPRE, de día
     # y de noche, y siempre sabe qué hora es, si el negocio está
@@ -837,10 +877,13 @@ def atender_mensaje(
     # 8. Handoff: el robot deja de contestar este hilo.
     if respuesta.necesita_handoff == "si":
         if respuesta.falla_tecnica:
-            # Gemini falló: al cliente un "dame un momento" (no silencio)
-            # y al dueño un correo de error. El cliente no se queda esperando.
+            # Gemini falló: al cliente un "dame un momento" (no silencio),
+            # al dueño un correo de error, y queda escrito en Diagnóstico
+            # para revisarlo desde la hoja sin entrar a Render (v2.7).
             enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
             deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "falla tecnica")
+            _diagnostico(deps, fecha, "gemini", "FALLO", respuesta.motivo_handoff or "Gemini no contestó",
+                         telefono, texto)
             _avisar_por_correo(deps.alerta_error, respuesta.motivo_handoff, telefono, texto, fecha)
         else:
             _avisar_por_correo(

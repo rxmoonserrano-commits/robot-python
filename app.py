@@ -125,6 +125,10 @@ class DependenciasReales(Dependencias):
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
             print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
+    def registrar_diagnostico(self, fecha, componente, estado, detalle,
+                              telefono="", contexto=""):
+        sheets.registrar_diagnostico(fecha, componente, estado, detalle, telefono, contexto)
+
 
 _DEPS = DependenciasReales()
 
@@ -159,6 +163,10 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
             )
         except Exception as exc4:  # noqa: BLE001 - la hoja también puede fallar
             print(f"[lote] Tampoco pude registrar el fallo en la hoja: {exc4}")
+        # (v2.7) El fallo también queda en Diagnóstico, con el error exacto.
+        sheets.registrar_diagnostico(
+            datetime.now(timezone.utc), "whatsapp", "FALLO", str(exc)[:300],
+            telefono, texto_unido)
         # El aviso por WhatsApp y el aviso por correo van separados:
         # si el correo falla (p. ej. Gmail sin configurar), el cliente
         # igual recibe su "dame un momento" y no hay duplicados.
@@ -378,13 +386,21 @@ def arrancar():
     # Render desde el primer minuto, en vez de descubrirlo de noche
     # cuando un cliente ya se quejó. No bloquea el arranque.
     def _probar_gemini():
+        # (v2.7) El resultado también queda en la pestaña Diagnóstico de
+        # la hoja: así se revisa la salud del robot sin entrar a Render
+        # ni pedir capturas. Si dice FALLO, ahí está el error exacto.
         try:
             from robot.gemini import generar_texto
 
             generar_texto("Responde solo con la palabra OK.")
             print("[gemini] OK: la clave funciona.")
+            _DEPS.registrar_diagnostico(
+                datetime.now(timezone.utc), "gemini", "OK",
+                "Autoprueba al arrancar: Gemini contestó.")
         except Exception as exc:  # noqa: BLE001
             print(f"[gemini] FALLO: no pude hablar con Gemini: {exc}. Revisa GEMINI_API_KEY en Render.")
+            _DEPS.registrar_diagnostico(
+                datetime.now(timezone.utc), "gemini", "FALLO", str(exc))
     threading.Thread(target=_probar_gemini, daemon=True).start()
     scheduler.start()
     print(f"[robot] Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")

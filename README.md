@@ -12,29 +12,30 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 105 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 113 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
-> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py`). El **12 de noviembre
-> de 2026 el robot contestó su primer mensaje real** por WhatsApp
-> (fuera de horario, proponiendo el viernes 13 a las 09:00) y **esa
-> misma noche Jose confirmó con un "sí" y la cita se creó**: "Tu cita
-> quedó para el viernes 13 de noviembre a las 09:00", con una sola
-> fila en Clientes (agendado). **Esa misma noche se encontró un bug
-> real:** de noche el robot repetía siempre la misma frase grabada y
-> nunca llamaba a la IA. Corregido en la v2.4 y rematado en la v2.6.
-> **Y lo más importante: Gemini (la IA) NUNCA ha contestado un mensaje
-> real todavía.** Todas las respuestas en vivo fueron la frase grabada
-> o la confirmación de cita (que no usa IA). La última prueba en vivo
-> (21:19, "pero como sabes q es lo que quiero…") llegó al agente y
-> Gemini falló, así que el robot mandó la frase grabada de respaldo.
-> Lo más probable es que GEMINI_API_KEY esté mal en Render (o el modelo
-> retirado). La v2.6 hace una autoprueba de Gemini al arrancar y la
-> deja en los registros de Render: si dice "[gemini] FALLO", la clave
-> está mal y hay que corregirla en Render. Hasta que esa autoprueba
-> diga OK, el robot NO tiene cerebro en vivo, por más que el código
-> esté bien.
+> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 8 de la v2.7 en
+> `test_v2_7.py`). El **12 de noviembre de 2026 el robot contestó su
+> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
+> viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
+> "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
+> noviembre a las 09:00", con una sola fila en Clientes (agendado).
+> **Esa misma noche se encontró un bug real:** de noche el robot
+> repetía siempre la misma frase grabada y nunca llamaba a la IA.
+> Corregido en la v2.4 y rematado en la v2.6.
+> **Y lo más importante, ya resuelto en la v2.7: Gemini (la IA) NUNCA
+> había contestado un mensaje real.** La causa era el modelo, no la
+> clave: Google retiró gemini-2.0-flash y gemini-2.5-flash para
+> usuarios nuevos (error 404 "no longer available, use
+> models/gemini-3.8-flash"). La v2.7 usa gemini-3.8-flash (respaldo
+> gemini-3.6-flash, ambos gratis) y, si Google retira otro modelo, el
+> robot lee el modelo que Google sugiere en el error y lo prueba solo.
+> Además, el robot ahora escribe su propia salud en la pestaña
+> **Diagnóstico** de la hoja: la autoprueba de Gemini al arrancar,
+> cada fallo de Gemini y cada fallo de WhatsApp quedan ahí con fecha
+> y detalle, para revisarlos sin entrar a Render ni pedir capturas.
 > Lo que todavía NO está probado en vivo: la v2.6, confirmar una cita
 > con el botón, un handoff con correo real (Gmail sigue sin contraseña
 > de aplicación), el interruptor por cliente en vivo y el reporte
@@ -271,6 +272,42 @@ caído de noche ("dame un momento" + alerta), el contexto trae fecha,
 hora, cerrado, horarios y nombre, y hora cerrada de noche se corrige
 a lunes 09:00.
 
+## Versión 2.7 — Se corrige solo (y yo veo su salud sin capturas)
+
+**La causa raíz (registro de Render, 2026-11-12 21:28, por fin vista
+gracias a la autoprueba de la v2.6):** `Gemini devolvió 404: "This
+model models/gemini-2.5-flash is no longer available to new users.
+Please update your code to use models/gemini-3.8-flash"`. No era la
+clave: era el modelo. Google retiró gemini-2.0-flash y gemini-2.5-flash
+para usuarios nuevos. Culpa mía: armé el robot con nombres de modelo
+de memoria, sin verificar que siguieran vivos. No vuelve a pasar:
+ahora hay una prueba que revisa que los modelos sean vigentes.
+
+**Qué se corrigió:**
+1. **Modelos vigentes y gratis:** gemini-3.8-flash (principal) y
+   gemini-3.6-flash (respaldo). Verificado en la documentación de
+   Google AI Studio: ambos tienen capa gratuita.
+2. **Autocuración:** si Google retira un modelo, su error dice qué
+   modelo usar en su lugar. El robot lee esa sugerencia y la prueba
+   SOLO, sin que nadie toque el código. Y recuerda el último modelo
+   que funcionó, para empezar por él la próxima vez.
+3. **Diagnóstico en la hoja:** pestaña nueva **Diagnóstico** (fecha,
+   componente, estado, detalle, teléfono, contexto). El robot escribe
+   ahí la autoprueba de Gemini al arrancar, cada fallo de Gemini y
+   cada fallo de envío por WhatsApp. Ya no hay que entrar a Render ni
+   pedir capturas para saber qué le duele: se ve en la hoja.
+4. **El "sí gracias" ya no confirma citas.** Un "sí" solo confirma
+   si el último mensaje del robot fue la oferta de la fecha. Si lo
+   último fue un "dame un momento" (fallo), el "sí" va al agente.
+   El 12 de noviembre un "sí gracias" confirmó una cita que ya estaba
+   ocupada y el robot contestó "esa hora ya se ocupó".
+
+**Pruebas nuevas:** `test_v2_7.py`, 8 casos: lee el modelo sugerido
+del error real de Google, cambia solo a gemini-3.8-flash con modelos
+retirados en la config, recuerda el modelo que funcionó, "sí gracias"
+tras un fallo no confirma (y la propuesta sigue pendiente), "sí" tras
+la oferta sí confirma, y el fallo de Gemini queda en Diagnóstico.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -300,6 +337,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_4.py` | 13 pruebas nuevas de la v2.4 (noche con IA + cambiar/cancelar): `python test_v2_4.py` |
 | `test_v2_5.py` | 9 pruebas nuevas de la v2.5 (24/7: propuestas persistentes, lead nocturno, reintento Gemini): `python test_v2_5.py` |
 | `test_v2_6.py` | 7 pruebas nuevas de la v2.6 (la IA contesta siempre, con contexto): `python test_v2_6.py` |
+| `test_v2_7.py` | 8 pruebas nuevas de la v2.7 (autocuración de modelo, "sí" tras fallo, Diagnóstico): `python test_v2_7.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |

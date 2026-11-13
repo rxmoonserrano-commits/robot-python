@@ -121,7 +121,7 @@ def revisar_env_example() -> bool:
 def probar_todo() -> bool:
     """py_compile + pruebas simuladas + el servidor arranca e importa."""
     ok, salida = correr([sys.executable, "-m", "py_compile", "app.py", "instalar.py",
-                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_6.py",
+                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py",
                          "robot/config.py", "robot/logic.py", "robot/whatsapp.py",
                          "robot/agrupar.py", "robot/ritmo.py", "robot/agent.py",
                          "robot/gemini.py", "robot/sheets.py", "robot/booking.py",
@@ -132,7 +132,22 @@ def probar_todo() -> bool:
         decir(salida[-1500:])
         return False
     decir("✓ El código compila sin errores.")
-    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py"):
+    # (v2.7) Los modelos de Gemini deben ser vigentes: los retirados
+    # (2.0-flash, 2.5-flash) dejaron al robot sin cerebro en noviembre
+    # de 2026. Si el .env trae uno viejo, avisar antes de desplegar.
+    ok, salida = correr(
+        [sys.executable, "-c",
+         "from robot.config import settings; "
+         "retirados = {'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'}; "
+         "malos = [m for m in (settings.gemini_model, settings.gemini_model_fallback) if m in retirados]; "
+         "import sys; sys.exit('MODELOS RETIRADOS: ' + ', '.join(malos)) if malos else print('modelos Gemini vigentes: ' + settings.gemini_model + ' / ' + settings.gemini_model_fallback)"],
+        "revisar modelos Gemini")
+    if not ok:
+        decir("❌ " + salida.strip().splitlines()[-1])
+        decir("   Cambia GEMINI_MODEL a gemini-3.8-flash y GEMINI_MODEL_FALLBACK a gemini-3.6-flash.")
+        return False
+    decir("✓ " + salida.strip().splitlines()[-1])
+    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py"):
         ok, salida = correr([sys.executable, prueba], f"correr {prueba}")
         ultima = salida.strip().splitlines()[-1] if salida.strip() else ""
         if not ok:
