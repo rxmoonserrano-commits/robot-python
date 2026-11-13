@@ -84,7 +84,7 @@ def revisar_python() -> bool:
 def revisar_archivos() -> bool:
     """¿Están los archivos que el robot necesita?"""
     faltan = []
-    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_conversaciones_doradas.py", "robot/estado.py", "robot/revision.py", "robot/negocio.py", "robot/salud.py", "robot/seguridad.py", "robot/registro.py", "robot/vigilancia.py"):
+    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_v3_3.py", "test_conversaciones_doradas.py", "robot/estado.py", "robot/revision.py", "robot/negocio.py", "robot/salud.py", "robot/seguridad.py", "robot/registro.py", "robot/vigilancia.py", "robot/abuso.py"):
         if not os.path.exists(os.path.join(RAIZ, nombre)):
             faltan.append(nombre)
     if faltan:
@@ -153,7 +153,7 @@ def probar_todo() -> bool:
         decir("   Cambia GEMINI_MODEL a gemini-4-hydrogen y GEMINI_MODEL_FALLBACK a gemini-3.8-flash.")
         return False
     decir("✓ " + salida.strip().splitlines()[-1])
-    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py"):
+    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_v3_3.py"):
         ok, salida = correr([sys.executable, prueba], f"correr {prueba}")
         ultima = salida.strip().splitlines()[-1] if salida.strip() else ""
         if not ok:

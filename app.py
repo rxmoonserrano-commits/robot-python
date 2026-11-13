@@ -40,17 +40,18 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from robot import booking, gemini, mail, salud, seguridad, sheets, whatsapp
+from robot.abuso import Limitador
 from robot.agent import preguntar_agente
 from robot.agrupar import Agrupador
 from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.registro import aviso, configurar as configurar_registro, error, info
 from robot.vigilancia import LOTE_LENTO_SEGUNDOS, con_vigilancia
-from robot.report import generar_reporte_semanal
+from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -121,6 +122,24 @@ class DependenciasReales(Dependencias):
         # si Gmail no está configurado, el correo no debe romper nada.
         try:
             mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+
+    # --- Nuevos en la v3.3 ---
+    def proximos_huecos_libres(self, conocimiento, ahora):
+        from robot.logic import horarios_por_dia
+
+        return booking.proximos_huecos_libres(horarios_por_dia(conocimiento), ahora)
+
+    def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):
+        try:
+            mail.alerta_cita_confirmada(nombre, telefono, motivo, fecha_bonita, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+
+    def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+        try:
+            mail.alerta_lead_caliente(nombre, telefono, motivo, ultimo_mensaje, fecha)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
@@ -240,6 +259,11 @@ _AGRUPADOR = Agrupador(
     archivo=_BUZON_ARCHIVO,
 )
 
+# (v3.3) Anti-abuso: un solo limitador para todo el servidor. 10
+# mensajes en 60 s por teléfono: más que eso es una ráfaga, no una
+# conversación, y agota la cuota gratis de Gemini.
+_LIMITADOR = Limitador()
+
 
 def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
     """Mete UN mensaje en el buzón (o atiende un botón). Corre en segundo plano.
@@ -303,6 +327,19 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
     else:
         return
     if not texto:
+        return
+    # (v3.3) Anti-abuso: si un teléfono manda muchos mensajes seguidos,
+    # no se procesan todos: se le avisa UNA vez y se ignoran los demás
+    # hasta que pase la ventana. Protege la cuota gratis de Gemini.
+    decision = _LIMITADOR.registrar(telefono)
+    if decision == "avisar":
+        _responder_directo(
+            telefono,
+            "Recibí muchos mensajes seguidos, dame un momento y te atiendo con calma.",
+            "(anti-abuso: ráfaga de mensajes)",
+        )
+        return
+    if decision == "silencio":
         return
     _AGRUPADOR.agregar(telefono, texto, wamid=wamid, nombre=nombre)
 
@@ -498,14 +535,32 @@ async def reporte_ahora(request: Request):
     return {"ok": True, "semana": resultado["semana"]}
 
 
-# --- Reporte semanal automático: lunes 08:00 ---
-# Es el ÚNICO trabajo programado del robot, y manda correo, nunca WhatsApp.
+@app.post("/resumen-manana")
+async def resumen_ahora(request: Request):
+    """Manda el resumen de la mañana ahora, sin esperar a las 08:00. Para probarlo.
+
+    (v3.3) Protegido con la clave de dueño: sin ella, 403.
+    """
+    if not _clave_dueno(request):
+        return PlainTextResponse("Sin acceso: falta la clave de dueño.", status_code=403)
+    resultado = generar_resumen_manana()
+    return {"ok": True, "fecha": resultado["fecha"]}
+
+
+# --- Trabajos programados: reporte semanal (lunes 08:00) y resumen
+# de la mañana (todos los días 08:00). Manden correo, nunca WhatsApp.
 
 scheduler = BackgroundScheduler(timezone=settings.timezone)
 scheduler.add_job(
     generar_reporte_semanal,
     CronTrigger(day_of_week=settings.reporte_dia_semana, hour=settings.reporte_hora, minute=settings.reporte_minuto),
     id="reporte-semanal",
+    replace_existing=True,
+)
+scheduler.add_job(
+    generar_resumen_manana,
+    CronTrigger(hour=settings.reporte_hora, minute=settings.reporte_minuto),
+    id="resumen-manana",
     replace_existing=True,
 )
 
@@ -547,6 +602,7 @@ def arrancar():
     threading.Thread(target=salud.revisar_salud, args=(_DEPS,), daemon=True).start()
     scheduler.start()
     info(f"Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
+    info(f"Resumen de la mañana programado: todos los días {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
 
 
 @app.on_event("shutdown")

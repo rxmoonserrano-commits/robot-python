@@ -7,7 +7,7 @@ y se calla. Todo lo que sabe del negocio vive en una hoja de Google
 Sheets. Nada de audio de respuesta, nada de mensajes automáticos por
 WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa 242 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 273 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
@@ -16,7 +16,8 @@ WhatsApp: solo responde cuando le escriben.
 > `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
 > `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 18 de la v2.13
 > en `test_v2_13.py` + 29 de la v3.0 en `test_v3.py` + 27 de la v3.1
-> en `test_v3_1.py` + 17 de la v3.2 en `test_v3_2.py`). Y hay 12 **conversaciones doradas** aparte
+> en `test_v3_1.py` + 17 de la v3.2 en `test_v3_2.py` + 31 de la v3.3
+> en `test_v3_3.py`). Y hay 15 **conversaciones doradas** aparte
 > (`test_conversaciones_doradas.py`): conversaciones completas contra
 > la IA real, que se corren con la clave de Gemini antes de cada
 > despliegue. El **12 de noviembre de 2026 el robot contestó su
@@ -100,8 +101,10 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_v3.py` | 29 pruebas de la v3.0: `python test_v3.py` |
 | `test_v3_1.py` | 27 pruebas de la v3.1: `python test_v3_1.py` |
 | `test_v3_2.py` | 17 pruebas de la v3.2: `python test_v3_2.py` |
+| `test_v3_3.py` | 31 pruebas de la v3.3: `python test_v3_3.py` |
+| `robot/abuso.py` | Anti-abuso: más de 10 mensajes en 60 s por teléfono → se avisa una vez y se ignoran los demás |
 | `robot/vigilancia.py` | Vigilancia anti-atasco: si un lote tarda más de 90 s, avisa en Diagnóstico y el cliente recibe un "dame un momento" |
-| `test_conversaciones_doradas.py` | 12 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
+| `test_conversaciones_doradas.py` | 15 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
 
 ## La inteligencia artificial: gratis y funcional
 
@@ -221,6 +224,17 @@ vuelve. Y el revisor (R7) no lo deja cerrar dos veces con la misma
 frase: si su último mensaje terminó en "Quedamos a tus órdenes", el
 siguiente cierra distinto.
 
+## Calidad para el dueño y para su cliente (v3.3)
+
+Seis cosas que se notan, pensadas desde los dos lados del mostrador:
+
+- **Horas libres de verdad.** El robot ya no inventa \"mañana a las 9:00\": antes de ofrecer, el código busca los próximos dos huecos libres en el calendario (una sola llamada, con caché de 60 s) y se los pasa al agente. Si no hay huecos, el robot dice que la agenda está llena y pregunta si quiere que le avisen. La confirmación vuelve a revisar la hora, por si se ocupó entre tanto.
+- **Preguntar el nombre.** Si el robot no sabe cómo se llama el cliente, se lo pregunta una sola vez: \"¿Con quién tengo el gusto?\". Si ya lo preguntó, no repite.
+- **Urgencias a humano.** Si el cliente dice que es urgente o que le duele (\"me duele mucho\", \"sangrando\", \"emergencia\"), el robot no llama a la IA: le dice en ese momento que lo pasa con una persona y avisa al dueño por correo. \"¿Duele la limpieza?\" no es urgencia: es una pregunta y va al agente normal.
+- **Resumen de la mañana.** Todos los días a las 08:00, un correo al dueño con lo de las últimas 24 h: mensajes atendidos, clientes nuevos, citas agendadas, quién necesita una persona, propuestas sin contestar (con sus apartados) y las citas de hoy. Sin IA: son números y listas de la hoja.
+- **Alertas en el momento.** Cuando un cliente pide agendar con sus palabras (\"quiero una cita\"), el dueño recibe un correo de lead caliente en ese momento. Y cuando se confirma una cita (botón o \"sí\" por texto), otro correo con el nombre, el teléfono y la fecha. Sin esto, el dueño no ve las citas en su calendario.
+- **Anti-abuso.** Más de 10 mensajes en 60 s de un mismo teléfono: el robot le pide calma una vez y no procesa los demás hasta que pase la ventana. Protege la cuota gratis de Gemini, que es lo que deja mudo al robot para todos.
+
 ## El reporte semanal
 
 Cada lunes a las 08:00 (hora del negocio), solo, el sistema lee los
@@ -245,7 +259,7 @@ python instalar.py
 
 Te pregunta tus claves una por una, en español, sin mostrarlas en
 pantalla. Instala las librerías, escribe el `.env`, genera tu clave
-de dueño, corre las 242 pruebas y al final te dice los 3 pasos que
+de dueño, corre las 273 pruebas y al final te dice los 3 pasos que
 siguen: desplegar, pegar el webhook en Meta y mandar el primer mensaje
 de prueba. Se puede correr dos veces: si ya tienes `.env`, te pregunta
 antes de tocarlo.
@@ -322,8 +336,8 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 242 pruebas + el servidor arranca
-python test_v3_2.py          # 17 casos nuevos de la v3.2
+python instalar.py --check   # todo: 273 pruebas + el servidor arranca
+python test_v3_3.py          # 31 casos nuevos de la v3.3
 ```
 
 Y las conversaciones doradas (contra la IA real, con tu clave):

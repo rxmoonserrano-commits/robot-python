@@ -157,6 +157,18 @@ class DepsDoradas:
     def crear_cita(self, nombre, telefono, motivo, fecha_cita):
         return {"inicio": fecha_cita}
 
+    def proximos_huecos_libres(self, conocimiento, ahora):
+        # (v3.3) Huecos de mentira, pero reales para la prueba: el sábado
+        # 14 a las 10:00 y el lunes 16 a las 09:00 están libres; el resto,
+        # no. El robot solo debe ofrecer estos dos.
+        return ["2026-11-14T10:00:00-07:00", "2026-11-16T09:00:00-07:00"]
+
+    def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):
+        pass
+
+    def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+        pass
+
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         pass
 
@@ -352,10 +364,48 @@ def main():
               apartado and tiene(txt2, "apart", "guardado", "reservado", "sigue"),
               f"no guardó o no recordó el apartado (día 1: {txt!r} / día 2: {txt2!r})", txt2)
 
+    # G13 (v3.3). Huecos libres de verdad: pregunta el precio y el
+    # robot ofrece SOLO los dos huecos libres (sábado 14 a las 10:00
+    # o lunes 16 a las 09:00). Nunca un domingo (cerrado) ni una hora
+    # inventada.
+    d, r, txt = correr(
+        "G13", [],
+        "¿cuánto cuesta la limpieza?",
+        DIA)
+    escenario("G13 horas libres de verdad: ofrece solo los huecos que existen",
+              tiene(txt, "sábado 14", "lunes 16", "sábado a las 10",
+                    "lunes a las 9", "lunes a las 09", "mañana a las 10",
+                    "mañana sábado")
+              and no_tiene(txt, "domingo"),
+              f"no ofreció un hueco libre real (respuesta: {txt!r})", txt)
+
+    # G14 (v3.3). Urgencia: "me duele mucho" pasa a una persona en ese
+    # momento, sin entretener con preguntas ni llamar a la IA.
+    d, r, txt = correr(
+        "G14", [],
+        "me duele mucho la muela, es una urgencia",
+        DIA)
+    escenario("G14 urgencia: pasa a una persona en ese momento",
+              r.get("handoff") is True
+              and tiene(txt, "persona", "inmediato", "urgente"),
+              f"no pasó a una persona (resultado={r})", txt)
+
+    # G15 (v3.3). Preguntar el nombre: el cliente escribe sin que el
+    # robot sepa quién es. El robot le pregunta su nombre una vez.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsDoradas()
+    r = atender_mensaje(d, "5216694608263", "",
+                        "¿cuánto cuesta la limpieza?", con_ritmo=False, ahora=DIA)
+    txt = "\n".join(t for _, t in d.textos_enviados)
+    logic_mod._CITAS_PENDIENTES.clear()
+    escenario("G15 preguntar el nombre: si no lo sabe, lo pregunta una vez",
+              tiene(txt, "gusto", "te llamas", "tu nombre", "cómo te llamas"),
+              f"no preguntó el nombre (respuesta: {txt!r})", txt)
+
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} conversaciones doradas pasaron.")
     if pasaron < len(RESULTADOS):
-        print("Esta versión NO se sube hasta que las 12 pasen.")
+        print("Esta versión NO se sube hasta que las 15 pasen.")
         return 1
     print("Puerta de calidad superada: se puede desplegar.")
     return 0

@@ -6,10 +6,10 @@ Cuando las 10 pasen, ahí sí puedes decir que funciona. Antes no.
 Primero, lo rápido y sin internet:
 
 ```bash
-python instalar.py --check   # todo: 242 pruebas + el servidor arranca
+python instalar.py --check   # todo: 273 pruebas + el servidor arranca
 ```
 
-Deben salir 242 casos en PASS. Si alguno sale FAIL, el problema está
+Deben salir 273 casos en PASS. Si alguno sale FAIL, el problema está
 en la lógica, no en tus claves: no sigas hasta que salga todo en verde.
 Y antes de desplegar, corre las conversaciones doradas (con tu clave):
 

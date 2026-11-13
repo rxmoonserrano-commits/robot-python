@@ -11,7 +11,9 @@ Reglas:
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import service_account
@@ -69,6 +71,87 @@ def hora_libre(inicio_iso: str, duracion_min: int | None = None) -> bool:
     )
     lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
     return len(lista) == 0
+
+
+# Caché de huecos libres (v3.3): los huecos no cambian a cada segundo
+# y cada cálculo cuesta una llamada a Calendar. 60 s es suficiente:
+# dos mensajes seguidos del mismo cliente no vuelven a preguntar.
+_HUECOS_TTL_SEGUNDOS = 60.0
+_HUECOS_CACHE: dict[str, tuple[float, list[str]]] = {}
+
+
+def proximos_huecos_libres(
+    horarios: dict[int, tuple[int, int]],
+    ahora: datetime,
+    cantidad: int = 2,
+    dias: int = 3,
+    usar_cache: bool = True,
+) -> list[str]:
+    """Los próximos `cantidad` huecos libres, en hora en punto, dentro
+    del horario del negocio, en los próximos `dias` días.
+
+    `horarios` es el dict de logic.horarios_por_dia: {día de semana:
+    (minuto de apertura, minuto de cierre)}. Devuelve fechas ISO
+    (hora local del negocio). Una sola llamada a Calendar (freebusy
+    del rango entero): no una por hueco. Si Calendar falla, devuelve
+    [] y quien llama decide (el agente no inventa horas: el contexto
+    dice que no hay huecos).
+
+    La confirmación vuelve a revisar la hora (crear_cita): si un hueco
+    se ocupó entre el cálculo y la confirmación, no se crea nada.
+    """
+    clave = f"{cantidad}:{dias}"
+    if usar_cache:
+        guardado = _HUECOS_CACHE.get(clave)
+        if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
+            return list(guardado[1])
+    local = ahora.astimezone(ZoneInfo(settings.timezone)) if ahora.tzinfo else ahora.replace(tzinfo=ZoneInfo(settings.timezone))
+    duracion = settings.duracion_cita_minutos
+    inicio_rango = local
+    fin_rango = local + timedelta(days=dias + 1)
+    try:
+        servicio = _servicio_calendar()
+        ocupados = (
+            servicio.freebusy()
+            .query(
+                body={
+                    "timeMin": inicio_rango.isoformat(),
+                    "timeMax": fin_rango.isoformat(),
+                    "timeZone": settings.timezone,
+                    "items": [{"id": settings.calendar_id}],
+                }
+            )
+            .execute()
+        )
+        lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
+        busy = [(_a_datetime(b["start"]), _a_datetime(b["end"])) for b in lista]
+    except Exception:
+        return []
+    huecos: list[str] = []
+    for adelanto in range(dias + 1):
+        dia = local + timedelta(days=adelanto)
+        horas = horarios.get(dia.weekday())
+        if not horas:
+            continue
+        abre_min, cierra_min = horas
+        for hora in range(24):
+            inicio_min = hora * 60
+            if inicio_min < abre_min or inicio_min + duracion > cierra_min:
+                continue
+            slot = dia.replace(hour=hora, minute=0, second=0, microsecond=0)
+            if slot <= local:
+                continue
+            fin = slot + timedelta(minutes=duracion)
+            if any(b_inicio < fin and slot < b_fin for b_inicio, b_fin in busy):
+                continue
+            huecos.append(slot.isoformat())
+            if len(huecos) >= cantidad:
+                break
+        if len(huecos) >= cantidad:
+            break
+    if usar_cache:
+        _HUECOS_CACHE[clave] = (time.monotonic(), list(huecos))
+    return huecos
 
 
 def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:

@@ -5,6 +5,47 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.3 — Calidad para el dueño y para su cliente (2026-11-13)
+
+Jose preguntó qué funciones de calidad se podían incorporar ya, de
+forma segura, pensando como sus clientes (los negocios) y como los
+clientes de sus clientes (la gente que escribe). Seis, todas sin
+claves nuevas ni cambios de arquitectura:
+
+- **Horas libres de verdad.** El agente ofrecía \"mañana a las 9:00\"
+  sin saber si estaba libre, y al confirmar salía \"esa hora ya se
+  ocupó\" (pasó en vivo el 12 de noviembre). Ahora
+  `booking.proximos_huecos_libres` busca los próximos 2 huecos libres
+  con UNA llamada freebusy (caché de 60 s) y el contexto solo le pasa
+  esos dos al agente. Sin huecos, el contexto dice que la agenda está
+  llena. Si Calendar falla, no se dice nada y el agente actúa como
+  antes (nunca se inventa una hora).
+- **Preguntar el nombre.** Si el robot no sabe cómo se llama el
+  cliente, el contexto le pide preguntárselo una sola vez (\"¿Con
+  quién tengo el gusto?\"). Si ya lo preguntó en su último mensaje,
+  no repite.
+- **Urgencias a humano.** Palabras de urgencia o de dolor (\"me
+  duele\", \"sangrando\", \"emergencia\") van directo a una persona,
+  sin llamar a la IA: el cliente recibe el texto en ese momento y el
+  dueño un correo. \"¿Duele la limpieza?\" no es urgencia. Encontrado
+  al probar: en un handoff normal el texto del agente no se manda al
+  cliente (solo el correo al dueño); en la urgencia sí, porque el
+  silencio sería lo peor.
+- **Resumen de la mañana.** Todos los días 08:00, por correo: lo de
+  las últimas 24 h, quién necesita una persona, propuestas sin
+  contestar (con sus apartados) y las citas de hoy. Sin IA: números
+  y listas de la hoja. El semanal sigue los lunes.
+- **Alertas en el momento.** Lead caliente (el cliente pidió agendar
+  con sus palabras) y cita confirmada (botón o \"sí\"): correo al
+  dueño en ese momento, con nombre, teléfono y fecha.
+- **Anti-abuso.** `robot/abuso.py`: más de 10 mensajes en 60 s por
+  teléfono → se le avisa una vez y se ignoran los demás hasta que
+  pase la ventana. Protege la cuota gratis de Gemini.
+- 31 pruebas nuevas en `test_v3_3.py` (273 en total). Doradas: 12 →
+  15 (G13 huecos libres, G14 urgencia, G15 preguntar el nombre).
+  El caso (g) de `test_v2.py` se actualizó: ahora son dos trabajos
+  programados, los dos por correo (semanal + resumen de la mañana).
+
 ## v3.2 — Memoria (2026-11-13)
 
 Jose preguntó: "¿y la memoria? ¿qué le falta de lo básico?" La

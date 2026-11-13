@@ -334,9 +334,12 @@ def main():
          "enviar_recordatorio" not in textos_py
          and not re.search(r"def \w*recordatorio", textos_py, re.IGNORECASE),
          "se encontró código de recordatorios")
-    caso("(g) El único trabajo programado es el reporte semanal (por correo)",
-         textos_py.count("add_job") == 1
-         and 'id="reporte-semanal"' in textos_py)
+    # (v3.3) Ahora son DOS trabajos programados, los dos por correo y
+    # nunca por WhatsApp: el reporte semanal y el resumen de la mañana.
+    caso("(g) Los únicos trabajos programados son el reporte semanal y el resumen de la mañana (por correo)",
+         textos_py.count("add_job") == 2
+         and 'id="reporte-semanal"' in textos_py
+         and 'id="resumen-manana"' in textos_py)
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} casos pasaron.")

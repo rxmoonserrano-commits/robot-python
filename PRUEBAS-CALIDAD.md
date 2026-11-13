@@ -184,6 +184,19 @@ conversación dorada nueva, para que no vuelva a pasar.
   la IA real. Son 12 doradas; la regla sigue: si una falla, la versión
   no se sube.
 
+
+## Lo nuevo de la v3.3 (test_v3_3.py, 31 casos)
+
+- **Huecos libres:** con una hora ocupada, salta a los 2 siguientes; no ofrece horas pasadas; agenda llena → lista vacía; la segunda llamada usa la caché (60 s); si Calendar falla, [] y el contexto no dice nada (nunca se inventa una hora). Un saludo no calcula huecos.
+- **Contexto:** trae los huecos con fecha bonita (\"sábado 14 de noviembre a las 10:00 y lunes 16 de noviembre a las 09:00\"); sin huecos dice que la agenda está llena.
+- **Nombre:** si no lo sabe, el contexto pide preguntarlo; si ya lo sabe o ya lo preguntó, no repite.
+- **Urgencia:** \"me duele mucho la muela\", \"es una urgencia, me estoy sangrando\" → handoff, sin llamar al agente, el cliente recibe el texto y el dueño el correo. \"¿duele la limpieza?\" va al agente normal.
+- **Alertas:** el botón Confirmar avisa de la cita confirmada; \"quiero una cita\" avisa de lead caliente; solo preguntar el precio no avisa.
+- **Resumen de la mañana:** cuenta solo las últimas 24 h (no lo de hace 8 días); trae pendientes, propuestas con sus apartados y las citas de hoy; el asunto es el de la mañana.
+- **Anti-abuso:** 3 ok, el 4º avisa, el 5º se ignora; pasada la ventana vuelve a dejar pasar; el límite es por teléfono.
+- **Guion:** las 4 reglas nuevas están escritas (huecos, nombre, agenda llena, urgencia).
+- **Doradas G13, G14 y G15:** huecos libres, urgencia y preguntar el nombre, con la IA real. Son 15 doradas; la regla sigue: si una falla, la versión no se sube.
+
 ## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
 
 - **Oferta verbal:** el estado detecta la oferta en el último mensaje

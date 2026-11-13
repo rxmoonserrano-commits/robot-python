@@ -171,6 +171,48 @@ def _es_afirmacion(texto: str) -> bool:
                        "de acuerdo", "me va", "me parece bien", "esta bien")
 
 
+# (v3.3) Urgencia: si el cliente dice que es urgente o que le duele,
+# el robot no entretiene con preguntas: pasa a una persona en ese
+# momento. Se decide por palabras, sin llamar a la IA (rápido y
+# seguro). La lista es de una clínica, pero las palabras de urgencia
+# ("urgente", "emergencia") valen para cualquier negocio.
+_MOTIVO_URGENCIA = "Urgencia del cliente"
+_PALABRAS_URGENCIA = (
+    "urgente", "urgencia", "emergencia", "me duele", "dolor fuerte",
+    "sangrando", "sangre", "hinchado", "hinchada", "se me cayo un diente",
+    "se me rompio", "no puedo esperar",
+)
+
+
+def _es_urgencia(texto: str) -> bool:
+    """¿El cliente dice que es urgente o que le duele?
+
+    "¿duele la limpieza?" NO es urgencia (pregunta si duele, no dice
+    que le duela); "me duele la muela" SÍ lo es.
+    """
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
+    normal = re.sub(r"\s+", " ", normal)
+    return any(p in normal for p in _PALABRAS_URGENCIA)
+
+
+# (v3.3) Quiere agendar YA: el cliente pidió una cita con sus propias
+# palabras ("quiero una cita", "agéndame"). No es lo mismo que una
+# oferta del robot: aquí el cliente ya decidió, y el dueño debe
+# enterarse en el momento (alerta de lead caliente).
+_PALABRAS_QUIERE_AGENDAR = (
+    "quiero una cita", "quiero agendar", "agendame", "me agendo",
+    "hazme una cita", "me haces una cita", "quiero reservar",
+    "reservame", "reserva una cita",
+)
+
+
+def _quiere_agendar_ya(texto: str) -> bool:
+    """¿El cliente pidió agendar con sus propias palabras?"""
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
+    normal = re.sub(r"\s+", " ", normal)
+    return any(p in normal for p in _PALABRAS_QUIERE_AGENDAR)
+
+
 def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                               fecha: str, con_ritmo: bool = True) -> dict:
     """Crea la cita de una propuesta guardada y manda la confirmación bonita.
@@ -207,6 +249,15 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     deps.registrar_cliente(
         fecha, propuesta["nombre"], telefono, propuesta["motivo"],
         propuesta["fecha_cita"], "whatsapp", "agendado", "no",
+    )
+    # (v3.3) Alerta de cita confirmada: el dueño no ve las citas en su
+    # calendario (el robot agenda en el suyo propio). Sin este correo,
+    # se entera hasta el lunes. Best-effort: si el correo falla, la
+    # cita ya quedó creada igual.
+    _avisar_por_correo(
+        getattr(deps, "alerta_cita_confirmada", None),
+        propuesta["nombre"], telefono, propuesta["motivo"],
+        propuesta["fecha_bonita"], fecha,
     )
     return {"respondio": True, "handoff": False, "cita": cita}
 
@@ -583,6 +634,13 @@ class Dependencias:
         return False
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
 
+    # --- Nuevos en la v3.3 (vacío = no hacer nada, el robot sigue) ---
+    def proximos_huecos_libres(self, conocimiento: list[dict], ahora: datetime) -> list[str]:
+        """Los próximos huecos libres (fechas ISO) para ofrecer. Por defecto: ninguno."""
+        return []
+    def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha): ...
+    def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
+
     # --- Nuevos en la v2 (vacío = no hacer nada, el robot sigue) ---
     def marcar_leido_y_escribiendo(self, message_id): ...
     def enviar_botones(self, telefono, texto, botones): ...
@@ -601,7 +659,11 @@ def _avisar_por_correo(avisar, *args) -> None:
     contraseña de aplicación), enviar_correo lanza CorreoError; aquí
     se atrapa, se deja en el registro del servidor y el robot sigue
     con lo suyo: contestar por WhatsApp y registrar en Sheets.
+    Si `avisar` es None (una dependencia vieja sin ese método), no se
+    hace nada: el robot sigue igual.
     """
+    if avisar is None:
+        return
     try:
         avisar(*args)
     except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
@@ -820,6 +882,49 @@ def atender_mensaje(
             "Lo que sabes de este cliente: " + " ".join(memoria)
             + " Úsalo: no vuelvas a preguntar lo que ya sabes."
         )
+    # (v3.3) Preguntar el nombre: una recepcionista pregunta "¿con
+    # quién tengo el gusto?" si no sabe quién es. Una sola vez: si el
+    # último mensaje del robot ya lo preguntó, no se repite.
+    if not nombre and not str(fila_cliente.get("nombre", "") or "").strip():
+        ultimo_robot = _sin_acentos(estado.get("ultimo_mensaje_robot", "") or "")
+        if ("gusto" not in ultimo_robot
+                and "como te llamas" not in ultimo_robot
+                and "tu nombre" not in ultimo_robot):
+            contexto.append(
+                "No sabes cómo se llama este cliente: pregúntale su nombre "
+                "una sola vez, con naturalidad ('¿Con quién tengo el gusto?'), "
+                "antes de seguir con lo demás."
+            )
+    # (v3.3) Huecos libres de verdad: el agente solo ofrece horas que
+    # existen en el calendario. Antes inventaba "mañana a las 9:00" y
+    # al confirmar salía "esa hora ya se ocupó". Solo se calculan
+    # cuando el agente podría ofrecer (pregunto / oferta_pendiente):
+    # un saludo no necesita huecos. Si la llamada falla (huecos=None),
+    # no se dice nada: el agente actúa como antes, sin inventar.
+    if estado["etapa"] in ("pregunto", "oferta_pendiente"):
+        try:
+            huecos = deps.proximos_huecos_libres(conocimiento, ahora)
+        except Exception:
+            huecos = None
+        if huecos:
+            bonitos = []
+            for iso in huecos[:2]:
+                try:
+                    bonitos.append(formatear_cita_bonita(iso))
+                except (ValueError, TypeError):
+                    pass
+            if bonitos:
+                contexto.append(
+                    "Los próximos huecos libres para agendar son: "
+                    + " y ".join(bonitos)
+                    + ". Ofrécele SOLO estos: nunca inventes una hora."
+                )
+        elif huecos is not None:
+            contexto.append(
+                "No hay huecos libres en los próximos 3 días: no ofrezcas "
+                "cita, di que la agenda está llena por ahora y pregúntale "
+                "si quiere que le avises cuando se libere algo."
+            )
     mensaje_agente = (
         "[Contexto: " + " ".join(contexto) + "]\n"
         "[Estado del cliente: " + json.dumps(estado, ensure_ascii=False) + "]\n"
@@ -828,23 +933,41 @@ def atender_mensaje(
 
     # 6. El agente decide qué responder y qué hacer. Mientras piensa,
     # la burbuja se refresca cada 20 segundos.
-    parar = threading.Event()
-    refresco = threading.Thread(
-        target=_refrescar_escribiendo, args=(deps, message_id, parar), daemon=True
-    )
-    if message_id:
-        refresco.start()
-    try:
-        respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
-    finally:
-        parar.set()
+    # (v3.3) Urgencia: si el cliente dice que es urgente o que le
+    # duele, no se llama al agente: se pasa a una persona en ese
+    # momento, con el correo al dueño (paso 8, handoff).
+    if _es_urgencia(texto):
+        respuesta = RespuestaAgente(
+            respuesta_texto=(
+                "Claro, es urgente. Te paso con una persona del negocio "
+                "de inmediato, te atienden lo antes posible."
+            ),
+            necesita_handoff="si",
+            motivo_handoff=f"{_MOTIVO_URGENCIA}: {texto[:120]}",
+            nombre=nombre,
+            motivo=texto[:120],
+        )
+    else:
+        parar = threading.Event()
+        refresco = threading.Thread(
+            target=_refrescar_escribiendo, args=(deps, message_id, parar), daemon=True
+        )
+        if message_id:
+            refresco.start()
+        try:
+            respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
+        finally:
+            parar.set()
 
     # (v2.13) Revisor: segunda mirada antes de mandar. Si la respuesta
     # repite una oferta pendiente, ofrece cita en un saludo o dice
     # "ya cerramos", se corrige aquí, no en el teléfono del cliente.
     # La falla técnica ("dame un momento") no se toca: es honesta.
+    # (v3.3) La respuesta de urgencia tampoco se toca: es un texto
+    # fijo del robot, no de la IA.
     # Lo corregido queda en Diagnóstico, para ver qué se atrapó.
-    if not respuesta.falla_tecnica:
+    if (not respuesta.falla_tecnica
+            and not str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA)):
         texto_revisado, violaciones = revisar_respuesta(
             respuesta.respuesta_texto, estado, nombre,
             ahora=local_ahora, telefono=telefono,
@@ -888,6 +1011,13 @@ def atender_mensaje(
                          telefono, texto)
             _avisar_por_correo(deps.alerta_error, respuesta.motivo_handoff, telefono, texto, fecha)
         else:
+            if str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA):
+                # (v3.3) Urgencia: el cliente SÍ recibe el texto ("te paso
+                # con una persona de inmediato"). En un handoff normal el
+                # texto del agente no se manda y contesta el humano; en
+                # una urgencia, dejarlo en silencio sería lo peor.
+                enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
+                deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "urgencia")
             _avisar_por_correo(
                 deps.alerta_handoff,
                 respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
@@ -897,7 +1027,12 @@ def atender_mensaje(
             respuesta.motivo or texto, "", "whatsapp", "en conversacion", "si",
         )
         _guardar_memoria(deps, telefono, respuesta)
-        return {"respondio": respuesta.falla_tecnica, "motivo": "handoff",
+        # (v3.3) Una urgencia sí cuenta como respondida: el cliente
+        # recibió el texto. Un handoff normal sigue en False (el
+        # humano es quien contesta).
+        respondio = respuesta.falla_tecnica or str(
+            respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA)
+        return {"respondio": respondio, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
     # 9. Agendar: NO se crea la cita todavía. Se propone con botones y
@@ -946,6 +1081,16 @@ def atender_mensaje(
             "fecha_bonita": fecha_bonita,
             "creado_en": ahora.isoformat(),
         })
+        # (v3.3) Lead caliente: si el cliente PIDIÓ agendar con sus
+        # propias palabras ("quiero una cita"), el dueño se entera en
+        # el momento, no el lunes. Si solo preguntó un precio y el
+        # robot le ofreció, no hay correo: eso no es un lead caliente.
+        if _quiere_agendar_ya(texto):
+            _avisar_por_correo(
+                getattr(deps, "alerta_lead_caliente", None),
+                respuesta.nombre or nombre, telefono,
+                respuesta.motivo or texto, texto, fecha,
+            )
         try:
             deps.enviar_botones(telefono, propuesta, BOTONES_CITA)
         except Exception:
