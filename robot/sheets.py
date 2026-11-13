@@ -137,6 +137,67 @@ def registrar_conversacion(
     )
 
 
+# Columnas de Clientes, en orden: A fecha, B nombre, C teléfono,
+# D motivo, E fecha_cita, F origen, G estatus, H handoff.
+_COLUMNAS_CLIENTES = ["fecha", "nombre", "telefono", "motivo", "fecha_cita",
+                      "origen", "estatus", "handoff"]
+_PRIORIDAD_ESTATUS = {"en conversacion": 1, "calificado": 2, "agendado": 3}
+
+
+def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
+    """Fusiona un cliente que ya existe con los datos nuevos: un cliente, una fila.
+
+    Reglas, en simple:
+    - La fecha es la más reciente (la nueva).
+    - Nombre, motivo y fecha de cita: el nuevo si viene con algo, si no,
+      se queda lo que ya había.
+    - Estatus: nunca baja. "agendado" vale más que "calificado", y este
+      más que "en conversacion". Una cita confirmada no se borra porque
+      el cliente vuelva a escribir.
+    - Handoff: si alguna vez fue "si", se queda en "si".
+    Es una función pura (sin internet), así se prueba sola.
+    """
+    viejo = {k: str(existente.get(k, "") or "") for k in _COLUMNAS_CLIENTES}
+    dato = {k: str(nuevo.get(k, "") or "") for k in _COLUMNAS_CLIENTES}
+    estatus_viejo = viejo["estatus"].strip().lower()
+    estatus_nuevo = dato["estatus"].strip().lower()
+    estatus = (
+        estatus_nuevo
+        if _PRIORIDAD_ESTATUS.get(estatus_nuevo, 0) >= _PRIORIDAD_ESTATUS.get(estatus_viejo, 0)
+        else estatus_viejo
+    )
+    return [
+        dato["fecha"] or viejo["fecha"],
+        dato["nombre"] or viejo["nombre"],
+        viejo["telefono"] or dato["telefono"],
+        dato["motivo"] or viejo["motivo"],
+        dato["fecha_cita"] or viejo["fecha_cita"],
+        dato["origen"] or viejo["origen"],
+        estatus,
+        "si" if {"si", "sí"} & {viejo["handoff"].strip().lower(), dato["handoff"].strip().lower()} else "no",
+    ]
+
+
+def _fila_cliente_por_telefono(telefono: str) -> tuple[int, dict] | None:
+    """Busca un teléfono en Clientes. Devuelve (número de fila, fila) o None.
+
+    La fila 1 son los encabezados, así que la primera fila de datos es la 2.
+    """
+    servicio = _servicio_sheets()
+    resultado = (
+        servicio.values()
+        .get(spreadsheetId=settings.sheet_id, range="Clientes!A2:H1000")
+        .execute()
+    )
+    for i, fila in enumerate(resultado.get("values", [])):
+        if len(fila) < 3:
+            continue
+        if str(fila[2]).strip() == str(telefono).strip():
+            completa = list(fila) + [""] * (8 - len(fila))
+            return i + 2, dict(zip(_COLUMNAS_CLIENTES, completa))
+    return None
+
+
 def registrar_cliente(
     fecha: str,
     nombre: str,
@@ -147,11 +208,33 @@ def registrar_cliente(
     estatus: str = "en conversacion",
     handoff: str = "no",
 ) -> None:
-    """Una fila por cliente calificado en Clientes (la hoja que en n8n faltaba)."""
-    agregar_fila(
-        "Clientes",
-        [fecha, nombre, telefono, motivo, fecha_cita, origen, estatus, handoff],
-    )
+    """Registra un cliente calificado en Clientes, sin duplicarlo.
+
+    Si el teléfono ya existe, actualiza SU fila (fusionar_cliente);
+    si no, agrega una fila nueva. Un cliente, una fila: así la hoja
+    que ve el cliente no se llena de repetidos y los contadores cuentan
+    clientes, no mensajes. Las columnas extra (I en adelante: resumen,
+    intereses, calificación...) no se tocan: solo se escribe A:H.
+    """
+    nuevo = {"fecha": fecha, "nombre": nombre, "telefono": telefono,
+             "motivo": motivo, "fecha_cita": fecha_cita, "origen": origen,
+             "estatus": estatus, "handoff": handoff}
+    encontrado = _fila_cliente_por_telefono(telefono)
+    if encontrado is None:
+        agregar_fila(
+            "Clientes",
+            [fecha, nombre, telefono, motivo, fecha_cita, origen, estatus, handoff],
+        )
+        return
+    numero_fila, existente = encontrado
+    fusionada = fusionar_cliente(existente, nuevo)
+    servicio = _servicio_sheets()
+    servicio.values().update(
+        spreadsheetId=settings.sheet_id,
+        range=f"Clientes!A{numero_fila}:H{numero_fila}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [fusionada]},
+    ).execute()
 
 
 def guardar_reporte(

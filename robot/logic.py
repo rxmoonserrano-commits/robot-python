@@ -27,6 +27,24 @@ correo, registro en las DOS hojas). Lo nuevo de la v2:
    se le dice a qué hora abre y se le ofrece agendar para el próximo
    día que abre, en vez de agendar una hora imposible.
 
+Versión 2.1: las alertas por correo son best-effort. Si Gmail no está
+configurado (falta la contraseña de aplicación), el correo falla, pero
+eso NUNCA rompe la respuesta de WhatsApp: se deja en el registro y el
+cliente recibe igual su respuesta. Antes, un correo fallido rompía
+atender_mensaje y el cliente se quedaba sin respuesta.
+
+Versión 2.2 (pulido, 2026-11-12):
+1. Fuera de horario ya no pierde al cliente: se guarda la propuesta
+   (próxima apertura) y se registra el lead en Clientes. Si el cliente
+   contesta "sí" por texto, la cita se crea de verdad, aunque siga
+   siendo de noche. Antes, un "sí" nocturno volvía a ofrecer lo mismo
+   en un bucle y nunca se agendaba nada.
+2. Clientes sin duplicados: registrar_cliente ya no agrega una fila
+   nueva por cada mensaje del mismo teléfono. Si el teléfono ya existe,
+   actualiza su fila (ver sheets.fusionar_cliente): un cliente, una
+   fila. Eso también arregla los contadores, que contaban filas y no
+   clientes distintos.
+
 Para que se pueda probar sin internet, `atender_mensaje` recibe un
 objeto `dependencias` con los servicios (Sheets, agente, WhatsApp,
 Calendar, correo). En producción son los reales; en las pruebas
@@ -37,6 +55,7 @@ from __future__ import annotations
 
 import re
 import threading
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -53,10 +72,88 @@ BOTONES_CITA = [
     ("hablar_persona", "Hablar con persona"),
 ]
 
-# Citas propuestas esperando que el cliente toque un botón.
+# Citas propuestas esperando que el cliente toque un botón (o diga "sí").
 # Vive en memoria: si el servidor se reinicia, la propuesta se pierde
 # y el cliente solo tiene que volver a pedir la cita (sin drama).
+# Mejora pendiente (no de esta versión): guardarla en la hoja, no en memoria.
 _CITAS_PENDIENTES: dict[str, dict] = {}
+
+# Una propuesta solo se confirma con un "sí" por texto si es reciente
+# (48 h). Así un "sí" de otra conversación, meses después, no agenda
+# una cita vieja por error.
+_VIGENCIA_PROPUESTA = timedelta(hours=48)
+
+
+def _sin_acentos(texto: str) -> str:
+    """Quita acentos y deja minúsculas: 'sí' → 'si', 'Está' → 'esta'."""
+    texto = unicodedata.normalize("NFD", str(texto or ""))
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return texto.lower().strip()
+
+
+def _es_afirmacion(texto: str) -> bool:
+    """¿El cliente está diciendo que sí a la cita propuesta?
+
+    Solo frases cortas y claras ("sí", "sí, me va", "claro", "perfecto",
+    "confirmo"). Un "sí, mejor el sábado" NO es afirmación: tiene
+    "mejor" y pide otro día, así que va al agente, no a confirmar.
+    """
+    # Se quitan comas y puntos: "Sí, me va" debe leerse como "si me va".
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
+    normal = re.sub(r"\s+", " ", normal)
+    if not normal:
+        return False
+    if any(p in normal for p in ("mejor", "otro dia", "otra hora", "cambiar", " no ")):
+        return False
+    if normal.startswith("no"):
+        return False
+    palabras = normal.split()
+    if len(palabras) > 4:
+        return False
+    if palabras[0] in ("si", "claro", "perfecto", "ok", "confirmo", "va", "sale", "de", "me"):
+        return True
+    return normal in ("si me va", "si me va esa fecha", "si esta bien", "estoy de acuerdo",
+                       "de acuerdo", "me va", "me parece bien", "esta bien")
+
+
+def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
+                              fecha: str, con_ritmo: bool = True) -> dict:
+    """Crea la cita de una propuesta guardada y manda la confirmación bonita.
+
+    La usan el botón Confirmar y el "sí" por texto: el mismo resultado
+    por los dos caminos. Si la hora ya se ocupó, avisa y no crea nada.
+    """
+    propuesta = _CITAS_PENDIENTES.get(telefono)
+    if not propuesta:
+        mensaje = "Claro. ¿Qué necesitas? Cuéntame y te ayudo."
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
+    try:
+        cita = deps.crear_cita(
+            propuesta["nombre"], telefono, propuesta["motivo"], propuesta["fecha_cita"]
+        )
+    except Exception:
+        _CITAS_PENDIENTES.pop(telefono, None)
+        mensaje = (
+            "Esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
+            "te vienen mejor? Te la agendo enseguida."
+        )
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
+        return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
+    _CITAS_PENDIENTES.pop(telefono, None)
+    mensaje = (
+        f"Listo, {propuesta['nombre']}. Tu cita quedó para el "
+        f"{propuesta['fecha_bonita']}. Dura {settings.duracion_cita_minutos} minutos.\n\n"
+        f"Si necesitas cambiarla, escríbeme el nuevo día y hora y la reacomodamos."
+    )
+    enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", propuesta["motivo"])
+    deps.registrar_cliente(
+        fecha, propuesta["nombre"], telefono, propuesta["motivo"],
+        propuesta["fecha_cita"], "whatsapp", "agendado", "no",
+    )
+    return {"respondio": True, "handoff": False, "cita": cita}
 
 
 # --- Reglas puras (sin internet, se prueban solas) ---
@@ -271,7 +368,9 @@ def contar_semana(
         "mensajes_atendidos": sum(
             1 for f in conv if f.get("quien_hablo") == "robot" and f.get("robot_respondio") == "si"
         ),
-        "clientes_calificados": len(cli),
+        # Clientes distintos (por teléfono), no filas: antes, un cliente
+        # con 5 mensajes contaba como 5 clientes calificados.
+        "clientes_calificados": len({str(f.get("telefono", "")).strip() for f in cli if str(f.get("telefono", "")).strip()}),
         "citas_agendadas": sum(
             1 for f in cli if str(f.get("estatus", "")).strip() == "agendado"
         ),
@@ -323,6 +422,21 @@ class Dependencias:
     def marcar_leido_y_escribiendo(self, message_id): ...
     def enviar_botones(self, telefono, texto, botones): ...
     def alerta_error(self, motivo, telefono, ultimo_mensaje, fecha): ...
+
+
+def _avisar_por_correo(avisar, *args) -> None:
+    """Avisa por correo sin romper nada: best-effort.
+
+    El correo es un aviso al dueño, no parte de la respuesta al
+    cliente. Si Gmail no está configurado (o falla la red, o la
+    contraseña de aplicación), enviar_correo lanza CorreoError; aquí
+    se atrapa, se deja en el registro del servidor y el robot sigue
+    con lo suyo: contestar por WhatsApp y registrar en Sheets.
+    """
+    try:
+        avisar(*args)
+    except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+        print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
 
 def _refrescar_escribiendo(deps: Dependencias, message_id: str, parar: threading.Event) -> None:
@@ -383,19 +497,56 @@ def atender_mensaje(
     except Exception:
         pass
 
+    # 3b. "Sí" a una cita propuesta: se confirma por texto, sin botones
+    # y sin llamar al agente. Vale de noche (fuera de horario) y de día:
+    # si el cliente ya aceptó la fecha, no hay nada que preguntarle.
+    # Si la propuesta es vieja (más de 48 h), se descarta y se sigue normal.
+    propuesta = _CITAS_PENDIENTES.get(telefono)
+    if propuesta and _es_afirmacion(texto):
+        creado_en = propuesta.get("creado_en")
+        vigente = True
+        if creado_en:
+            try:
+                creado = datetime.fromisoformat(str(creado_en).replace("Z", "+00:00"))
+                if creado.tzinfo is None:
+                    creado = creado.replace(tzinfo=timezone.utc)
+                vigente = ahora - creado < _VIGENCIA_PROPUESTA
+            except ValueError:
+                vigente = True
+        if vigente:
+            return _confirmar_cita_propuesta(deps, telefono, nombre, fecha, con_ritmo)
+        _CITAS_PENDIENTES.pop(telefono, None)
+
     # 4. Cargar lo que el robot necesita saber.
     conocimiento = deps.leer_conocimiento()
     fotos = deps.leer_fotos()
     historial = deps.leer_historial(telefono)
 
     # 5. Fuera de horario: no se agenda nada imposible. Se contesta con
-    # calma y se ofrece el próximo día que abre.
+    # calma y se ofrece el próximo día que abre. Y, a diferencia de
+    # antes, la propuesta SÍ se guarda y el cliente SÍ queda registrado
+    # como lead: si contesta "sí", el paso 3b crea la cita.
     abierto, _ = horario_abierto(conocimiento, ahora)
     if not abierto:
         mensaje = mensaje_fuera_de_horario(conocimiento, ahora)
+        proxima = proxima_apertura(conocimiento, ahora)
+        if proxima is not None:
+            _CITAS_PENDIENTES[telefono] = {
+                "nombre": nombre,
+                "motivo": texto,
+                "fecha_cita": proxima.isoformat(),
+                "fecha_bonita": formatear_cita_bonita(proxima.isoformat()),
+                "creado_en": ahora.isoformat(),
+            }
+            deps.registrar_cliente(
+                fecha, nombre, telefono, texto, proxima.isoformat(),
+                "whatsapp", "en conversacion", "no",
+            )
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "fuera de horario")
-        return {"respondio": True, "fuera_de_horario": True, "handoff": False}
+        return {"respondio": True, "fuera_de_horario": True, "handoff": False,
+                "cita_propuesta": proxima is not None,
+                "fecha_cita": proxima.isoformat() if proxima is not None else ""}
 
     # 6. El agente decide qué responder y qué hacer. Mientras piensa,
     # la burbuja se refresca cada 20 segundos.
@@ -422,10 +573,11 @@ def atender_mensaje(
             # y al dueño un correo de error. El cliente no se queda esperando.
             enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
             deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "falla tecnica")
-            deps.alerta_error(respuesta.motivo_handoff, telefono, texto, fecha)
+            _avisar_por_correo(deps.alerta_error, respuesta.motivo_handoff, telefono, texto, fecha)
         else:
-            deps.alerta_handoff(
-                respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha
+            _avisar_por_correo(
+                deps.alerta_handoff,
+                respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
             )
         deps.registrar_cliente(
             fecha, respuesta.nombre or nombre, telefono,
@@ -450,6 +602,7 @@ def atender_mensaje(
             "motivo": respuesta.motivo or texto,
             "fecha_cita": respuesta.fecha_cita,
             "fecha_bonita": fecha_bonita,
+            "creado_en": ahora.isoformat(),
         }
         try:
             deps.enviar_botones(telefono, propuesta, BOTONES_CITA)
@@ -507,37 +660,8 @@ def atender_boton(
     fecha = fecha_iso or ahora.isoformat()
 
     if boton_id == "confirmar_cita":
-        propuesta = _CITAS_PENDIENTES.get(telefono)
-        if not propuesta:
-            mensaje = "Claro. ¿Qué necesitas? Cuéntame y te ayudo."
-            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-            return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
-        try:
-            cita = deps.crear_cita(
-                propuesta["nombre"], telefono, propuesta["motivo"], propuesta["fecha_cita"]
-            )
-        except Exception:
-            _CITAS_PENDIENTES.pop(telefono, None)
-            mensaje = (
-                "Esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
-                "te vienen mejor? Te la agendo enseguida."
-            )
-            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-            deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
-            return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
-        _CITAS_PENDIENTES.pop(telefono, None)
-        mensaje = (
-            f"Listo, {propuesta['nombre']}. Tu cita quedó para el "
-            f"{propuesta['fecha_bonita']}. Dura {settings.duracion_cita_minutos} minutos.\n\n"
-            f"Si necesitas cambiarla, escríbeme el nuevo día y hora y la reacomodamos."
-        )
-        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", propuesta["motivo"])
-        deps.registrar_cliente(
-            fecha, propuesta["nombre"], telefono, propuesta["motivo"],
-            propuesta["fecha_cita"], "whatsapp", "agendado", "no",
-        )
-        return {"respondio": True, "handoff": False, "cita": cita}
+        # El mismo camino que el "sí" por texto (ver _confirmar_cita_propuesta).
+        return _confirmar_cita_propuesta(deps, telefono, nombre, fecha, con_ritmo)
 
     if boton_id == "cambiar_hora":
         _CITAS_PENDIENTES.pop(telefono, None)
@@ -551,7 +675,7 @@ def atender_boton(
         motivo = (propuesta or {}).get("motivo", "El cliente pidió hablar con una persona")
         mensaje = "Claro, te paso con una persona del negocio. Te atienden en un momento."
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.alerta_handoff(nombre, telefono, motivo, mensaje, fecha)
+        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, motivo, mensaje, fecha)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", motivo)
         deps.registrar_cliente(
             fecha, nombre, telefono, motivo, "", "whatsapp", "en conversacion", "si",

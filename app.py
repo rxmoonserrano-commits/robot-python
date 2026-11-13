@@ -21,6 +21,10 @@ de este servidor (ver README, despliegue).
 NO hay recordatorios por WhatsApp en este robot, por decisión de Jose:
 ni un día antes, ni una hora antes, ni ningún trabajo programado que
 mande WhatsApp. El único trabajo programado es el reporte por correo.
+
+Versión 2.1: las alertas por correo son best-effort. Si Gmail no está
+configurado, el correo falla en silencio (queda en el registro) y el
+cliente recibe igual su respuesta de WhatsApp, sin duplicados.
 """
 
 from __future__ import annotations
@@ -40,7 +44,7 @@ from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.report import generar_reporte_semanal
 
-app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.0.0")
+app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.2.0")
 
 
 # --- Las dependencias reales: conectan la lógica con Google, Gemini y WhatsApp ---
@@ -80,7 +84,12 @@ class DependenciasReales(Dependencias):
         return booking.crear_cita(nombre, telefono, motivo, fecha_cita)
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
-        mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha)
+        # Best-effort también aquí (doble protección, ver logic.py):
+        # si Gmail no está configurado, el correo no debe romper nada.
+        try:
+            mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     # --- Nuevos en la v2 ---
     def marcar_leido_y_escribiendo(self, message_id):
@@ -90,7 +99,10 @@ class DependenciasReales(Dependencias):
         whatsapp.enviar_botones(telefono, texto, botones)
 
     def alerta_error(self, motivo, telefono, ultimo_mensaje, fecha):
-        mail.alerta_error(motivo, telefono, ultimo_mensaje, fecha)
+        try:
+            mail.alerta_error(motivo, telefono, ultimo_mensaje, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
 
 _DEPS = DependenciasReales()
@@ -110,15 +122,21 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
         atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid)
     except Exception as exc:  # noqa: BLE001 - nunca dejar al cliente sin respuesta
         print(f"[lote] Error atendiendo a {telefono}: {exc}")
+        # El aviso por WhatsApp y el aviso por correo van separados:
+        # si el correo falla (p. ej. Gmail sin configurar), el cliente
+        # igual recibe su "dame un momento" y no hay duplicados.
         try:
             whatsapp.enviar_texto(
                 telefono,
                 "Dame un momento, por favor. Estoy revisando tu mensaje y te atiendo enseguida.",
             )
+        except Exception as exc2:  # noqa: BLE001
+            print(f"[lote] Tampoco pude avisar por WhatsApp a {telefono}: {exc2}")
+        try:
             mail.alerta_error(f"Error inesperado: {exc}", telefono, texto_unido,
                               datetime.now(timezone.utc).isoformat())
-        except Exception as exc2:  # noqa: BLE001
-            print(f"[lote] Tampoco pude avisar a {telefono}: {exc2}")
+        except Exception as exc3:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc3}")
 
 
 # Un solo Agrupador para todo el servidor: un buzón por teléfono.

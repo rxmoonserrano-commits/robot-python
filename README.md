@@ -12,12 +12,15 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** el código está validado en estructura y
-> la lógica pasa 44 pruebas simuladas sin internet (23 de la v1 en
-> `test_simulado.py` + 21 de la v2 en `test_v2.py`), pero **no está
-> probado con cuentas reales de WhatsApp, Gemini o Google, y no se ha
-> enviado ningún mensaje**. No lo vendas como probado hasta que pases
-> las pruebas de `PROBARLO.md` con el número de prueba de Meta.
+> **Honestidad, como siempre:** la lógica pasa 65 pruebas simuladas sin
+> internet (23 de la v1 en `test_simulado.py` + 27 de la v2 en
+> `test_v2.py` + 15 de la v2.2 en `test_v2_2.py`). El **12 de noviembre
+> de 2026 el robot contestó su primer mensaje real** por WhatsApp
+> (fuera de horario, proponiendo el viernes 13 a las 09:00). Lo que
+> todavía NO está probado en vivo: confirmar una cita con el botón o
+> con un "sí" y que se cree en Google Calendar, un handoff con correo
+> real (Gmail sigue sin contraseña de aplicación) y el reporte semanal
+> del lunes. No lo vendas como probado hasta pasar `PROBARLO.md`.
 
 ## Versión 2 — Lo que se siente humano (nuevo)
 
@@ -56,6 +59,67 @@ calidad, sin cambiar lo que ya funcionaba:
 día antes, ni una hora antes, ni ningún trabajo que mande WhatsApp.
 El único trabajo programado es el reporte semanal, por correo.
 
+## Versión 2.1 — Gmail ya no rompe las respuestas (corrección)
+
+**Qué se corrigió:** si Gmail no está configurado (falta la contraseña
+de aplicación, `GMAIL_USER` / `GMAIL_APP_PASSWORD` vacíos), el correo
+fallaba y rompía la respuesta de WhatsApp: el cliente se quedaba sin
+la respuesta que el robot ya había preparado, o recibía un "dame un
+momento" duplicado y confuso. Ahora las alertas por correo son
+**best-effort**: se intentan, si fallan quedan en el registro del
+servidor, y el cliente recibe igual su respuesta por WhatsApp.
+Nada más cambió: sigue sin recordatorios por WhatsApp, sigue sin
+audios del robot, sigue el kill-switch, la pausa de 2 horas, los
+botones, el debounce de 7 segundos y el visto + "escribiendo...".
+
+**Qué sigue pendiente (solo lo puede hacer Jose):**
+- **Gmail sigue pendiente para alertas y reporte.** Sin la contraseña
+  de aplicación, el dueño no recibe los correos de handoff ni el
+  reporte semanal del lunes. El robot contesta igual, pero esos
+  correos no llegan. Poner `GMAIL_USER` y `GMAIL_APP_PASSWORD` en
+  el `.env` y en Render (ver Paso 4).
+- **Token permanente de WhatsApp.** El token temporal de Meta dura
+  24 horas. Con el temporal, el robot deja de contestar al día
+  siguiente (error 401). Hay que sacar el token permanente en Meta
+  y ponerlo en Render como `WHATSAPP_TOKEN`.
+
+**Pruebas nuevas:** `test_v2.py` suma 6 casos (27 en total) que
+simulan Gmail ausente: un handoff, una falla técnica y el botón
+"Hablar con una persona" responden al cliente sin lanzar excepción.
+
+## Versión 2.2 — Fuera de horario ya no pierde al cliente, y Clientes sin duplicados
+
+**Qué se corrigió:**
+1. **Fuera de horario guardaba nada.** El robot proponía la próxima
+   apertura, pero no guardaba la propuesta ni registraba al cliente.
+   Un "sí" nocturno volvía a ofrecer lo mismo en bucle y nunca se
+   agendaba nada. Ahora la propuesta se guarda, el cliente queda
+   registrado como lead, y si contesta "sí" por texto, la cita se crea
+   de verdad, aunque siga siendo de noche. Un "sí, mejor el sábado"
+   NO confirma: pide otro día y va al agente. Una propuesta de hace
+   más de 48 horas tampoco se confirma con un "sí".
+2. **Clientes duplicados.** Cada mensaje agregaba una fila nueva del
+   mismo teléfono. Ahora `registrar_cliente` actualiza la fila que ya
+   existe (`sheets.fusionar_cliente`): un cliente, una fila. La fecha
+   es la más reciente, el nombre / motivo / fecha de cita nuevos solo
+   reemplazan si vienen con algo, el estatus nunca baja (una cita
+   agendada no se borra porque el cliente vuelva a escribir) y el
+   handoff "si" se queda. Las columnas extra de Clientes (resumen,
+   intereses, calificación...) no se tocan: solo se escribe A:H.
+3. **Contadores.** `contar_semana` contaba filas, no clientes: un
+   cliente con 5 mensajes contaba como 5. Ahora cuenta teléfonos
+   distintos.
+
+**Pruebas nuevas:** `test_v2_2.py`, 15 casos: propuesta fuera de
+horario, "sí" de noche, "sí, mejor el sábado", propuesta vieja,
+"sí" tras proponer de día, botón Confirmar (sigue igual), fusión
+de cliente y conteo por clientes distintos.
+
+**Lo que sigue pendiente (no es de esta versión):** las propuestas
+de cita viven en la memoria del servidor; si Render se reinicia, se
+pierden y el cliente tiene que volver a pedir la cita. Guardarlas en
+la hoja es el siguiente pulido.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -79,7 +143,8 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `robot/report.py` | El reporte semanal de los lunes |
 | `reporte_semanal.py` | Manda el reporte ahora: `python reporte_semanal.py` |
 | `test_simulado.py` | 23 pruebas sin internet: `python test_simulado.py` |
-| `test_v2.py` | 21 pruebas nuevas de la v2: `python test_v2.py` |
+| `test_v2.py` | 27 pruebas nuevas de la v2 (21 + 6 de la v2.1): `python test_v2.py` |
+| `test_v2_2.py` | 15 pruebas nuevas de la v2.2 (fuera de horario + sin duplicados): `python test_v2_2.py` |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |
 | `instalar.py` | V2: asistente que te pregunta las claves y deja el `.env` listo |
@@ -159,7 +224,7 @@ python instalar.py
 ```
 
 Te pregunta tus claves una por una, en español, sin mostrarlas en
-pantalla. Instala las librerías, escribe el `.env`, corre las 44
+pantalla. Instala las librerías, escribe el `.env`, corre las 50
 pruebas y al final te dice los 3 pasos que siguen: desplegar, pegar
 el webhook en Meta y mandar el primer mensaje de prueba. Se puede
 correr dos veces: si ya tienes `.env`, te pregunta antes de tocarlo.
@@ -234,7 +299,8 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 
 ```bash
 python test_simulado.py   # 23 casos de la v1 sin internet, todo en PASS
-python test_v2.py         # 21 casos nuevos de la v2 sin internet, todo en PASS
+python test_v2.py         # 27 casos nuevos de la v2 sin internet, todo en PASS
+python test_v2_2.py       # 15 casos nuevos de la v2.2 sin internet, todo en PASS
 ```
 
 Y con un mensaje real de WhatsApp, simulando lo que manda Meta:
