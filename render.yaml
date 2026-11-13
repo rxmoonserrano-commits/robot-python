@@ -38,4 +38,4 @@ services:
       - key: PAUSA_HUMANO_HORAS
         value: "2"
       - key: ESPERA_AGRUPAR_SEGUNDOS
-        value: "7"
+        value: "15"

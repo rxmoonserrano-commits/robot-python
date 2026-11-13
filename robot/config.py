@@ -77,7 +77,7 @@ class Settings:
     # Segundos que el robot espera, después del ÚLTIMO mensaje del cliente,
     # antes de contestar. Si llega otro mensaje, el contador se reinicia.
     # Así lee todo junto en vez de contestar mensaje por mensaje.
-    espera_agrupar_segundos: int = int(os.getenv("ESPERA_AGRUPAR_SEGUNDOS", "7"))
+    espera_agrupar_segundos: int = int(os.getenv("ESPERA_AGRUPAR_SEGUNDOS", "15"))
 
 
 # Una sola instancia que importa todo el proyecto.

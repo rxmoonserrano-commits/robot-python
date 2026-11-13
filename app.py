@@ -9,7 +9,7 @@ Endpoints:
 
 Versión 2: el webhook NO espera a Gemini. Solo mete el mensaje en el
 Agrupador (robot/agrupar.py) y devuelve 200 enseguida. El Agrupador
-espera 7 segundos después del último mensaje, junta todo lo que mandó
+espera 15 segundos después del último mensaje, junta todo lo que mandó
 el cliente y lo procesa una sola vez, en segundo plano. Los botones
 (confirmar / cambiar hora / hablar con persona) se atienden aparte,
 en cuanto llegan, porque son una decisión, no un mensaje para juntar.

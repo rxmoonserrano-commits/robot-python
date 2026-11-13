@@ -12,15 +12,16 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 144 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 151 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
 > `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
-> `test_v2_11.py`). El **12 de noviembre de 2026 el robot contestó su
-> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
+> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py`). El **12 de
+> noviembre de 2026 el robot contestó su primer mensaje real** por
+> WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -465,6 +466,41 @@ a pensar", prohibiciones, calificación), el JSON sigue igual, y de
 punta a punta la oferta con dos opciones llega al cliente con botones
 y la propuesta se guarda.
 
+## Versión 2.12 — Espera, no repitas, y de noche tú no cierras
+
+**El problema (en vivo, 2026-11-12 23:21):** Jose mandó "buenas
+noches" y 32 segundos después "¿cuánto sale la limpieza dental?".
+El robot contestó cada mensaje por separado y ofreció la cita dos
+veces, igualita, con 32 segundos de diferencia. Y la primera
+respuesta decía "Con gusto te atiendo, ahorita ya cerramos", que se
+contradice solo y suena a que el robot también cerró. Además ofreció
+agendar una limpieza cuando el cliente solo había saludado.
+
+**Qué se corrigió:**
+1. **Espera de 7 a 15 segundos** (`ESPERA_AGRUPAR_SEGUNDOS` en
+   `robot/config.py`, `robot/agrupar.py` y `render.yaml`): el robot
+   junta más mensajes seguidos y contesta todo junto. Honestidad: con
+   32 segundos entre un mensaje y otro, ninguna espera lo cubre sin
+   que el robot se sienta muerto; el arreglo de fondo es el punto 2.
+2. **No repetir la oferta** (prompt): si ya ofreció la cita en su
+   último mensaje y el cliente todavía no contestó esa oferta, NO la
+   repite. Contesta lo nuevo y, si hace falta, recuerda en una frase
+   corta que los horarios quedaron arriba. (La regla de la v2.11,
+   "cada respuesta termina con una oferta", era demasiado bruta y
+   causaba justo esta repetición.)
+3. **Si el cliente solo saludó, no ofrece cita todavía** (prompt):
+   saluda por su nombre y pregunta qué necesita. La oferta viene
+   cuando ya se sabe qué quiere.
+4. **De noche, el negocio cierra, el robot no** (prompt): nunca más
+   "ya cerramos" como si el robot cerrara. "La clínica ya cerró por
+   hoy, pero yo te atiendo igual."
+
+**Pruebas nuevas:** `test_v2_12.py`, 7 casos: las cuatro reglas están
+en el prompt, la espera es 15 s en config, Agrupador y render.yaml,
+lo voraz de la v2.11 sigue intacto, y de punta a punta un saludo
+recibe un saludo con pregunta, sin botones de cita ni propuesta
+guardada.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -499,6 +535,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_9.py` | 7 pruebas nuevas de la v2.9 (Gemini 4 Hydrogen, 503 con espera larga, Flash-Lite): `python test_v2_9.py` |
 | `test_v2_10.py` | 8 pruebas nuevas de la v2.10 (prompt comercial: Ana, método, cero inventos): `python test_v2_10.py` |
 | `test_v2_11.py` | 9 pruebas nuevas de la v2.11 (voraz sin parecer desesperada): `python test_v2_11.py` |
+| `test_v2_12.py` | 7 pruebas nuevas de la v2.12 (espera 15 s, no repetir oferta, saludo sin cita, noche): `python test_v2_12.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |

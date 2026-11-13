@@ -6,9 +6,9 @@ veces. Una persona espera a que termines de escribir.
 
 Cómo funciona:
 - Cada mensaje que llega se guarda en un buzón por teléfono.
-- Se prende un temporizador de ESPERA_AGRUPAR_SEGUNDOS (7 s por defecto).
+- Se prende un temporizador de ESPERA_AGRUPAR_SEGUNDOS (15 s por defecto).
 - Si llega otro mensaje, el temporizador se reinicia (se espera de nuevo).
-- Cuando pasan los 7 segundos sin que llegue nada, se procesan TODOS
+- Cuando pasan los 15 segundos sin que llegue nada, se procesan TODOS
   los mensajes juntos, en orden, como un solo texto para el agente.
 - Si llega un mensaje mientras se está procesando un lote, se guarda
   como un lote nuevo y se procesa después, no se pierde ni se mezcla.
@@ -35,7 +35,7 @@ _MAX_VISTOS = 5000
 class Agrupador:
     """Buzón por teléfono con temporizador. Hilo-seguro."""
 
-    def __init__(self, callback, espera_segundos: float = 7.0):
+    def __init__(self, callback, espera_segundos: float = 15.0):
         """callback(telefono, nombre, textos, wamids): qué hacer con el lote.
 
         textos: lista de textos en orden. wamids: sus ids de WhatsApp.
