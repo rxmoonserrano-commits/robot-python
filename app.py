@@ -45,11 +45,12 @@ from robot.agrupar import Agrupador
 from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.registro import aviso, configurar as configurar_registro, error, info
+from robot.vigilancia import LOTE_LENTO_SEGUNDOS, con_vigilancia
 from robot.report import generar_reporte_semanal
 
 configurar_registro()
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -149,8 +150,42 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
     """
     texto_unido = "\n".join(textos)
     primer_wamid = wamids[0] if wamids else ""
+
+    def _avisar_lote_lento():
+        """El lote lleva más de 90 s: que se vea y que el cliente sepa.
+
+        (v3.1) El 12 de noviembre un lote se quedó más de 45 minutos
+        sin responder ni fallar, sin dejar rastro en ningún lado. Con
+        vigilancia, a los 90 s queda en Diagnóstico y el cliente
+        recibe un "dame un momento"; la respuesta real llega igual
+        cuando el trabajo termine.
+        """
+        try:
+            sheets.registrar_diagnostico(
+                datetime.now(timezone.utc), "lote", "TARDANDO",
+                f"El lote lleva más de {LOTE_LENTO_SEGUNDOS} s procesando; "
+                "el cliente recibió un 'dame un momento'.",
+                telefono, texto_unido)
+        except Exception:
+            pass
+        try:
+            whatsapp.enviar_texto(
+                telefono,
+                "Dame un momento, por favor. Estoy revisando tu mensaje y te atiendo enseguida.",
+            )
+            sheets.registrar_conversacion(
+                datetime.now(timezone.utc).isoformat(), telefono, "robot",
+                "Dame un momento, por favor. Estoy revisando tu mensaje y te atiendo enseguida.",
+                "si", "lote tardando")
+        except Exception as exc2:  # noqa: BLE001 - el aviso nunca rompe el lote
+            error(f"[lote] Tampoco pude avisar que el lote tarda a {telefono}: {exc2}")
+
     try:
-        atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid)
+        con_vigilancia(
+            lambda: atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid),
+            _avisar_lote_lento,
+            segundos=LOTE_LENTO_SEGUNDOS,
+        )
     except Exception as exc:  # noqa: BLE001 - nunca dejar al cliente sin respuesta
         error(f"[lote] Error atendiendo a {telefono}: {exc}")
         # (v2.5) El fallo queda VISIBLE en la hoja, no solo en el registro

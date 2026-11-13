@@ -22,6 +22,8 @@ from .sheets import SCOPES
 
 
 def _servicio_calendar():
+    # (v3.1) Con tiempo límite de 30 s, igual que Sheets: una llamada
+    # colgada a Google no puede dejar un lote atorado para siempre.
     try:
         creds = service_account.Credentials.from_service_account_file(
             settings.google_credentials_json, scopes=SCOPES
@@ -31,7 +33,9 @@ def _servicio_calendar():
             "No encontré las credenciales de Google. Revisa GOOGLE_CREDENTIALS_JSON "
             f"en tu .env (ahora apunta a: {settings.google_credentials_json})."
         ) from exc
-    return build("calendar", "v3", credentials=creds)
+    import httplib2
+
+    return build("calendar", "v3", credentials=creds, http=httplib2.Http(timeout=30))
 
 
 def _a_datetime(fecha_iso: str) -> datetime:

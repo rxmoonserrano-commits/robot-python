@@ -17,7 +17,11 @@ El estado tiene:
   - "oferta_pendiente": ya se le ofreció una cita y no ha contestado.
   - "agendado": ya tiene cita creada (estatus agendado en Clientes).
   - "nuevo": no hay historial (nunca ha escrito).
-- ya_ofrecio_cita: True si hay una propuesta pendiente.
+- ya_ofrecio_cita: True si hay una propuesta pendiente, o si el
+  ÚLTIMO mensaje del robot ofreció una cita (v3.1). El agente a
+  veces ofrece en el texto sin marcar quiere_agendar: en ese caso
+  no hay propuesta guardada, pero la oferta sí existe, y el revisor
+  tiene que saberlo para no repetirla.
 - oferta_fecha_bonita: la fecha ofrecida, en bonito ("viernes 13 de
   noviembre a las 09:00"), o "".
 - ultimo_mensaje_robot: el último texto que el robot le mandó, o "".
@@ -33,6 +37,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+
+from .revision import _es_oferta
 
 _SALUDOS = (
     "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
@@ -101,9 +107,20 @@ def estado_cliente(
     )
     nombre_final = nombre or str(cliente.get("nombre", "") or "")
 
+    # (v3.1) La oferta verbal: el último mensaje del robot ofreció
+    # una cita en el texto ("¿Te la agendo para mañana a las 9:00?"),
+    # aunque el agente no haya marcado quiere_agendar y no haya
+    # propuesta guardada. Sin esto, el robot ofrecía la cita tres
+    # veces seguidas y el revisor no tenía nada que quitar: el estado
+    # decía que no había oferta, porque solo miraba la propuesta.
+    # La confirmación ("Tu cita quedó...") y el "dame un momento" no
+    # son ofertas: _es_oferta los deja pasar.
+    oferta_verbal = bool(ultimo_robot) and _es_oferta(ultimo_robot)
+    ya_ofrecio = bool(propuesta) or oferta_verbal
+
     if tiene_cita:
         etapa = "agendado"
-    elif propuesta:
+    elif ya_ofrecio:
         etapa = "oferta_pendiente"
     elif not filas:
         etapa = "nuevo"
@@ -117,7 +134,7 @@ def estado_cliente(
 
     return {
         "etapa": etapa,
-        "ya_ofrecio_cita": bool(propuesta),
+        "ya_ofrecio_cita": ya_ofrecio,
         "oferta_fecha_bonita": str((propuesta or {}).get("fecha_bonita", "") or ""),
         "ultimo_mensaje_robot": ultimo_robot,
         "ultimo_mensaje_cliente": ultimo_cliente,

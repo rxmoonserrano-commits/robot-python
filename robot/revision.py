@@ -23,6 +23,21 @@ R3. DE NOCHE, EL ROBOT NO CIERRA: si la respuesta dice "ya cerramos"
     la frase de cierre del perfil del negocio (robot/negocio.py):
     "El negocio ya cerró por hoy, pero yo te atiendo igual", o "En
     <nombre> ya cerraron por hoy..." si el negocio tiene nombre.
+R4. EL DÍA CORRECTO (v3.1): si la respuesta dice "mañana viernes"
+    pero mañana es sábado (o "hoy viernes" cuando hoy es otro día),
+    se corrige el día por el real. El 12 de noviembre el robot ofreció
+    "mañana viernes" a las 00:00 del viernes, cuando hoy YA era viernes.
+R5. SIN ETIQUETAS INTERNAS (v3.1): si la respuesta trae paréntesis o
+    palabras que son notas internas de la hoja ("FICTICIA", "EJEMPLO",
+    "de prueba"), se quitan. La dirección salió con "(dirección
+    FICTICIA, de ejemplo)" en una respuesta a un cliente: eso es nota
+    para el dueño, no para el cliente.
+R6. NADA DE FILTRACIONES (v3.1): si la respuesta trae el guion, los
+    nombres de los campos internos (quiere_agendar, necesita_handoff...)
+    o un teléfono que no es el del cliente, se desecha ENTERA y se
+    contesta con la negativa. Un cliente pidió el prompt y la base de
+    datos: el robot no debe soltar ni una cosa ni la otra, ni por
+    accidente (citando su propio guion) ni a propósito.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -35,8 +50,121 @@ Reglas puras, sin internet: se prueban solas en test_v2_13.py.
 from __future__ import annotations
 
 import re
+import unicodedata
+from datetime import datetime, timedelta
 
 from .negocio import frase_cierre
+
+# Días de la semana, en orden (lunes = 0, como datetime.weekday()).
+_DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+_DIA_RE = r"(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)"
+
+# Frases del guion y nombres de campos internos: si aparecen en una
+# respuesta al cliente, es que el robot está soltando cómo funciona
+# por dentro (R6). Se comparan sin acentos y en minúsculas.
+_MARCAS_INTERNAS = (
+    "te llamas ana", "eres la recepcionista", "responde unicamente con un json",
+    "limites duros", "estado del cliente", "quiere_agendar", "necesita_handoff",
+    "motivo_handoff", "foto_oficial_url", "respuesta_texto", "fecha_cita",
+)
+
+# Lo que se contesta cuando alguien pide el guion o datos de otros
+# clientes. Cortés, firme, y sigue atendiendo.
+_NEGATIVA_SEGURIDAD = (
+    "No puedo compartir esa información, pero te ayudo con tu cita "
+    "o con lo que necesites."
+)
+
+
+def _sin_acentos(texto: str) -> str:
+    """Quita acentos y deja minúsculas: 'sí' → 'si'."""
+    texto = unicodedata.normalize("NFD", str(texto or ""))
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return texto.lower().strip()
+
+
+def _dia_correcto(nombre_dia: str) -> str:
+    """Normaliza un día ("Miércoles", "miercoles") a su forma con acento."""
+    normal = _sin_acentos(nombre_dia)
+    for dia in _DIAS:
+        if _sin_acentos(dia) == normal:
+            return dia
+    return nombre_dia
+
+
+def _corregir_dias(texto: str, ahora: datetime | None) -> tuple[str, bool]:
+    """R4: corrige "mañana <día equivocado>" y "hoy <día equivocado>".
+
+    `ahora` es la fecha real (hora del negocio, con zona). Sin ella,
+    no se puede corregir y el texto se deja igual. Solo se toca el día
+    cuando viene pegado a "mañana" o "hoy": "el sábado" solo no se
+    toca, porque no se sabe a qué sábado se refiere.
+    """
+    if ahora is None:
+        return texto, False
+    if ahora.tzinfo is not None:
+        ahora = ahora.replace(tzinfo=None)
+    manana = ahora + timedelta(days=1)
+    # Las claves sin acentos: _sin_acentos("mañana") es "manana".
+    esperado = {"hoy": _DIAS[ahora.weekday()], "manana": _DIAS[manana.weekday()]}
+    cambiado = False
+
+    def _arreglar(match):
+        nonlocal cambiado
+        cuando = _sin_acentos(match.group(1))
+        dia_dicho = match.group(2)
+        dia_bueno = esperado[cuando]
+        if _sin_acentos(dia_dicho) == _sin_acentos(dia_bueno):
+            return match.group(0)
+        cambiado = True
+        # Si el día venía con mayúscula ("Mañana Viernes"), se respeta.
+        if dia_dicho[:1].isupper():
+            dia_bueno = dia_bueno.capitalize()
+        return f"{match.group(1)} {dia_bueno}"
+
+    texto = re.sub(
+        rf"\b(hoy|mañana)\s+({_DIA_RE})\b", _arreglar, texto, flags=re.IGNORECASE
+    )
+    return texto, cambiado
+
+
+def _quitar_etiquetas_internas(texto: str) -> tuple[str, bool]:
+    """R5: quita notas internas de la hoja que se colaron en la respuesta.
+
+    Se quitan los paréntesis que dicen "ficticia", "ejemplo" o "de
+    prueba", y las palabras sueltas EJEMPLO / FICTICIA. Lo demás se
+    queda: "(se descuenta si te haces el tratamiento)" es contenido
+    real del negocio, no una nota interna.
+    """
+    original = texto
+    texto = re.sub(
+        r"\s*\([^)]*\b(ejemplo|fictici\w*|de prueba|no real|demo)\b[^)]*\)",
+        "", texto, flags=re.IGNORECASE,
+    )
+    texto = re.sub(r"\s*\b(EJEMPLO|FICTICIA|FICTICIO)\b\.?", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s+([.,])", r"\1", texto)
+    texto = re.sub(r"\s{2,}", " ", texto).strip()
+    return texto, texto != original
+
+
+def _contiene_filtracion(texto: str, telefono: str) -> bool:
+    """R6: ¿La respuesta suelta el guion o datos de otros clientes?
+
+    - Frases del guion o nombres de campos internos.
+    - Un número de teléfono (10 dígitos o más) que no es el del
+      cliente con el que se habla. El número del propio cliente sí
+      puede aparecer (por ejemplo, en su confirmación de cita).
+    """
+    normal = _sin_acentos(texto)
+    for marca in _MARCAS_INTERNAS:
+        if marca in normal:
+            return True
+    propio = re.sub(r"\D", "", str(telefono or ""))
+    for numero in re.findall(r"\d[\d\s\-()]{8,}\d", texto):
+        digitos = re.sub(r"\D", "", numero)
+        if len(digitos) >= 10 and digitos != propio and not propio.endswith(digitos) and not digitos.endswith(propio):
+            return True
+    return False
 
 # Frases que son una oferta de cita (nueva). Ojo: "Te aparto el lugar
 # hasta mañana sin compromiso" NO es una oferta nueva: es aguantar la
@@ -100,11 +228,16 @@ def revisar_respuesta(
     texto: str,
     estado: dict | None = None,
     nombre: str = "",
+    ahora: datetime | None = None,
+    telefono: str = "",
 ) -> tuple[str, list[str]]:
     """Revisa una respuesta del agente y la corrige si viola una regla.
 
     `estado`: el dict de estado_cliente (etapa, ya_ofrecio_cita...).
     Si no viene, solo se aplica R3 (la de "ya cerramos").
+    `ahora`: la fecha real, para R4 (corregir el día). Sin ella, R4
+    no se aplica. `telefono`: el teléfono del cliente, para R6 (un
+    número distinto es una filtración).
     """
     estado = estado or {}
     etapa = str(estado.get("etapa", "") or "")
@@ -112,10 +245,26 @@ def revisar_respuesta(
     texto = (texto or "").strip()
     violaciones: list[str] = []
 
-    # R3 primero: la frase de cierre, se cambie lo que se cambie después.
+    # R6 primero: si la respuesta filtra el guion o datos ajenos, se
+    # desecha ENTERA. No se intenta arreglarla por partes: una
+    # respuesta que suelta el prompt ya está comprometida.
+    if _contiene_filtracion(texto, telefono):
+        return _NEGATIVA_SEGURIDAD, ["R6"]
+
+    # R3: la frase de cierre, se cambie lo que se cambie después.
     if _CERRAMOS_RE.search(texto):
         texto = _CERRAMOS_RE.sub(frase_cierre(), texto)
         violaciones.append("R3")
+
+    # R4: el día correcto (mañana/hoy con el día real).
+    texto, cambio_dia = _corregir_dias(texto, ahora)
+    if cambio_dia:
+        violaciones.append("R4")
+
+    # R5: fuera las etiquetas internas de la hoja.
+    texto, cambio_etiqueta = _quitar_etiquetas_internas(texto)
+    if cambio_etiqueta:
+        violaciones.append("R5")
 
     # R1/R2: quitar la frase de la oferta cuando no toca.
     if (oferta_pendiente or etapa == "saludo") and _es_oferta(texto):

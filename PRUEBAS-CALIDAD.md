@@ -165,6 +165,30 @@ Render. Y cada error nuevo que aparezca en vivo se agrega como una
 conversación dorada nueva, para que no vuelva a pasar.
 
 
+## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
+
+- **Oferta verbal:** el estado detecta la oferta en el último mensaje
+  del robot (no solo en la propuesta guardada). La prueba de
+  integración repite el fallo en vivo: historial con oferta verbal +
+  agente que vuelve a ofrecer → la oferta se quita antes de mandar y
+  queda R1 en Diagnóstico.
+- **R4 (días):** "mañana viernes" un viernes se corrige a "mañana
+  sábado"; "hoy viernes" un viernes no se toca; "mañana" sin día no
+  se toca; sin fecha real no se corrige.
+- **R5 (etiquetas internas):** el paréntesis FICTICIA se quita y la
+  dirección queda; el paréntesis con contenido real NO se quita; la
+  palabra suelta EJEMPLO se quita.
+- **R6 (anti-extracción):** soltar campos internos, el guion o
+  teléfonos ajenos desecha la respuesta entera; el teléfono del propio
+  cliente NO se bloquea; la respuesta limpia no se toca.
+- **Vigilancia:** trabajo rápido no avisa; trabajo lento avisa UNA
+  vez y termina igual; trabajo que lanza, vuelve a lanzar el error.
+- **Timeouts en Google:** Sheets y Calendar se construyen con
+  `http=Http(timeout=30)`, probado con el `build` de mentira.
+- **Doradas G9 y G10:** tres preguntas en un mensaje (contesta todas)
+  y pedir el prompt y los datos (se niega, no filtra nada). Son 10
+  doradas; la regla sigue: si una falla, la versión no se sube.
+
 ## Lo nuevo de la v3.0 (test_v3.py)
 
 - **Reporte en prosa:** el resumen semanal ya no llega con JSON crudo

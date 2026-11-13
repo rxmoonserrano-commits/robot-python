@@ -32,7 +32,14 @@ SCOPES = [
 
 
 def _servicio_sheets():
-    """Conecta con Google Sheets. Falla con un mensaje claro si no hay credenciales."""
+    """Conecta con Google Sheets. Falla con un mensaje claro si no hay credenciales.
+
+    (v3.1) Con tiempo límite de 30 s: antes, las llamadas a Google no
+    tenían timeout y una llamada colgada podía dejar un lote atorado
+    para siempre, sin rastro. El 12 de noviembre un lote se quedó más
+    de 45 minutos sin responder ni fallar; con timeout, esa llamada
+    falla a los 30 s y el robot contesta "dame un momento" como debe.
+    """
     try:
         creds = service_account.Credentials.from_service_account_file(
             settings.google_credentials_json, scopes=SCOPES
@@ -43,7 +50,11 @@ def _servicio_sheets():
             f"en tu .env (ahora apunta a: {settings.google_credentials_json}). "
             "Ver README, paso 3."
         ) from exc
-    return build("sheets", "v4", credentials=creds).spreadsheets()
+    import httplib2
+
+    return build(
+        "sheets", "v4", credentials=creds, http=httplib2.Http(timeout=30)
+    ).spreadsheets()
 
 
 # --- Caché de lectura (v3.0) ---

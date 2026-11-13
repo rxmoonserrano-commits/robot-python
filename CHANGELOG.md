@@ -5,6 +5,39 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.1 — Calidad y seguridad (2026-11-13)
+
+Prueba en vivo con la v3.0 en Render (00:00-00:05): el robot ya
+contestaba bien —preguntaba cuál servicio, daba el precio exacto,
+decía que no a lo inventado—, pero dejó 5 fallos. Todos corregidos
+aquí, con pruebas.
+
+- **La oferta se repetía 3 veces seguidas.** El agente ofrecía la
+  cita en el texto sin marcar `quiere_agendar`, así que no había
+  propuesta guardada y el estado decía que no había oferta: el
+  revisor no tenía nada que quitar. Ahora el estado detecta la
+  oferta en el último mensaje del propio robot (`estado.py`, v3.1).
+- **"Mañana viernes" cuando hoy YA era viernes.** El contexto ahora
+  dice "Mañana es sábado 14 de noviembre." explícito, y el revisor
+  R4 corrige el día si el modelo se equivoca.
+- **La dirección salió con "(dirección FICTICIA, de ejemplo)".**
+  La hoja se limpió (esa nota no va en el texto que lee el robot) y
+  el revisor R5 quita paréntesis y palabras internas que se cuelen.
+  Dos preguntas que el robot no supo contestar (qué productos usan,
+  si meten cosas en la boca) ahora son filas de Conocimiento.
+- **Anti-extracción (R6).** Un cliente pidió el prompt y la base de
+  datos. El guion ahora lo prohíbe y el revisor desecha entera
+  cualquier respuesta que traiga el guion, campos internos o un
+  teléfono ajeno. Dorada G10 lo prueba contra la IA real.
+- **Un lote se quedó más de 45 minutos sin responder ni fallar, sin
+  rastro.** Ahora hay vigilancia: a los 90 s queda en Diagnóstico
+  ("lote TARDANDO") y el cliente recibe un "dame un momento". Las
+  llamadas a Google (Sheets, Calendar) llevan timeout de 30 s.
+- **Multi-pregunta.** El guion ahora dice: contesta TODAS las
+  preguntas, una por una; si una no está en Conocimiento, di que lo
+  confirmas y pasa a una persona. Dorada G9 lo prueba.
+- 27 pruebas nuevas en `test_v3_1.py` (225 en total). Doradas: 8 → 10.
+
 ## v3.0 — El producto (2026-11-12)
 
 Revisión completa del repositorio: lo que estaba crudo, corregido.

@@ -714,9 +714,16 @@ def atender_mensaje(
     abierto, resumen_horarios = horario_abierto(conocimiento, ahora)
     proxima = proxima_apertura(conocimiento, ahora) if not abierto else None
     local_ahora = _a_hora_local(ahora)
+    # (v3.1) Mañana, escrito tal cual: el 12 de noviembre el robot
+    # ofreció "mañana viernes" a las 00:00 del viernes, cuando hoy YA
+    # era viernes. Con el día de mañana explícito en el contexto, el
+    # modelo no tiene que calcularlo (y el revisor R4 lo corrige si
+    # aun así se equivoca).
+    manana = local_ahora + timedelta(days=1)
     contexto = [
         f"Hoy es {_DIAS_NOMBRE[local_ahora.weekday()]} {local_ahora.day} de "
         f"{_MESES[local_ahora.month - 1]}, son las {local_ahora:%H:%M} (hora del negocio).",
+        f"Mañana es {_DIAS_NOMBRE[manana.weekday()]} {manana.day} de {_MESES[manana.month - 1]}.",
         f"El negocio está {'ABIERTO' if abierto else 'CERRADO'}: abre {resumen_horarios}.",
     ]
     if nombre:
@@ -772,7 +779,8 @@ def atender_mensaje(
     # Lo corregido queda en Diagnóstico, para ver qué se atrapó.
     if not respuesta.falla_tecnica:
         texto_revisado, violaciones = revisar_respuesta(
-            respuesta.respuesta_texto, estado, nombre
+            respuesta.respuesta_texto, estado, nombre,
+            ahora=local_ahora, telefono=telefono,
         )
         if violaciones:
             _diagnostico(

@@ -7,7 +7,7 @@ y se calla. Todo lo que sabe del negocio vive en una hoja de Google
 Sheets. Nada de audio de respuesta, nada de mensajes automáticos por
 WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa 197 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 225 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
@@ -15,8 +15,8 @@ WhatsApp: solo responde cuando le escriben.
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
 > `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
 > `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 18 de la v2.13
-> en `test_v2_13.py` + 28 de la v3.0 en `test_v3.py`). Y hay 8
-> **conversaciones doradas** aparte
+> en `test_v2_13.py` + 29 de la v3.0 en `test_v3.py` + 27 de la v3.1
+> en `test_v3_1.py`). Y hay 10 **conversaciones doradas** aparte
 > (`test_conversaciones_doradas.py`): conversaciones completas contra
 > la IA real, que se corren con la clave de Gemini antes de cada
 > despliegue. El **12 de noviembre de 2026 el robot contestó su
@@ -97,8 +97,10 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_v2_11.py` | 9 pruebas de la v2.11: `python test_v2_11.py` |
 | `test_v2_12.py` | 7 pruebas de la v2.12: `python test_v2_12.py` |
 | `test_v2_13.py` | 18 pruebas de la v2.13: `python test_v2_13.py` |
-| `test_v3.py` | 28 pruebas de la v3.0: `python test_v3.py` |
-| `test_conversaciones_doradas.py` | 8 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
+| `test_v3.py` | 29 pruebas de la v3.0: `python test_v3.py` |
+| `test_v3_1.py` | 27 pruebas de la v3.1: `python test_v3_1.py` |
+| `robot/vigilancia.py` | Vigilancia anti-atasco: si un lote tarda más de 90 s, avisa en Diagnóstico y el cliente recibe un "dame un momento" |
+| `test_conversaciones_doradas.py` | 10 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
 
 ## La inteligencia artificial: gratis y funcional
 
@@ -187,6 +189,21 @@ Esto es diseño, no un extra: el robot no debe pisar nunca a un humano.
   El `.env` y el JSON de Google están en `.gitignore`.
 - **Lista blanca de fotos:** el robot solo manda URLs de la hoja
   Fotos oficiales. Nunca inventa una foto.
+- **Anti-extracción (v3.1):** el robot nunca revela su guion ni sus
+  instrucciones, ni da datos de otros clientes. Si alguien se los
+  pide, se niega con calma y sigue atendiendo. El revisor (R6) desecha
+  entera cualquier respuesta que traiga el guion, nombres de campos
+  internos o un teléfono que no es el del cliente.
+- **Sin etiquetas internas (v3.1):** el revisor (R5) quita paréntesis
+  y palabras que son notas de la hoja ("FICTICIA", "EJEMPLO"). La
+  dirección de ejemplo salió con esa etiqueta en una respuesta real;
+  la hoja ya se limpió y el revisor es la red de seguridad.
+- **Anti-atasco (v3.1):** si un lote tarda más de 90 segundos, queda
+  en Diagnóstico ("lote TARDANDO") y el cliente recibe un "dame un
+  momento" en vez de silencio. Un lote se quedó más de 45 minutos sin
+  responder ni fallar, sin dejar rastro; eso ya no puede pasar
+  desapercibido. Las llamadas a Google (Sheets y Calendar) llevan
+  tiempo límite de 30 segundos.
 
 ## El reporte semanal
 
@@ -212,7 +229,7 @@ python instalar.py
 
 Te pregunta tus claves una por una, en español, sin mostrarlas en
 pantalla. Instala las librerías, escribe el `.env`, genera tu clave
-de dueño, corre las 197 pruebas y al final te dice los 3 pasos que
+de dueño, corre las 225 pruebas y al final te dice los 3 pasos que
 siguen: desplegar, pegar el webhook en Meta y mandar el primer mensaje
 de prueba. Se puede correr dos veces: si ya tienes `.env`, te pregunta
 antes de tocarlo.
@@ -289,8 +306,8 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 197 pruebas + el servidor arranca
-python test_v3.py            # 28 casos nuevos de la v3.0
+python instalar.py --check   # todo: 225 pruebas + el servidor arranca
+python test_v3_1.py          # 27 casos nuevos de la v3.1
 ```
 
 Y las conversaciones doradas (contra la IA real, con tu clave):

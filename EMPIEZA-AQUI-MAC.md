@@ -40,7 +40,7 @@ python3 instalar.py --check
 ```
 
 Tienes que ver puros ✓ al final y "Todo en orden". Eso significa que el
-robot está completo y que las 197 pruebas pasaron en tu Mac. No mandó ningún
+robot está completo y que las 225 pruebas pasaron en tu Mac. No mandó ningún
 mensaje, no gastó nada, solo se revisó a sí mismo.
 
 Si quieres verlo por dentro, también puedes correr:
