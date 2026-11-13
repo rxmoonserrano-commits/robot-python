@@ -67,13 +67,29 @@ def _llamar(modelo: str, partes: list[dict]) -> str:
     (Google saturado), se reintenta UNA vez tras 2 segundos antes de
     rendirse. De noche, sin nadie despierto para reintentarlo a mano,
     ese segundo intento es lo que evita un silencio.
+    (v2.8) Lo mismo si la llamada se tarda demasiado o se corta la red:
+    antes, un timeout (ReadTimeout) salía volando sin reintentar y sin
+    probar el siguiente modelo, y el cliente se quedaba con un "dame
+    un momento". Ahora el timeout se convierte en GeminiError y se
+    reintenta igual. El tiempo de espera es 120 s: el robot contesta
+    en segundo plano (el webhook ya respondió 200) y la burbuja de
+    "escribiendo..." se refresca cada 20 s, así que al cliente no le
+    afecta esperar un poco más; lo que no puede pasar es rendirse a
+    los 60 s cuando el modelo está frío y contesta a los 70.
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
     ultimo_error: GeminiError | None = None
     for intento in range(2):
-        respuesta = requests.post(
-            url, json={"contents": [{"parts": partes}]}, timeout=60
-        )
+        try:
+            respuesta = requests.post(
+                url, json={"contents": [{"parts": partes}]}, timeout=120
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            ultimo_error = GeminiError(f"Gemini tardó demasiado o se cortó la red: {exc}")
+            if intento == 0:
+                time.sleep(2)
+                continue
+            raise ultimo_error
         if respuesta.status_code == 200:
             break
         ultimo_error = GeminiError(

@@ -118,25 +118,56 @@ def preguntar_agente(
 ) -> RespuestaAgente:
     """Le pregunta al agente y devuelve su decisión ya validada.
 
-    Si algo sale mal (Gemini no responde, JSON roto), no se inventa nada:
-    se devuelve una respuesta segura que pasa a una persona.
+    (v2.8) Tres casos, bien distintos, porque en vivo se confundían
+    bajo el mismo "dame un momento":
+    1. Gemini no contesta (clave, cuota, red, timeout): respuesta
+       segura con falla_tecnica, y el motivo lleva el error real para
+       que quede en Diagnóstico, no un texto genérico.
+    2. Gemini contesta en prosa, sin JSON (los modelos nuevos a veces
+       ignoran la instrucción de JSON y responden conversando): ESA
+       prosa ES la respuesta al cliente. No se tira a la basura por
+       no venir en JSON; se manda tal cual, sin agendar nada.
+    3. Gemini contesta algo roto (JSON a medias): respuesta segura,
+       con un pedazo de lo que devolvió en el motivo, para verlo en
+       Diagnóstico.
+    Además el historial que se le manda se recorta a los últimos 8
+    mensajes: con 20 el prompt era enorme y el modelo tardaba más.
     """
     prompt = (
         f"{GUION}\n\n"
         f"Mensaje del cliente: {mensaje}\n\n"
         f"Conocimiento del negocio: {json.dumps(conocimiento, ensure_ascii=False)}\n\n"
         f"Fotos oficiales: {json.dumps(fotos, ensure_ascii=False)}\n\n"
-        f"Historial de este teléfono: {json.dumps(historial, ensure_ascii=False)}"
+        f"Historial de este teléfono: {json.dumps((historial or [])[-8:], ensure_ascii=False)}"
     )
     try:
         texto = generar_texto(prompt)
+    except Exception as exc:
+        # Gemini falló de verdad (clave, cuota, red, timeout). El motivo
+        # lleva el error real: en Diagnóstico se ve QUÉ pasó, no solo
+        # que "algo" falló. logic.py manda este texto y avisa al dueño.
+        return RespuestaAgente(
+            respuesta_texto="Dame un momento, por favor. Estoy revisando tu mensaje y "
+            "te atiendo enseguida.",
+            necesita_handoff="si",
+            motivo_handoff=f"Gemini no contestó: {exc}"[:300],
+            falla_tecnica=True,
+        )
+    try:
         return _normalizar(_limpiar_json(texto))
     except Exception:
-        # Gemini falló (clave, cuota, red) o devolvió algo roto. No se
-        # inventa nada y, sobre todo, no se deja al cliente en silencio:
-        # logic.py manda este texto y avisa al dueño por correo.
-        return RespuestaAgente.segura(
-            "Dame un momento, por favor. Estoy revisando tu mensaje y "
+        limpio = texto.strip()
+        limpio = re.sub(r"^```(?:json)?\s*", "", limpio)
+        limpio = re.sub(r"\s*```$", "", limpio).strip()
+        if limpio and not limpio.startswith("{"):
+            # Prosa, no JSON: es una respuesta válida del modelo. Se
+            # manda tal cual, sin agendar ni pasar a una persona.
+            return RespuestaAgente(respuesta_texto=limpio[:1000])
+        # JSON roto: respuesta segura, con un pedazo de lo que devolvió.
+        return RespuestaAgente(
+            respuesta_texto="Dame un momento, por favor. Estoy revisando tu mensaje y "
             "te atiendo enseguida.",
+            necesita_handoff="si",
+            motivo_handoff="Gemini contestó algo que no es JSON: " + repr(texto[:200]),
             falla_tecnica=True,
         )

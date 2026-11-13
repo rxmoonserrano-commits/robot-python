@@ -12,13 +12,13 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 113 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 119 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 8 de la v2.7 en
-> `test_v2_7.py`). El **12 de noviembre de 2026 el robot contestó su
-> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
+> `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py`). El **12 de noviembre
+> de 2026 el robot contestó su primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -308,6 +308,42 @@ retirados en la config, recuerda el modelo que funcionó, "sí gracias"
 tras un fallo no confirma (y la propuesta sigue pendiente), "sí" tras
 la oferta sí confirma, y el fallo de Gemini queda en Diagnóstico.
 
+## Versión 2.8 — Ya no se rinde a los 60 segundos
+
+**Lo que pasó en vivo (2026-11-12 21:46 y 21:49, visto en la pestaña
+Diagnóstico, sin capturas):** el modelo ya era el bueno (3.8-flash),
+pero el robot seguía con "dame un momento". Diagnóstico decía dos
+cosas: la autoprueba al arrancar falló dos veces con "Read timed out
+(read timeout=60)", y los mensajes fallaron con "No se pudo entender
+la respuesta del agente". Dos causas:
+1. **El modelo tarda más de 60 segundos** cuando está frío (primeras
+   llamadas, prompt grande). Antes, un timeout salía volando: no se
+   reintentaba ni se probaba el siguiente modelo.
+2. **La respuesta del modelo a veces no viene en JSON.** Los modelos
+   nuevos a veces ignoran la instrucción de JSON y contestan
+   conversando. El robot tiraba esa prosa a la basura y decía "dame
+   un momento". Esa prosa ERA la respuesta.
+
+**Qué se corrigió:**
+1. **Tiempo de espera de 120 segundos** y el timeout ahora se
+   reintenta una vez, igual que un 429 o un 500. El robot contesta en
+   segundo plano y la burbuja se refresca cada 20 s, así que al
+   cliente no le afecta esperar un poco más.
+2. **Si Gemini contesta en prosa, se manda la prosa.** Ya no se exige
+   JSON a fuerzas: si la respuesta no es JSON pero es texto normal,
+   es la respuesta al cliente. Solo si es un JSON roto se usa el
+   "dame un momento".
+3. **Diagnóstico ya dice QUÉ pasó.** Antes todos los fallos decían lo
+   mismo ("No se pudo entender..."). Ahora el motivo lleva el error
+   real ("Gemini no contestó: tardó demasiado...", "Gemini contestó
+   algo que no es JSON: ...").
+4. **Historial recortado a los últimos 8 mensajes** en el prompt (antes
+   20): el prompt era enorme y el modelo tardaba más.
+
+**Pruebas nuevas:** `test_v2_8.py`, 6 casos: timeout con reintento y
+120 s, prosa sin JSON se manda tal cual, JSON roto con detalle, error
+de red con el error real en el motivo, historial recortado a 8.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -338,6 +374,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_5.py` | 9 pruebas nuevas de la v2.5 (24/7: propuestas persistentes, lead nocturno, reintento Gemini): `python test_v2_5.py` |
 | `test_v2_6.py` | 7 pruebas nuevas de la v2.6 (la IA contesta siempre, con contexto): `python test_v2_6.py` |
 | `test_v2_7.py` | 8 pruebas nuevas de la v2.7 (autocuración de modelo, "sí" tras fallo, Diagnóstico): `python test_v2_7.py` |
+| `test_v2_8.py` | 6 pruebas nuevas de la v2.8 (timeout con reintento, prosa sin JSON, historial recortado): `python test_v2_8.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |
