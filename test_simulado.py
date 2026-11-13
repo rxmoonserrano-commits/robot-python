@@ -177,14 +177,17 @@ def main():
     caso("6. Agendar: conversación registrada en Conversaciones",
          any(c["quien_hablo"] == "robot" for c in d.conversaciones))
 
-    # 7. Handoff: correo al dueño, no responde por WhatsApp, cliente marcado.
+    # 7. Handoff: correo al dueño, cliente marcado... y (v3.3.1) el
+    # cliente TAMBIÉN recibe el texto. Antes quedaba en silencio.
     agente_handoff = RespuestaAgente(
         respuesta_texto="Te paso con una persona.",
         necesita_handoff="si", motivo_handoff="El cliente pide hablar con una persona",
         nombre="Ana", motivo="Quiere hablar con una persona")
     d = DepsFalsas(agente=agente_handoff)
     r = atender_mensaje(d, "6671234567", "Ana", "Quiero hablar con una persona", con_ritmo=False)
-    caso("7. Handoff: no responde por WhatsApp", r["handoff"] is True and not d.textos_enviados)
+    caso("7. Handoff: el cliente recibe el texto del handoff",
+         r["handoff"] is True and len(d.textos_enviados) == 1
+         and "persona" in d.textos_enviados[0][1])
     caso("7. Handoff: alerta mandada al dueño", len(d.alertas) == 1)
     caso("7. Handoff: cliente marcado con handoff=si",
          len(d.clientes) == 1 and d.clientes[0]["handoff"] == "si")

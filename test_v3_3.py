@@ -362,6 +362,29 @@ def main():
          and len(d.alertas_handoff) == 0,
          f"resultado={r} agente={len(d.mensajes_al_agente)}")
 
+    # ---- (g) v3.3.1: en un handoff NORMAL el cliente también recibe el texto ----
+    d = DepsV33(
+        respuesta_agente=RespuestaAgente(
+            respuesta_texto="Claro, te paso con una persona del negocio.",
+            quiere_agendar="no", necesita_handoff="si",
+            motivo_handoff="El cliente pidió hablar con el encargado",
+            nombre="Jose Ramon", motivo="Quiere hablar con el encargado"))
+    r = atender_mensaje(d, TELEFONO, "Jose Ramon",
+                        "son unos rateros, quiero hablar con el encargado",
+                        con_ritmo=False, ahora=VIERNES)
+    caso("(g) Handoff normal: el cliente recibe el texto (antes quedaba en silencio)",
+         r.get("handoff") is True
+         and len(d.textos_enviados) == 1
+         and "persona" in d.textos_enviados[0][1]
+         and len(d.alertas_handoff) == 1,
+         f"resultado={r} enviados={d.textos_enviados} alertas={d.alertas_handoff}")
+    fila_robot = [c for c in d.conversaciones
+                  if c["quien_hablo"] == "robot" and c["motivo"] == "handoff"]
+    caso("(g) Handoff normal: queda registrado y respondio es True",
+         r.get("respondio") is True and len(fila_robot) == 1
+         and fila_robot[0]["mensaje"].startswith("Claro, te paso"),
+         f"resultado={r} filas={fila_robot}")
+
     # ---- (e) Alertas de cita confirmada y de lead caliente ----
     logic_mod._CITAS_PENDIENTES.clear()
     logic_mod._CITAS_PENDIENTES[TELEFONO] = {

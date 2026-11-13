@@ -1011,13 +1011,14 @@ def atender_mensaje(
                          telefono, texto)
             _avisar_por_correo(deps.alerta_error, respuesta.motivo_handoff, telefono, texto, fecha)
         else:
-            if str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA):
-                # (v3.3) Urgencia: el cliente SÍ recibe el texto ("te paso
-                # con una persona de inmediato"). En un handoff normal el
-                # texto del agente no se manda y contesta el humano; en
-                # una urgencia, dejarlo en silencio sería lo peor.
-                enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
-                deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "urgencia")
+            # (v3.3.1) El cliente TAMBIÉN recibe el texto del handoff
+            # ("te paso con una persona..."). Antes solo llegaba el
+            # correo al dueño y el cliente quedaba en silencio esperando
+            # a que un humano se diera cuenta. Jose lo pidió 2026-11-13.
+            # En una urgencia el texto es el fijo de la v3.3; en un
+            # handoff normal, el del agente.
+            enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
+            deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "handoff")
             _avisar_por_correo(
                 deps.alerta_handoff,
                 respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
@@ -1027,12 +1028,9 @@ def atender_mensaje(
             respuesta.motivo or texto, "", "whatsapp", "en conversacion", "si",
         )
         _guardar_memoria(deps, telefono, respuesta)
-        # (v3.3) Una urgencia sí cuenta como respondida: el cliente
-        # recibió el texto. Un handoff normal sigue en False (el
-        # humano es quien contesta).
-        respondio = respuesta.falla_tecnica or str(
-            respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA)
-        return {"respondio": respondio, "motivo": "handoff",
+        # El cliente siempre recibe algo en un handoff (el texto o el
+        # "dame un momento"): respondio es True en los dos casos.
+        return {"respondio": True, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
     # 9. Agendar: NO se crea la cita todavía. Se propone con botones y

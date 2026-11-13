@@ -266,11 +266,13 @@ def main():
               and no_tiene(txt, "agendo", "9:00", "10:00"),
               "no contestó la pregunta o repitió la oferta", txt)
 
-    # G5. Cliente enojado: pasa a una persona.
+    # G5. Cliente enojado: pasa a una persona, y el cliente RECIBE el
+    # texto (v3.3.1: antes solo llegaba el correo al dueño).
     d, r, txt = correr("G5", [], "son unos rateros, quiero hablar con el encargado", DIA)
-    escenario("G5 cliente enojado: handoff a una persona",
-              r.get("handoff") is True,
-              f"no pasó a una persona (resultado={r})", txt)
+    escenario("G5 cliente enojado: handoff a una persona y el cliente recibe el texto",
+              r.get("handoff") is True
+              and tiene(txt, "persona", "encargado"),
+              f"no pasó a una persona o el cliente no recibió el texto (resultado={r})", txt)
 
     # G6. "Sí gracias" después de un fallo: cortesía, NO confirma la cita.
     d, r, txt = correr(

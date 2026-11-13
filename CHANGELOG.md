@@ -5,6 +5,19 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.3.1 — El cliente también escucha el handoff (2026-11-13)
+
+Jose lo pidió al ver la v3.3: en un handoff normal, el cliente
+también debe recibir el texto (\"te paso con una persona...\"). Antes
+solo llegaba el correo al dueño y el cliente quedaba en silencio
+esperando a que un humano se diera cuenta. Ahora el paso 8 manda el
+texto del agente (o el fijo de la urgencia) y lo registra, y
+`respondio` es True en todos los handoffs. La dorada G5 ahora exige
+además que el cliente reciba el texto. El caso 7 de
+`test_simulado.py` (que afirmaba lo viejo: \"no responde por
+WhatsApp\") se actualizó a lo nuevo. 2 casos nuevos en `test_v3_3.py`
+(275 en total).
+
 ## v3.3 — Calidad para el dueño y para su cliente (2026-11-13)
 
 Jose preguntó qué funciones de calidad se podían incorporar ya, de

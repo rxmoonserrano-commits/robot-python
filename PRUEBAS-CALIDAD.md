@@ -196,6 +196,7 @@ conversación dorada nueva, para que no vuelva a pasar.
 - **Anti-abuso:** 3 ok, el 4º avisa, el 5º se ignora; pasada la ventana vuelve a dejar pasar; el límite es por teléfono.
 - **Guion:** las 4 reglas nuevas están escritas (huecos, nombre, agenda llena, urgencia).
 - **Doradas G13, G14 y G15:** huecos libres, urgencia y preguntar el nombre, con la IA real. Son 15 doradas; la regla sigue: si una falla, la versión no se sube.
+- **v3.3.1:** en un handoff normal el cliente recibe el texto (antes quedaba en silencio); queda registrado con motivo \"handoff\" y `respondio` es True. G5 ahora exige el texto además del handoff.
 
 ## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
 
