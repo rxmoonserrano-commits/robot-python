@@ -44,7 +44,7 @@ from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.report import generar_reporte_semanal
 
-app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.5.0")
+app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.6.0")
 
 
 # --- Las dependencias reales: conectan la lógica con Google, Gemini y WhatsApp ---
@@ -373,6 +373,19 @@ def arrancar():
             print(f"[robot] Recuperé {n} propuesta(s) de cita de la hoja.")
     except Exception as exc:  # noqa: BLE001 - sin propuestas, el robot sigue igual
         print(f"[robot] No pude recuperar propuestas de la hoja: {exc}")
+    # (v2.6) Autoprueba de Gemini en segundo plano: una pregunta mínima
+    # para saber si la clave sirve. Si falla, queda en el registro de
+    # Render desde el primer minuto, en vez de descubrirlo de noche
+    # cuando un cliente ya se quejó. No bloquea el arranque.
+    def _probar_gemini():
+        try:
+            from robot.gemini import generar_texto
+
+            generar_texto("Responde solo con la palabra OK.")
+            print("[gemini] OK: la clave funciona.")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[gemini] FALLO: no pude hablar con Gemini: {exc}. Revisa GEMINI_API_KEY en Render.")
+    threading.Thread(target=_probar_gemini, daemon=True).start()
     scheduler.start()
     print(f"[robot] Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
 

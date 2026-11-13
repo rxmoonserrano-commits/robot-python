@@ -80,7 +80,7 @@ def revisar_python() -> bool:
 def revisar_archivos() -> bool:
     """¿Están los archivos que el robot necesita?"""
     faltan = []
-    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py"):
+    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py"):
         if not os.path.exists(os.path.join(RAIZ, nombre)):
             faltan.append(nombre)
     if faltan:
@@ -121,7 +121,7 @@ def revisar_env_example() -> bool:
 def probar_todo() -> bool:
     """py_compile + pruebas simuladas + el servidor arranca e importa."""
     ok, salida = correr([sys.executable, "-m", "py_compile", "app.py", "instalar.py",
-                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py",
+                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_6.py",
                          "robot/config.py", "robot/logic.py", "robot/whatsapp.py",
                          "robot/agrupar.py", "robot/ritmo.py", "robot/agent.py",
                          "robot/gemini.py", "robot/sheets.py", "robot/booking.py",
@@ -132,7 +132,7 @@ def probar_todo() -> bool:
         decir(salida[-1500:])
         return False
     decir("✓ El código compila sin errores.")
-    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py"):
+    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py"):
         ok, salida = correr([sys.executable, prueba], f"correr {prueba}")
         ultima = salida.strip().splitlines()[-1] if salida.strip() else ""
         if not ok:

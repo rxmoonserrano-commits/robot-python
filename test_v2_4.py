@@ -213,16 +213,20 @@ def main():
          logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("fecha_cita", "").startswith("2026-11-16T09:00"),
          f"propuestas={logic_mod._CITAS_PENDIENTES}")
 
-    # (f) Gemini falla de noche: respaldo con la frase grabada + propuesta guardada.
+    # (f) Gemini falla de noche (v2.6): ya NO hay frase grabada de
+    # respaldo. El cliente recibe un "dame un momento" honesto y no
+    # se guarda ninguna propuesta inventada.
     logic_mod._CITAS_PENDIENTES.clear()
     agente_falla = RespuestaAgente.segura("Dame un momento, por favor.", falla_tecnica=True)
     d = DepsV24(agente=agente_falla)
     r = atender_mensaje(d, "6671234567", "Ana", "Hola, quiero una cita",
                          con_ritmo=False, ahora=DOMINGO_NOCHE)
-    caso("(f) Gemini falla de noche: respaldo con la frase grabada, propuesta guardada",
-         r.get("fuera_de_horario") is True and r.get("cita_propuesta") is True
-         and "6671234567" in logic_mod._CITAS_PENDIENTES,
-         f"r={r}")
+    caso("(f) Gemini falla de noche: 'dame un momento' honesto, sin frase grabada",
+         r.get("handoff") is True and r.get("falla_tecnica") is True
+         and any("Dame un momento" in t for _, t in d.textos_enviados)
+         and not any("Ahora estamos cerrados" in t for _, t in d.textos_enviados)
+         and "6671234567" not in logic_mod._CITAS_PENDIENTES,
+         f"r={r} textos={d.textos_enviados}")
 
     # (g) De día, cambiar con propuesta pendiente.
     logic_mod._CITAS_PENDIENTES.clear()

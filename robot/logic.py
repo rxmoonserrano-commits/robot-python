@@ -74,6 +74,22 @@ Por eso parecía que no había IA conectada. Ahora:
    (borra el evento de Calendar y limpia la hoja) y pregunta por
    el nuevo día, en vez de repetir la misma frase.
 
+Versión 2.6 (la IA contesta siempre, 2026-11-12):
+Jose lo vio en el chat en vivo: el robot contestaba con una plantilla
+y parecía no tener cerebro. Tenía razón, y había DOS causas:
+1. El atajo de "petición simple" de noche mandaba la frase grabada
+   sin llamar a Gemini. Eliminado: ahora TODOS los mensajes van al
+   agente, de día y de noche, con un contexto que siempre incluye
+   fecha, hora, si el negocio está abierto, horarios, próxima
+   apertura, el nombre del cliente y su propuesta pendiente.
+2. El respaldo de noche también mandaba la frase grabada cuando
+   Gemini fallaba, así que un Gemini caído se disfrazaba de robot
+   tonto. Eliminado: si Gemini falla, el cliente recibe un "dame un
+   momento" honesto y el dueño un correo (paso 8). El fallo se ve.
+   Además, al arrancar el servidor se hace una autoprueba de Gemini
+   en segundo plano (ver app.py): si la clave está mal, queda en el
+   registro de Render desde el primer minuto.
+
 Versión 2.5 (24/7 de verdad, 2026-11-12):
 Jose pidió anticiparse a los problemas para que el robot atienda,
 califique, responda y agende 24/7, aunque los dueños duerman:
@@ -286,35 +302,6 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
     if hay_propuesta and normal in ("otra", "otro", "prefiero otra"):
         return "cambiar"
     return None
-
-
-_PETICION_SIMPLE = (
-    "hola", "buenas", "buenos dias", "buenas tardes", "buenas noches",
-    "quiero una cita", "quiero agendar", "quiero cita", "quiero reservar",
-    "agendar", "reservar", "cita ahorita",
-)
-_PALABRAS_PREGUNTA = (
-    "cuanto", "cuesta", "precio", "cual", "donde", "cuando", "tienen",
-    "hacen", "ofrecen", "sirve", "hay ",
-)
-
-
-def _es_peticion_cita_simple(texto: str) -> bool:
-    """¿Es un primer "hola" o "quiero una cita", sin pregunta?
-
-    De noche, una petición simple se atiende con la frase grabada:
-    es rápida, no gasta IA, guarda la propuesta y registra el lead
-    (como siempre, v2.2). En cambio, una pregunta ("¿cuánto cuesta?"),
-    un seguimiento o cualquier otra cosa va al agente, que es quien
-    entiende. Sin propuesta pendiente, "otra" no es simple: va al agente.
-    """
-    if "?" in texto:
-        return False
-    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto))
-    normal = re.sub(r"\s+", " ", normal).strip()
-    if any(p in normal for p in _PALABRAS_PREGUNTA):
-        return False
-    return any(p in normal for p in _PETICION_SIMPLE)
 
 
 def _atender_cambio_cancelacion(deps: Dependencias, telefono: str, nombre: str,
@@ -539,7 +526,12 @@ def proxima_apertura(conocimiento: list[dict], ahora: datetime | None = None) ->
 
 
 def mensaje_fuera_de_horario(conocimiento: list[dict], ahora: datetime | None = None) -> str:
-    """Qué decirle al cliente cuando escribe fuera de horario."""
+    """Qué decirle al cliente cuando escribe fuera de horario.
+
+    Ojo (v2.6): esto ya NO se manda solo. La IA contesta siempre; esta
+    frase queda solo como texto de respaldo manual, para que el dueño
+    la copie si algún día quiere contestar a mano.
+    """
     _, resumen = horario_abierto(conocimiento, ahora)
     proxima = proxima_apertura(conocimiento, ahora)
     if proxima is not None:
@@ -788,45 +780,41 @@ def atender_mensaje(
     fotos = deps.leer_fotos()
     historial = deps.leer_historial(telefono)
 
-    # 5. Fuera de horario (v2.4): ya NO es un muro para todo. Antes,
-    # de noche el robot contestaba siempre la misma frase grabada y
-    # Gemini nunca se llamaba: por eso parecía que no había IA.
-    # Ahora: una primera petición simple ("hola", "quiero una cita")
-    # sigue yendo por la frase grabada (rápida, guarda la propuesta
-    # y registra el lead, como en la v2.2). Todo lo demás de noche
-    # —preguntas, seguimientos, cambios de opinión— va al agente,
-    # al que solo se le avisa que el negocio está cerrado y cuál es
-    # la próxima apertura, para que no agende para hoy.
+    # 5. Contexto para el agente (v2.6): la IA contesta SIEMPRE, de día
+    # y de noche, y siempre sabe qué hora es, si el negocio está
+    # abierto, a qué hora abre, cuál es la próxima apertura y cómo se
+    # llama el cliente. Ya NO hay atajo con frase grabada: ni para un
+    # primer "hola" de noche, ni como respaldo si Gemini falla.
+    # La frase grabada escondía los fallos de Gemini: el cliente veía
+    # siempre la misma respuesta y parecía que no había IA, cuando lo
+    # que pasaba es que la IA no estaba contestando. Ahora, si Gemini
+    # falla, el cliente recibe un "dame un momento" honesto (paso 8)
+    # y el dueño un correo: el fallo se ve, no se disfraza.
     abierto, resumen_horarios = horario_abierto(conocimiento, ahora)
     proxima = proxima_apertura(conocimiento, ahora) if not abierto else None
-    if not abierto and telefono not in _CITAS_PENDIENTES and _es_peticion_cita_simple(texto):
-        mensaje = mensaje_fuera_de_horario(conocimiento, ahora)
-        if proxima is not None:
-            _guardar_propuesta(deps, telefono, {
-                "nombre": nombre,
-                "motivo": texto,
-                "fecha_cita": proxima.isoformat(),
-                "fecha_bonita": formatear_cita_bonita(proxima.isoformat()),
-                "creado_en": ahora.isoformat(),
-            })
-            deps.registrar_cliente(
-                fecha, nombre, telefono, texto, proxima.isoformat(),
-                "whatsapp", "en conversacion", "no",
-            )
-        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "fuera de horario")
-        return {"respondio": True, "fuera_de_horario": True, "handoff": False,
-                "cita_propuesta": proxima is not None,
-                "fecha_cita": proxima.isoformat() if proxima is not None else ""}
-    mensaje_agente = texto
+    local_ahora = _a_hora_local(ahora)
+    contexto = [
+        f"Hoy es {_DIAS_NOMBRE[local_ahora.weekday()]} {local_ahora.day} de "
+        f"{_MESES[local_ahora.month - 1]}, son las {local_ahora:%H:%M} (hora del negocio).",
+        f"El negocio está {'ABIERTO' if abierto else 'CERRADO'}: abre {resumen_horarios}.",
+    ]
+    if nombre:
+        contexto.append(f"El cliente se llama {nombre}: salúdalo por su nombre la primera vez.")
     if not abierto:
         proxima_txt = formatear_cita_bonita(proxima.isoformat()) if proxima is not None else ""
-        mensaje_agente = (
-            f"[Contexto: son las {_a_hora_local(ahora):%H:%M} y el negocio está CERRADO. "
-            f"Abre {resumen_horarios}. No agendes para hoy ni para una hora en que esté "
-            f"cerrado. Si el cliente quiere una cita, ofrécele la próxima apertura: "
-            f"{proxima_txt}. Responde su pregunta con calma, como una persona.]\n{texto}"
+        contexto.append(
+            "No agendes para hoy ni para una hora en que esté cerrado. "
+            f"Si el cliente quiere una cita, ofrécele la próxima apertura: {proxima_txt}."
         )
+    propuesta_activa = _CITAS_PENDIENTES.get(telefono)
+    if propuesta_activa:
+        contexto.append(
+            "Ya le propusiste una cita para el "
+            f"{propuesta_activa.get('fecha_bonita', '')}: si te pregunta por ella, "
+            "recuérdale esa fecha; si dice que le va, confirma; si prefiere otra, pregunta cuál."
+        )
+    contexto.append("Responde su mensaje con calma, como una persona, usando tu criterio.")
+    mensaje_agente = "[Contexto: " + " ".join(contexto) + f"]\n{texto}"
 
     # 6. El agente decide qué responder y qué hacer. Mientras piensa,
     # la burbuja se refresca cada 20 segundos.
@@ -840,29 +828,6 @@ def atender_mensaje(
         respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
     finally:
         parar.set()
-
-    # 6b. Si Gemini falló de noche, respaldo con la frase grabada (que
-    # SÍ guarda la propuesta y registra el lead, como en la v2.2).
-    # De día, una falla técnica se atiende en el paso 8 ("dame un momento").
-    if respuesta.falla_tecnica and not abierto:
-        mensaje = mensaje_fuera_de_horario(conocimiento, ahora)
-        if proxima is not None:
-            _guardar_propuesta(deps, telefono, {
-                "nombre": nombre,
-                "motivo": texto,
-                "fecha_cita": proxima.isoformat(),
-                "fecha_bonita": formatear_cita_bonita(proxima.isoformat()),
-                "creado_en": ahora.isoformat(),
-            })
-            deps.registrar_cliente(
-                fecha, nombre, telefono, texto, proxima.isoformat(),
-                "whatsapp", "en conversacion", "no",
-            )
-        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "fuera de horario")
-        return {"respondio": True, "fuera_de_horario": True, "handoff": False,
-                "cita_propuesta": proxima is not None,
-                "fecha_cita": proxima.isoformat() if proxima is not None else ""}
 
     # 7. Foto: solo si está en la lista blanca. Si no, se borra sin avisar al cliente.
     foto = respuesta.foto_oficial_url_or_null

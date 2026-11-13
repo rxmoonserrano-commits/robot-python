@@ -118,22 +118,33 @@ def main():
     domingo_noche = datetime(2026, 11, 16, 3, 0, tzinfo=timezone.utc)
     domingo_noche_5 = datetime(2026, 11, 16, 3, 5, tzinfo=timezone.utc)
 
-    # (a) Fuera de horario: propuesta guardada + lead registrado.
+    # (a) Fuera de horario (v2.6): la IA contesta siempre, con contexto
+    # de cerrado. El lead queda registrado aunque el agente no saque
+    # nombre ni motivo; la cita solo se crea si el agente la propone.
     limpiar_propuestas()
     d = DepsV22()
     r = atender_mensaje(d, "6671234567", "Ana", "Quiero una cita",
                          con_ritmo=False, ahora=domingo_noche)
-    caso("(a) Fuera de horario: se guarda la propuesta para el lunes 09:00",
-         r.get("cita_propuesta") is True and r.get("fecha_cita", "").startswith("2026-11-16T09:00"),
-         f"r={r}")
+    caso("(a) Fuera de horario: se llama al agente con contexto de cerrado",
+         len(d.llamadas_agente) == 1 and "CERRADO" in d.llamadas_agente[0]
+         and "lunes 16 de noviembre" in d.llamadas_agente[0],
+         f"llamadas={d.llamadas_agente}")
     caso("(a) Fuera de horario: el cliente queda registrado como lead",
-         len(d.clientes) == 1 and d.clientes[0]["telefono"] == "6671234567"
-         and d.clientes[0]["fecha_cita"].startswith("2026-11-16T09:00"),
+         len(d.clientes) == 1 and d.clientes[0]["telefono"] == "6671234567",
          f"clientes={d.clientes}")
-    caso("(a) Fuera de horario: no llama al agente ni crea la cita todavía",
-         len(d.citas) == 0 and not d.llamadas_agente)
+    caso("(a) Fuera de horario: no crea la cita todavía",
+         len(d.citas) == 0)
 
-    # (b) Un "sí" por texto, de noche, confirma la cita.
+    # (b) Un "sí" por texto, de noche, confirma la cita. La propuesta
+    # la crea el agente (lunes 09:00), no una frase grabada.
+    limpiar_propuestas()
+    agente_lunes = RespuestaAgente(
+        respuesta_texto="Perfecto, Ana. ¿Te va el lunes a las 09:00?",
+        nombre="Ana", motivo="Quiere agendar una cita",
+        fecha_cita="2026-11-16T09:00:00", quiere_agendar="si")
+    d = DepsV22(agente=agente_lunes)
+    atender_mensaje(d, "6671234567", "Ana", "Quiero una cita",
+                     con_ritmo=False, ahora=domingo_noche)
     r2 = atender_mensaje(d, "6671234567", "Ana", "Sí, me va",
                           con_ritmo=False, ahora=domingo_noche_5)
     caso("(b) 'Sí, me va' de noche: la cita se crea",
@@ -142,12 +153,12 @@ def main():
     caso("(b) 'Sí, me va' de noche: confirmación bonita con día y hora",
          any("16 de noviembre" in t and "09:00" in t for _, t in d.textos_enviados),
          f"textos={d.textos_enviados}")
-    caso("(b) 'Sí' por texto: no vuelve a llamar al agente",
-         len(d.llamadas_agente) == 0, f"llamadas={d.llamadas_agente}")
+    caso("(b) 'Sí' por texto: no vuelve a llamar al agente (sigue en 1)",
+         len(d.llamadas_agente) == 1, f"llamadas={d.llamadas_agente}")
 
     # (c) "Sí, mejor el sábado" NO confirma.
     limpiar_propuestas()
-    d = DepsV22()
+    d = DepsV22(agente=agente_lunes)
     atender_mensaje(d, "6671234567", "Ana", "Quiero una cita",
                      con_ritmo=False, ahora=domingo_noche)
     r = atender_mensaje(d, "6671234567", "Ana", "Sí, mejor el sábado",
@@ -157,7 +168,7 @@ def main():
 
     # (d) Propuesta vieja (más de 48 h) no se confirma.
     limpiar_propuestas()
-    d = DepsV22()
+    d = DepsV22(agente=agente_lunes)
     atender_mensaje(d, "6671234567", "Ana", "Quiero una cita",
                      con_ritmo=False, ahora=domingo_noche)
     tres_dias_despues = domingo_noche + timedelta(days=3)

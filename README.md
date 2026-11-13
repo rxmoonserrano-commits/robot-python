@@ -12,28 +12,38 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 97 pruebas simuladas sin
-> internet (23 de la v1 en `test_simulado.py` + 27 de la v2 en
+> **Honestidad, como siempre:** la lógica pasa 105 pruebas simuladas
+> sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
-> `test_v2_5.py`). El **12 de noviembre de 2026 el robot contestó su
-> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
-> viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
-> "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
-> noviembre a las 09:00", con una sola fila en Clientes (agendado).
-> **Esa misma noche se encontró un bug real:** de noche el robot
-> repetía siempre la misma frase grabada y nunca llamaba a la IA, así
-> que "quiero cambiar mi cita" o "prefiero otra" recibían la misma
-> respuesta. Corregido en la v2.4 (ver abajo).
-> Lo que todavía NO está probado en vivo: la v2.4 y la v2.5, confirmar
-> una cita con el botón, un handoff con correo real (Gmail sigue sin
-> contraseña de aplicación), el interruptor por cliente en vivo y el
-> reporte semanal del lunes. Y ojo: **las citas se crean en el
-> calendario propio del robot (CALENDAR_ID=primary), no en el
-> calendario personal de Jose**: para verlas en su app de Calendario
-> hay que compartirle su calendario a la cuenta de servicio y poner
-> su ID en CALENDAR_ID. No lo vendas como probado hasta pasar
-> `PROBARLO.md` y `PRUEBAS-CALIDAD.md`.
+> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py`). El **12 de noviembre
+> de 2026 el robot contestó su primer mensaje real** por WhatsApp
+> (fuera de horario, proponiendo el viernes 13 a las 09:00) y **esa
+> misma noche Jose confirmó con un "sí" y la cita se creó**: "Tu cita
+> quedó para el viernes 13 de noviembre a las 09:00", con una sola
+> fila en Clientes (agendado). **Esa misma noche se encontró un bug
+> real:** de noche el robot repetía siempre la misma frase grabada y
+> nunca llamaba a la IA. Corregido en la v2.4 y rematado en la v2.6.
+> **Y lo más importante: Gemini (la IA) NUNCA ha contestado un mensaje
+> real todavía.** Todas las respuestas en vivo fueron la frase grabada
+> o la confirmación de cita (que no usa IA). La última prueba en vivo
+> (21:19, "pero como sabes q es lo que quiero…") llegó al agente y
+> Gemini falló, así que el robot mandó la frase grabada de respaldo.
+> Lo más probable es que GEMINI_API_KEY esté mal en Render (o el modelo
+> retirado). La v2.6 hace una autoprueba de Gemini al arrancar y la
+> deja en los registros de Render: si dice "[gemini] FALLO", la clave
+> está mal y hay que corregirla en Render. Hasta que esa autoprueba
+> diga OK, el robot NO tiene cerebro en vivo, por más que el código
+> esté bien.
+> Lo que todavía NO está probado en vivo: la v2.6, confirmar una cita
+> con el botón, un handoff con correo real (Gmail sigue sin contraseña
+> de aplicación), el interruptor por cliente en vivo y el reporte
+> semanal del lunes. Y ojo: **las citas se crean en el calendario
+> propio del robot (CALENDAR_ID=primary), no en el calendario personal
+> de Jose**: para verlas en su app de Calendario hay que compartirle
+> su calendario a la cuenta de servicio y poner su ID en CALENDAR_ID.
+> No lo vendas como probado hasta pasar `PROBARLO.md` y
+> `PRUEBAS-CALIDAD.md`.
 
 ## Versión 2 — Lo que se siente humano (nuevo)
 
@@ -226,6 +236,41 @@ la hoja, borrar al confirmar, recuperar al arrancar, lead nocturno
 sin nombre ni motivo, de día no se registra sin datos, reintento de
 Gemini tras 429, y borrar propuesta al cambiar.
 
+## Versión 2.6 — La IA contesta siempre
+
+**El reclamo de Jose (en vivo, 2026-11-12 21:19):** "pero como sabes
+q es lo que quiero … no me ha calificado ni me ha saludado … es usted
+un maleducado una ai sin cerebro". Tenía razón. Revisando el chat,
+su mensaje recibió OTRA VEZ la misma frase grabada. Y esta vez no
+fue el atajo de "petición simple": su mensaje SÍ llegó al agente, y
+**Gemini falló**, así que el robot mandó la frase grabada de respaldo.
+El respaldo escondía el fallo: parecía un robot tonto, cuando lo que
+pasaba es que la IA no estaba contestando. Hasta hoy, **Gemini nunca
+ha contestado un mensaje real**: todo lo de en vivo fue plantilla o
+confirmación de cita (que no usa IA).
+
+**Qué se corrigió:**
+1. **Se acabó la plantilla.** Eliminados el atajo de "petición
+   simple" de noche y el respaldo de frase grabada cuando Gemini
+   falla. TODOS los mensajes van al agente, de día y de noche.
+2. **El agente siempre sabe dónde está parado.** Cada llamada lleva
+   un contexto con fecha, hora, si el negocio está abierto, horarios,
+   próxima apertura, el nombre del cliente y su propuesta pendiente.
+   Es el "prompt donde sepa el horario y todo ese pedo" que pidió Jose.
+3. **Si Gemini falla, se ve.** El cliente recibe un "dame un momento"
+   honesto y el dueño un correo de error (paso 8). Nunca más una
+   plantilla disfrazando un fallo.
+4. **Autoprueba de Gemini al arrancar.** Al desplegar, el servidor
+   hace una pregunta mínima a Gemini en segundo plano y deja en los
+   registros de Render "[gemini] OK" o "[gemini] FALLO: ...". Si dice
+   FALLO, la GEMINI_API_KEY de Render está mal y hay que corregirla.
+
+**Pruebas nuevas:** `test_v2_6.py`, 7 casos: el mensaje real de Jose
+de las 21:19 va al agente, un "hola" de noche va al agente, Gemini
+caído de noche ("dame un momento" + alerta), el contexto trae fecha,
+hora, cerrado, horarios y nombre, y hora cerrada de noche se corrige
+a lunes 09:00.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -254,6 +299,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_3.py` | 10 pruebas nuevas de la v2.3 (interruptor por cliente): `python test_v2_3.py` |
 | `test_v2_4.py` | 13 pruebas nuevas de la v2.4 (noche con IA + cambiar/cancelar): `python test_v2_4.py` |
 | `test_v2_5.py` | 9 pruebas nuevas de la v2.5 (24/7: propuestas persistentes, lead nocturno, reintento Gemini): `python test_v2_5.py` |
+| `test_v2_6.py` | 7 pruebas nuevas de la v2.6 (la IA contesta siempre, con contexto): `python test_v2_6.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |

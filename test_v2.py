@@ -9,7 +9,9 @@ Cubre solo lo nuevo de la v2 (lo de la v1 sigue en test_simulado.py):
 (f) si Gemini falla, el cliente recibe un "dame un momento" y el dueño un correo,
 (g) NO existe ningún código que mande recordatorios por WhatsApp,
 (h) fuera de horario no se agenda nada imposible,
-(i) confirmar la cita con el botón crea la cita y manda la confirmación bonita.
+(i) confirmar la cita con el botón crea la cita y manda la confirmación bonita,
+(j) v2.1: con Gmail ausente, un handoff o una falla técnica no rompen
+    la respuesta de WhatsApp (el correo es best-effort).
 
 Uso:  python test_v2.py
 """
@@ -42,7 +44,10 @@ class DepsV2:
     """Servicios de mentira para la v2: guardan todo en memoria."""
 
     def __init__(self, bot_activo="SI", ultima_humana="", agente=None,
-                 conocimiento=None):
+                 conocimiento=None, alertas_fallan=False):
+        # alertas_fallan=True simula Gmail sin configurar: las alertas
+        # por correo lanzan el mismo error que mail.CorreoError en real.
+        self.alertas_fallan = alertas_fallan
         self.bot_activo = bot_activo
         self.ultima_humana = ultima_humana
         self.agente = agente or RespuestaAgente(
@@ -101,6 +106,8 @@ class DepsV2:
         return cita
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+        if self.alertas_fallan:
+            raise RuntimeError("Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env.")
         self.alertas.append((nombre, telefono, motivo))
 
     def marcar_leido_y_escribiendo(self, message_id):
@@ -110,6 +117,8 @@ class DepsV2:
         self.botones_enviados.append((telefono, texto, botones))
 
     def alerta_error(self, motivo, telefono, ultimo_mensaje, fecha):
+        if self.alertas_fallan:
+            raise RuntimeError("Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env.")
         self.alertas_error.append((motivo, telefono))
 
 
@@ -232,17 +241,21 @@ def main():
     finally:
         agent_mod.generar_texto = real
 
-    # (h) Fuera de horario: no se agenda nada, se ofrece el próximo día que abre.
+    # (h) Fuera de horario (v2.6): la IA contesta siempre, con contexto
+    # de cerrado. No se agenda nada imposible, y ya no hay frase grabada.
     # Domingo 2026-11-15 a las 20:00 (hora de Mazatlán): el negocio está cerrado.
     domingo_noche = datetime(2026, 11, 16, 3, 0, tzinfo=timezone.utc)  # = domingo 20:00 MST
     d = DepsV2(conocimiento=CONOCIMIENTO_CON_HORARIO)
     r = atender_mensaje(d, "6671234567", "Ana", "Quiero una cita ahorita",
                          con_ritmo=False, ahora=domingo_noche)
-    caso("(h) Fuera de horario: responde sin agendar",
-         r.get("fuera_de_horario") is True and len(d.citas) == 0
-         and not d.llamadas_agente, f"r={r}")
-    caso("(h) Fuera de horario: dice a qué hora abre y ofrece otro día",
-         any("cerrados" in t and "lunes" in t.lower() for _, t in d.textos_enviados),
+    caso("(h) Fuera de horario: llama al agente con contexto de cerrado",
+         len(d.llamadas_agente) == 1 and "CERRADO" in d.llamadas_agente[0]
+         and "lunes 16 de noviembre" in d.llamadas_agente[0],
+         f"llamadas={d.llamadas_agente}")
+    caso("(h) Fuera de horario: no crea la cita",
+         len(d.citas) == 0, f"citas={d.citas}")
+    caso("(h) Fuera de horario: el cliente recibe la respuesta del agente",
+         any("Qué día te viene mejor" in t for _, t in d.textos_enviados),
          f"textos={d.textos_enviados}")
     # En horario (lunes 10:00 Mazatlán = 17:00 UTC) sí atiende normal.
     lunes_manana = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)
@@ -250,6 +263,60 @@ def main():
     r = atender_mensaje(d, "6671234567", "Ana", "Hola", con_ritmo=False, ahora=lunes_manana)
     caso("(h) En horario: atiende normal",
          r.get("fuera_de_horario") is not True and len(d.llamadas_agente) == 1)
+
+    # (j) v2.1 — Gmail ausente: el correo falla, pero el cliente NO se
+    # queda sin respuesta. Regresión del bug real: con GMAIL_USER /
+    # GMAIL_APP_PASSWORD vacíos, alerta_handoff / alerta_error lanzaban
+    # CorreoError y rompían atender_mensaje (o el fallback de _procesar_lote).
+    agente_handoff = RespuestaAgente(
+        respuesta_texto="Te paso con una persona.",
+        nombre="Ana", motivo="Quiere hablar con una persona",
+        necesita_handoff="si", motivo_handoff="El cliente pidió hablar con una persona")
+    d = DepsV2(agente=agente_handoff, alertas_fallan=True)
+    try:
+        r = atender_mensaje(d, "6671234567", "Ana", "Quiero hablar con una persona",
+                             con_ritmo=False)
+        sin_error_handoff = True
+    except Exception as exc:  # noqa: BLE001
+        r = {}
+        sin_error_handoff = False
+        print(f"  (j) error inesperado: {exc}")
+    caso("(j) Handoff no-técnico sin Gmail: no lanza excepción",
+         sin_error_handoff and r.get("handoff") is True)
+    caso("(j) Handoff no-técnico sin Gmail: el cliente queda registrado como handoff",
+         len(d.clientes) == 1 and d.clientes[0]["handoff"] == "si",
+         f"clientes={d.clientes}")
+
+    d = DepsV2(agente=agente_falla, alertas_fallan=True)
+    try:
+        r = atender_mensaje(d, "6671234567", "Ana", "Hola", con_ritmo=False)
+        sin_error_falla = True
+    except Exception as exc:  # noqa: BLE001
+        r = {}
+        sin_error_falla = False
+        print(f"  (j) error inesperado: {exc}")
+    caso("(j) Falla técnica sin Gmail: no lanza excepción",
+         sin_error_falla and r.get("respondio") is True)
+    caso("(j) Falla técnica sin Gmail: el cliente recibe UN 'dame un momento'",
+         [t for _, t in d.textos_enviados].count(
+             "Dame un momento, por favor. Estoy revisando tu mensaje y "
+             "te atiendo enseguida.") == 1,
+         f"textos={d.textos_enviados}")
+
+    d = DepsV2(alertas_fallan=True)
+    try:
+        r = atender_boton(d, "6671234567", "Ana", "hablar_persona", con_ritmo=False)
+        sin_error_boton = True
+    except Exception as exc:  # noqa: BLE001
+        r = {}
+        sin_error_boton = False
+        print(f"  (j) error inesperado: {exc}")
+    caso("(j) Botón hablar con persona sin Gmail: no lanza excepción",
+         sin_error_boton and r.get("handoff") is True)
+    caso("(j) Botón hablar con persona sin Gmail: el cliente sí recibe su texto",
+         any("persona del negocio" in t for _, t in d.textos_enviados)
+         and len(d.clientes) == 1 and d.clientes[0]["handoff"] == "si",
+         f"textos={d.textos_enviados} clientes={d.clientes}")
 
     # Formato bonito de la cita.
     caso("Formato: sábado 14 de noviembre a las 10:00",

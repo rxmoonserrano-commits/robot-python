@@ -133,9 +133,13 @@ LUNES_MANANA = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)  # lunes 10:00
 
 
 def main():
-    # (a) Propuesta de noche: se guarda en la hoja, no solo en memoria.
+    # (a) Propuesta de noche: la crea el agente (lunes 09:00) y se
+    # guarda en la hoja, no solo en memoria.
     logic_mod._CITAS_PENDIENTES.clear()
-    d = DepsV25()
+    agente_lunes = RespuestaAgente(
+        respuesta_texto="Perfecto.", nombre="Ana", motivo="Quiere agendar",
+        fecha_cita="2026-11-16T09:00:00", quiere_agendar="si")
+    d = DepsV25(agente=agente_lunes)
     r = atender_mensaje(d, "6671234567", "Ana", "Quiero una cita",
                          con_ritmo=False, ahora=DOMINGO_NOCHE)
     caso("(a) Propuesta de noche: se guarda en la hoja",
