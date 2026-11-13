@@ -165,6 +165,25 @@ Render. Y cada error nuevo que aparezca en vivo se agrega como una
 conversación dorada nueva, para que no vuelva a pasar.
 
 
+## Lo nuevo de la v3.2 (test_v3_2.py, 17 casos)
+
+- **Memoria en el JSON del agente:** los 4 campos nuevos se leen del
+  JSON (y quedan vacíos si no vienen). El guion los pide y dice que
+  use lo que ya sabe del cliente.
+- **Guardar memoria en Sheets:** se escribe en Clientes K:O sin tocar
+  la calificación; un campo vacío no borra lo guardado; una preferencia
+  que ya estaba no se duplica; sin fila de cliente no se escribe nada.
+- **Lógica:** tras responder, la memoria queda guardada; al día
+  siguiente el contexto lleva "Lo que sabes de este cliente".
+  El apartado se guarda en la propuesta (hasta mañana sábado 14) y el
+  contexto lo recuerda al día siguiente. guardar_propuesta escribe
+  A:H con las columnas nuevas.
+- **R7:** el cierre repetido se quita, un cierre distinto no se toca,
+  y si la respuesta era solo el cierre se cambia por una pregunta.
+- **Doradas G11 y G12:** memoria entre días y apartado recordado, con
+  la IA real. Son 12 doradas; la regla sigue: si una falla, la versión
+  no se sube.
+
 ## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
 
 - **Oferta verbal:** el estado detecta la oferta en el último mensaje

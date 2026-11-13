@@ -5,6 +5,30 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.2 — Memoria (2026-11-13)
+
+Jose preguntó: "¿y la memoria? ¿qué le falta de lo básico?" La
+respuesta honesta: el robot tenía memoria de loro —todo quedaba en la
+hoja, pero solo leía los últimos 8 mensajes y las columnas de Clientes
+hechas para recordar (resumen, intereses, próxima acción, notas)
+estaban vacías. Ahora recuerda de verdad.
+
+- **Resumen vivo del cliente.** El agente devuelve en su JSON lo que
+  aprendió (resumen, interés, próxima acción, preferencias) y eso se
+  guarda en Clientes (K, L, N, O). En el siguiente mensaje el contexto
+  empieza con "Lo que sabes de este cliente". Solo se escribe lo nuevo;
+  un campo vacío no borra nada; las preferencias se acumulan.
+- **Memoria de apartados.** "Te aparto el lugar hasta mañana" ya no
+  es una promesa verbal: queda guardada en Propuestas (columnas nuevas
+  G apartado, H aparta_hasta) y el contexto se lo recuerda al agente
+  cuando el cliente vuelve.
+- **R7: no repetirse.** Si la respuesta cierra con la misma frase del
+  último mensaje del robot ("Quedamos a tus órdenes" tres veces
+  seguidas en vivo), esa frase se quita; si era todo el mensaje, se
+  cambia por "¿Te ayudo con algo más?".
+- 17 pruebas nuevas en `test_v3_2.py` (242 en total). Doradas: 10 → 12
+  (G11 memoria entre días, G12 apartado recordado).
+
 ## v3.1 — Calidad y seguridad (2026-11-13)
 
 Prueba en vivo con la v3.0 en Render (00:00-00:05): el robot ya

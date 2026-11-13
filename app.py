@@ -50,7 +50,7 @@ from robot.report import generar_reporte_semanal
 
 configurar_registro()
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -101,6 +101,11 @@ class DependenciasReales(Dependencias):
 
     def cancelar_cita(self, telefono, fecha_cita):
         return booking.cancelar_cita(telefono, fecha_cita)
+
+    def guardar_memoria_cliente(self, telefono, resumen="", interes="",
+                                proxima_accion="", preferencias=""):
+        sheets.guardar_memoria_cliente(telefono, resumen, interes,
+                                       proxima_accion, preferencias)
 
     def guardar_propuesta(self, telefono, propuesta):
         sheets.guardar_propuesta(telefono, propuesta)

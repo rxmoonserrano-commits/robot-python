@@ -101,9 +101,19 @@ Límites duros:
   exacta; si no hay ninguna, déjala vacía.
 - Si quiere agendar y ya tienes nombre, motivo y fecha: quiere_agendar
   = "si", fecha_cita en ISO. No agendes todavía: primero van los botones.
+- Memoria (v3.2): el contexto te dice lo que ya sabes de este cliente
+  (resumen, intereses, pendientes, preferencias). Úsalo: no vuelvas a
+  preguntar lo que ya sabes, y si vuelve días después, recuérdale de
+  qué hablaban. En cada respuesta llena también: resumen_cliente (qué
+  quiere y qué quedó pendiente, 1-2 frases, solo de esta conversación),
+  interes_cliente (el servicio que le interesa o ""), proxima_accion
+  (lo que quedó pendiente o ""), preferencias (lo que prefiere: días,
+  horas, o "" — solo si el cliente lo dijo). Nunca inventes nada: si no
+  sabes, deja el campo vacío.
 Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos campos:
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
-motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita.
+motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
+resumen_cliente, interes_cliente, proxima_accion, preferencias.
 """
 
 
@@ -133,6 +143,15 @@ class RespuestaAgente:
     nombre: str = ""
     motivo: str = ""
     fecha_cita: str = ""
+    # Memoria del cliente (v3.2): lo que el agente aprendió en esta
+    # conversación. logic.py lo guarda en Clientes y lo lee en el
+    # siguiente mensaje, para que el robot recuerde de un día a otro.
+    # Todo sale de lo que el cliente dijo: nunca se inventa, y si no
+    # hay nada, el campo queda vacío.
+    resumen_cliente: str = ""
+    interes_cliente: str = ""
+    proxima_accion: str = ""
+    preferencias: str = ""
     # True cuando Gemini falló de verdad (clave, cuota, red). En ese caso
     # el robot NO se queda callado: le dice al cliente "dame un momento"
     # y avisa al dueño por correo (ver logic.py).
@@ -189,6 +208,12 @@ def _normalizar(datos: dict) -> RespuestaAgente:
         nombre=str(datos.get("nombre") or "").strip(),
         motivo=str(datos.get("motivo") or "").strip(),
         fecha_cita=str(datos.get("fecha_cita") or "").strip(),
+        # Memoria: con tope de largo, para que el resumen no crezca sin
+        # control en la hoja. Vacío si el modelo no lo mandó.
+        resumen_cliente=str(datos.get("resumen_cliente") or "").strip()[:300],
+        interes_cliente=str(datos.get("interes_cliente") or "").strip()[:150],
+        proxima_accion=str(datos.get("proxima_accion") or "").strip()[:200],
+        preferencias=str(datos.get("preferencias") or "").strip()[:150],
     )
 
 

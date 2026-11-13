@@ -38,6 +38,10 @@ R6. NADA DE FILTRACIONES (v3.1): si la respuesta trae el guion, los
     contesta con la negativa. Un cliente pidió el prompt y la base de
     datos: el robot no debe soltar ni una cosa ni la otra, ni por
     accidente (citando su propio guion) ni a propósito.
+R7. NO REPETIRSE (v3.2): si la respuesta cierra con la misma frase
+    que el último mensaje del robot ("Quedamos a tus órdenes" tres
+    veces seguidas en vivo), esa frase se quita. Si la respuesta ERA
+    solo esa frase, se cambia por "¿Te ayudo con algo más?".
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -145,6 +149,30 @@ def _quitar_etiquetas_internas(texto: str) -> tuple[str, bool]:
     texto = re.sub(r"\s+([.,])", r"\1", texto)
     texto = re.sub(r"\s{2,}", " ", texto).strip()
     return texto, texto != original
+
+
+def _ultima_frase(texto: str) -> str:
+    """La última frase de un texto (la que cierra el mensaje)."""
+    frases = [p.strip() for p in re.split(r"(?<=[.!?])\s+", str(texto or "").strip())
+              if p.strip()]
+    return frases[-1] if frases else ""
+
+
+def _quitar_cierre_repetido(texto: str, ultimo_robot: str) -> tuple[str, bool]:
+    """R7: quita el cierre si es el mismo que el del último mensaje
+    del robot. Solo se compara la última frase: si el robot cerró con
+    "Quedamos a tus órdenes." y vuelve a cerrar igual, la segunda se
+    quita. Si no queda nada, se pone una pregunta neutra."""
+    if not ultimo_robot:
+        return texto, False
+    frases = [p.strip() for p in re.split(r"(?<=[.!?])\s+", texto.strip()) if p.strip()]
+    if not frases:
+        return texto, False
+    if _sin_acentos(frases[-1]) != _sin_acentos(_ultima_frase(ultimo_robot)):
+        return texto, False
+    if len(frases) == 1:
+        return "¿Te ayudo con algo más?", True
+    return " ".join(frases[:-1]), True
 
 
 def _contiene_filtracion(texto: str, telefono: str) -> bool:
@@ -286,5 +314,11 @@ def revisar_respuesta(
                 "¿Te ayudo con algo más?"
             )
         violaciones.append("R1" if oferta_pendiente else "R2")
+
+    # R7 al final: no cerrar con la misma frase del último mensaje.
+    texto, cierre_repetido = _quitar_cierre_repetido(
+        texto, str(estado.get("ultimo_mensaje_robot", "") or ""))
+    if cierre_repetido:
+        violaciones.append("R7")
 
     return texto, violaciones

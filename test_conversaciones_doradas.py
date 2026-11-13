@@ -1,6 +1,6 @@
-"""Conversaciones doradas (v2.13, ampliadas en v3.1): la puerta de calidad.
+"""Conversaciones doradas (v2.13, ampliadas en v3.1 y v3.2): la puerta de calidad.
 
-Qué es: 10 conversaciones completas, escritas como un cliente de
+Qué es: 12 conversaciones completas, escritas como un cliente de
 verdad, con los casos que YA nos fallaron en vivo. Cada una se corre
 contra la IA REAL (Gemini, con la clave de verdad) y se juzga lo que
 contesta, no lo que dice el prompt. Si una se rompe, esa versión NO
@@ -77,6 +77,7 @@ class DepsDoradas:
     def __init__(self, historial=None, cliente=None):
         self.historial = historial or []
         self.cliente = cliente
+        self.memoria = {}
         self.conversaciones = []
         self.clientes = []
         self.textos_enviados = []
@@ -90,7 +91,24 @@ class DepsDoradas:
         return "SI"
 
     def leer_cliente(self, telefono):
-        return self.cliente
+        # (v3.2) La memoria guardada se lee junto con la fila del cliente.
+        base = dict(self.cliente or {})
+        base.update(self.memoria.get(telefono, {}))
+        return base or None
+
+    def guardar_memoria_cliente(self, telefono, resumen="", interes="",
+                                proxima_accion="", preferencias=""):
+        m = self.memoria.setdefault(telefono, {})
+        if resumen:
+            m["resumen_conversacion"] = resumen
+        if interes:
+            m["intereses"] = interes
+        if proxima_accion:
+            m["proxima_accion"] = proxima_accion
+        if preferencias:
+            viejo = m.get("notas", "")
+            if preferencias.lower() not in viejo.lower():
+                m["notas"] = (viejo + "; " + preferencias).strip("; ") if viejo else preferencias
 
     def cancelar_cita(self, telefono, fecha_cita):
         return True
@@ -295,10 +313,49 @@ def main():
                    or r.get("handoff") is True),
               f"soltó algo interno o no se negó (resultado={r})", txt)
 
+    # G11 (v3.2). Memoria entre días: el cliente pregunta el precio un
+    # día y vuelve al siguiente solo a saludar. El robot tiene que
+    # recordar de qué hablaban (la limpieza), no empezar de cero.
+    d = DepsDoradas()
+    r1 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                         "¿cuánto cuesta la limpieza?", con_ritmo=False, ahora=DIA)
+    txt1 = "\n".join(t for _, t in d.textos_enviados)
+    d.textos_enviados = []
+    DIA_SIG = datetime(2026, 11, 14, 16, 0, tzinfo=timezone.utc)
+    r2 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                         "hola, soy yo de nuevo", con_ritmo=False, ahora=DIA_SIG)
+    txt2 = "\n".join(t for _, t in d.textos_enviados)
+    escenario("G11 memoria entre días: recuerda la limpieza sin que se la pidan",
+              "$600" in txt1
+              and "limpieza" in txt2.lower()
+              and d.memoria.get("5216694608263", {}).get("resumen_conversacion", ""),
+              f"no recordó la limpieza (día 1: {txt1!r} / día 2: {txt2!r})", txt2)
+
+    # G12 (v3.2). Apartado recordado: le aparta el lugar un día y el
+    # cliente vuelve al siguiente a preguntar si sigue apartado.
+    logic_mod._CITAS_PENDIENTES.clear()
+    logic_mod._CITAS_PENDIENTES["5216694608263"] = dict(PROPUESTA)
+    d = DepsDoradas(historial=[
+        fila("cliente", "¿cuánto cuesta la limpieza?"),
+        fila("robot", "La limpieza cuesta $600. ¿Te la agendo para mañana a las 9:00?")])
+    r = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                        "lo voy a pensar", con_ritmo=False, ahora=DIA)
+    txt = "\n".join(t for _, t in d.textos_enviados)
+    apartado = logic_mod._CITAS_PENDIENTES.get("5216694608263", {}).get("apartado") == "si"
+    d.textos_enviados = []
+    r = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                        "hola, ¿todavía me tienes apartado el lugar?",
+                        con_ritmo=False, ahora=DIA_SIG)
+    txt2 = "\n".join(t for _, t in d.textos_enviados)
+    logic_mod._CITAS_PENDIENTES.clear()
+    escenario("G12 apartado recordado: confirma que el lugar sigue apartado",
+              apartado and tiene(txt2, "apart", "guardado", "reservado", "sigue"),
+              f"no guardó o no recordó el apartado (día 1: {txt!r} / día 2: {txt2!r})", txt2)
+
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} conversaciones doradas pasaron.")
     if pasaron < len(RESULTADOS):
-        print("Esta versión NO se sube hasta que las 10 pasen.")
+        print("Esta versión NO se sube hasta que las 12 pasen.")
         return 1
     print("Puerta de calidad superada: se puede desplegar.")
     return 0

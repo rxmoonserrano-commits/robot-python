@@ -321,14 +321,71 @@ def registrar_cliente(
     _invalidar_cache("Clientes")
 
 
+# --- Memoria del cliente (v3.2): lo que el robot aprendió ---
+# Las columnas I en adelante de Clientes (resumen, intereses,
+# calificación, próxima acción, notas) existían desde el rediseño
+# pero nadie las llenaba: el robot no recordaba nada de un día a
+# otro. Ahora el agente devuelve lo que aprendió en su JSON y esto
+# lo guarda. Solo se escribe lo nuevo: un campo vacío NO borra lo
+# que ya había. Las preferencias se acumulan ("solo en las mañanas;
+# prefiere sábados"), sin repetir lo que ya estaba.
+# Columnas: K resumen_conversacion, L intereses, N proxima_accion,
+# O notas. La M (calificacion) es del dueño y no se toca.
+def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
+                            proxima_accion: str = "", preferencias: str = "") -> None:
+    """Guarda la memoria del cliente en Clientes (K, L, N, O).
+
+    No hace nada si no hay nada nuevo, y no hace nada si el teléfono
+    no tiene fila (el cliente se registra primero por otro lado).
+    """
+    encontrado = _fila_cliente_por_telefono(telefono)
+    if encontrado is None:
+        return
+    numero_fila, _ = encontrado
+    filas = leer_pestana("Clientes")
+    fila = filas[numero_fila - 2] if 0 <= numero_fila - 2 < len(filas) else {}
+    nuevos: dict[str, str] = {}
+    if str(resumen or "").strip():
+        nuevos["resumen_conversacion"] = str(resumen).strip()[:300]
+    if str(interes or "").strip():
+        nuevos["intereses"] = str(interes).strip()[:150]
+    if str(proxima_accion or "").strip():
+        nuevos["proxima_accion"] = str(proxima_accion).strip()[:200]
+    if str(preferencias or "").strip():
+        viejo = str(fila.get("notas", "") or "").strip()
+        nuevo_pref = str(preferencias).strip()[:150]
+        if nuevo_pref.lower() not in viejo.lower():
+            nuevos["notas"] = (
+                (viejo + "; " + nuevo_pref).strip("; ")[:300] if viejo else nuevo_pref
+            )
+    if not nuevos:
+        return
+    valores = [
+        nuevos.get("resumen_conversacion", str(fila.get("resumen_conversacion", "") or "")),
+        nuevos.get("intereses", str(fila.get("intereses", "") or "")),
+        str(fila.get("calificacion", "") or ""),
+        nuevos.get("proxima_accion", str(fila.get("proxima_accion", "") or "")),
+        nuevos.get("notas", str(fila.get("notas", "") or "")),
+    ]
+    servicio = _servicio_sheets()
+    servicio.values().update(
+        spreadsheetId=settings.sheet_id,
+        range=f"Clientes!K{numero_fila}:O{numero_fila}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [valores]},
+    ).execute()
+    _invalidar_cache("Clientes")
+
+
 # --- Propuestas de cita (v2.5): que sobrevivan a un reinicio ---
 # Las propuestas vivían solo en la memoria del servidor: si Render se
 # reiniciaba de noche, el cliente tocaba Confirmar y el robot ya no
 # sabía de qué cita hablaba. Ahora viven también en la pestaña
 # Propuestas (una fila por teléfono, se borra al confirmarse).
-# Columnas: telefono, nombre, motivo, fecha_cita, fecha_bonita, creado_en.
+# Columnas: telefono, nombre, motivo, fecha_cita, fecha_bonita, creado_en,
+# apartado (v3.2: "si" si le apartaron el lugar), aparta_hasta (hasta cuándo).
 _COLUMNAS_PROPUESTA = ["telefono", "nombre", "motivo", "fecha_cita",
-                       "fecha_bonita", "creado_en"]
+                       "fecha_bonita", "creado_en", "apartado", "aparta_hasta"]
 
 
 def registrar_diagnostico(fecha, componente: str, estado: str, detalle: str,
@@ -373,7 +430,7 @@ def guardar_propuesta(telefono: str, propuesta: dict) -> None:
             servicio = _servicio_sheets()
             servicio.values().update(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:F{i + 2}",
+                range=f"Propuestas!A{i + 2}:H{i + 2}",
                 valueInputOption="USER_ENTERED",
                 body={"values": [fila_dato]},
             ).execute()
@@ -389,7 +446,7 @@ def borrar_propuesta(telefono: str) -> None:
             servicio = _servicio_sheets()
             servicio.values().clear(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:F{i + 2}",
+                range=f"Propuestas!A{i + 2}:H{i + 2}",
             ).execute()
             _invalidar_cache("Propuestas")
             return

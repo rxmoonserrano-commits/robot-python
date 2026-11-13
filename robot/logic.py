@@ -45,6 +45,41 @@ BOTONES_CITA = [
 # servidor se reinicia, se recuperan al arrancar (ver cargar_propuestas).
 _CITAS_PENDIENTES: dict[str, dict] = {}
 
+def _contiene_aparto(texto: str) -> bool:
+    """¿La respuesta le aparta el lugar al cliente?
+
+    (v3.2) La frase del guion es "Te aparto el lugar hasta mañana sin
+    compromiso". Si el robot la dice y hay una propuesta activa, el
+    apartado queda guardado, para que lo recuerde cuando vuelva.
+    """
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto))
+    normal = re.sub(r"\s+", " ", normal).strip()
+    return ("aparto el lugar" in normal or "te lo aparto" in normal
+            or "lugar apartado" in normal)
+
+
+def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgente) -> None:
+    """Guarda lo que el agente aprendió del cliente (v3.2). Best-effort.
+
+    La respuesta ya se mandó (o se está mandando): si la hoja falla,
+    la memoria se pierde en silencio, pero el cliente nunca se queda
+    sin respuesta por culpa de la memoria.
+    """
+    if not any([respuesta.resumen_cliente, respuesta.interes_cliente,
+                respuesta.proxima_accion, respuesta.preferencias]):
+        return
+    guardar = getattr(deps, "guardar_memoria_cliente", None)
+    if guardar is None:
+        return
+    try:
+        guardar(telefono, resumen=respuesta.resumen_cliente,
+                interes=respuesta.interes_cliente,
+                proxima_accion=respuesta.proxima_accion,
+                preferencias=respuesta.preferencias)
+    except Exception:
+        pass
+
+
 def _guardar_propuesta(deps: Dependencias, telefono: str, propuesta: dict) -> None:
     """Guarda una propuesta en memoria Y en la hoja (v2.5).
 
@@ -525,6 +560,10 @@ class Dependencias:
     def leer_propuestas(self) -> list[dict]:
         """Todas las propuestas guardadas en la hoja (para recuperarlas al arrancar)."""
         return []
+    def guardar_memoria_cliente(self, telefono: str, resumen: str = "", interes: str = "",
+                                proxima_accion: str = "", preferencias: str = "") -> None:
+        """Guarda lo que se aprendió del cliente en Clientes (v3.2). Por defecto: nada."""
+        ...
     def leer_conocimiento(self) -> list[dict]: ...
     def leer_fotos(self) -> list[dict]: ...
     def leer_historial(self, telefono: str) -> list[dict]: ...
@@ -741,6 +780,15 @@ def atender_mensaje(
             f"{propuesta_activa.get('fecha_bonita', '')}: si te pregunta por ella, "
             "recuérdale esa fecha; si dice que le va, confirma; si prefiere otra, pregunta cuál."
         )
+        # (v3.2) Memoria de apartados: si le apartaron el lugar, el
+        # robot tiene que recordarlo cuando el cliente vuelva, no
+        # ofrecerle otra cosa como si nada hubiera pasado.
+        if str(propuesta_activa.get("apartado", "") or "").strip().lower() == "si":
+            contexto.append(
+                "Le apartaste el lugar hasta "
+                f"{propuesta_activa.get('aparta_hasta', 'mañana')}: si escribe, "
+                "recuérdale que su lugar sigue apartado."
+            )
     contexto.append("Responde su mensaje con calma, como una persona, usando tu criterio.")
     # (v2.13) Estado del cliente, calculado por código: la IA ya no
     # tiene que deducir en qué va la conversación leyendo las filas
@@ -753,6 +801,25 @@ def atender_mensaje(
     estado = estado_cliente(
         historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre
     )
+    # (v3.2) Memoria del cliente: lo que el robot aprendió en
+    # conversaciones pasadas (resumen, intereses, pendientes,
+    # preferencias). Va ANTES de los últimos mensajes: así el robot
+    # recuerda de ayer y de la semana pasada, no solo de hace 5
+    # minutos. Solo se pone lo que hay: un campo vacío no se menciona.
+    memoria = []
+    if str(fila_cliente.get("resumen_conversacion", "") or "").strip():
+        memoria.append(f"Resumen de este cliente: {fila_cliente['resumen_conversacion']}")
+    if str(fila_cliente.get("intereses", "") or "").strip():
+        memoria.append(f"Le interesa: {fila_cliente['intereses']}")
+    if str(fila_cliente.get("proxima_accion", "") or "").strip():
+        memoria.append(f"Pendiente con este cliente: {fila_cliente['proxima_accion']}")
+    if str(fila_cliente.get("notas", "") or "").strip():
+        memoria.append(f"Prefiere: {fila_cliente['notas']}")
+    if memoria:
+        contexto.append(
+            "Lo que sabes de este cliente: " + " ".join(memoria)
+            + " Úsalo: no vuelvas a preguntar lo que ya sabes."
+        )
     mensaje_agente = (
         "[Contexto: " + " ".join(contexto) + "]\n"
         "[Estado del cliente: " + json.dumps(estado, ensure_ascii=False) + "]\n"
@@ -791,6 +858,19 @@ def atender_mensaje(
             )
             respuesta.respuesta_texto = texto_revisado
 
+    # (v3.2) Memoria de apartados: si la respuesta le aparta el lugar
+    # y hay una propuesta activa, el apartado queda guardado en la
+    # propuesta (memoria Y hoja), hasta mañana. Si el cliente vuelve,
+    # el contexto se lo recuerda al agente.
+    propuesta_activa = _CITAS_PENDIENTES.get(telefono)
+    if propuesta_activa and _contiene_aparto(respuesta.respuesta_texto):
+        manana = local_ahora + timedelta(days=1)
+        propuesta_activa["apartado"] = "si"
+        propuesta_activa["aparta_hasta"] = (
+            f"mañana {_DIAS_NOMBRE[manana.weekday()]} {manana.day}"
+        )
+        _guardar_propuesta(deps, telefono, propuesta_activa)
+
     # 7. Foto: solo si está en la lista blanca. Si no, se borra sin avisar al cliente.
     foto = respuesta.foto_oficial_url_or_null
     if not foto_es_oficial(foto, fotos):
@@ -816,6 +896,7 @@ def atender_mensaje(
             fecha, respuesta.nombre or nombre, telefono,
             respuesta.motivo or texto, "", "whatsapp", "en conversacion", "si",
         )
+        _guardar_memoria(deps, telefono, respuesta)
         return {"respondio": respuesta.falla_tecnica, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
@@ -877,6 +958,7 @@ def atender_mensaje(
             respuesta.motivo or texto, respuesta.fecha_cita,
             "whatsapp", "en conversacion", "no",
         )
+        _guardar_memoria(deps, telefono, respuesta)
         return {"respondio": True, "handoff": False, "cita_propuesta": True,
                 "fecha_cita": respuesta.fecha_cita}
 
@@ -905,6 +987,7 @@ def atender_mensaje(
             "calificado" if (respuesta.nombre or respuesta.motivo) else "en conversacion",
             "no",
         )
+    _guardar_memoria(deps, telefono, respuesta)
     return {"respondio": True, "handoff": False, "cita": None, "foto": bool(foto)}
 
 
