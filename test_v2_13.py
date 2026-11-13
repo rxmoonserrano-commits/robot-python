@@ -205,8 +205,8 @@ def main():
     texto, v = revisar_respuesta(
         "Con gusto te atiendo, ahorita ya cerramos pero abrimos mañana.",
         {"etapa": "saludo"})
-    caso("(b) R3: 'ya cerramos' se cambia por 'la clínica cerró, yo te atiendo'",
-         "la clínica ya cerró por hoy, pero yo te atiendo igual" in texto.lower()
+    caso("(b) R3: 'ya cerramos' se cambia por 'el negocio cerró, yo te atiendo'",
+         "el negocio ya cerró por hoy, pero yo te atiendo igual" in texto.lower()
          and "ya cerramos" not in texto.lower() and v == ["R3"],
          f"salió: {texto!r}")
     texto, v = revisar_respuesta(

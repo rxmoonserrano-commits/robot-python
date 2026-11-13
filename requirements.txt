@@ -7,3 +7,5 @@ python-dotenv==1.0.*
 google-api-python-client==2.150.*
 google-auth==2.36.*
 apscheduler==3.10.*
+# Para los formularios (la página /pausa del dueño).
+python-multipart==0.0.*

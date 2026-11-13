@@ -6,20 +6,25 @@ Cuando las 10 pasen, ahí sí puedes decir que funciona. Antes no.
 Primero, lo rápido y sin internet:
 
 ```bash
-python test_simulado.py   # 23 casos de la v1
-python test_v2.py         # 21 casos nuevos de la v2
+python instalar.py --check   # todo: 197 pruebas + el servidor arranca
 ```
 
-Deben salir 44 casos en PASS entre los dos. Si alguno sale FAIL, el
-problema está en la lógica, no en tus claves: no sigas hasta que salga
-todo en verde.
+Deben salir 197 casos en PASS. Si alguno sale FAIL, el problema está
+en la lógica, no en tus claves: no sigas hasta que salga todo en verde.
+Y antes de desplegar, corre las conversaciones doradas (con tu clave):
+
+```bash
+GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py
+```
+
+Si una dorada falla, esa versión no se sube.
 
 ## Las pruebas nuevas de la versión 2 (ya con claves reales)
 
 | # | Prueba | Cómo hacerla | Qué debe pasar |
 |---|---|---|---|
 | 11 | Visto y "escribiendo..." | Manda un mensaje al número de prueba | Ves las palomitas azules y "escribiendo..." antes de que llegue la respuesta |
-| 12 | Esperar y juntar | Manda 3 mensajes seguidos, rápido | El robot espera ~7 segundos y contesta UNA sola vez, con todo junto |
+| 12 | Esperar y juntar | Manda 3 mensajes seguidos, rápido | El robot espera ~15 segundos y contesta UNA sola vez, con todo junto |
 | 13 | Ritmo humano | Pide que te cuente todo (respuesta larga) | Llegan 2 mensajes cortos, con una pausita, no un muro de texto |
 | 14 | Botones de la cita | Pide una cita con nombre, motivo y fecha | Llegan los botones Confirmar / Cambiar hora / Hablar con una persona (la cita NO se crea todavía) |
 | 15 | Confirmar | Toca Confirmar | Llega la confirmación con día, hora y duración, y la cita aparece en Calendar |
@@ -44,9 +49,10 @@ antes. Lo único programado es el reporte por correo del lunes.
 | 5 | Pregunta imposible | Pregunta un precio que NO está en Conocimiento | El robot dice que no lo sabe y ofrece pasar a una persona |
 | 6 | Agendar | Pide agendar con nombre, motivo y fecha | Se crea la cita en Google Calendar y dura 60 minutos (no 0) |
 | 7 | Handoff | Pide "quiero hablar con una persona" | Llega el correo de alerta al dueño y el robot deja de contestar |
-| 8 | Pausa humana | Tú le escribes al cliente por WhatsApp y luego manda otro mensaje | El robot se calla 2 horas; después retoma con el historial |
+| 8 | Pausa humana | Tú le escribes al cliente por WhatsApp, abres la página de pausa (`/pausa?token=TU_CLAVE`) y pones su teléfono | El robot se calla 2 horas; después retoma con el historial |
 | 9 | Foto | Pide una foto del negocio | Solo llega una foto de la lista blanca; si el agente propone otra, no se manda |
-| 10 | Reporte semanal | `python reporte_semanal.py` o `POST /reporte-semanal` | Llega el correo con los contadores reales de los últimos 7 días y queda una fila en Reporte |
+| 10 | Reporte semanal | `python reporte_semanal.py` o `POST /reporte-semanal` con la clave de dueño | Llega el correo con los contadores reales de los últimos 7 días y queda una fila en Reporte |
+| 11 | Salud al arrancar | Despliega y abre la pestaña Diagnóstico de la hoja | Se ven las 8 revisiones (Gemini, Sheets, Calendar, WhatsApp, Gmail, correo del dueño, clave de dueño, firma de Meta) en OK o AVISO, sin FALLO |
 
 ## Si algo falla, lee esto primero
 
@@ -60,7 +66,7 @@ antes. Lo único programado es el reporte por correo del lunes.
 | No llega el correo | Falta `GMAIL_APP_PASSWORD` o no es una contraseña de aplicación (no es tu clave de Google) |
 | La cita no se crea | La hora ya estaba ocupada, o el calendario no está compartido con la cuenta de servicio |
 | No sale "escribiendo..." | El robot solo lo muestra cuando va a contestar: revisa que `bot_activo` sea SI y que no haya pausa humana |
-| El robot contesta mensaje por mensaje | La espera de 7 s es por teléfono: si escribes desde otro número, es otro buzón |
+| El robot contesta mensaje por mensaje | La espera de 15 s es por teléfono: si escribes desde otro número, es otro buzón |
 | Los botones no llegan | Los botones solo salen al proponer una cita; fuera de la ventana de 24 h Meta los rechaza |
 
 ## Qué NO probar todavía

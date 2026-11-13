@@ -13,11 +13,24 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      # Modelos vigentes (v3.0): antes no estaban aquí y el código usaba
+      # sus valores por defecto. Explícitos, para que se vean en Render.
+      - key: GEMINI_MODEL
+        value: gemini-4-hydrogen
+      - key: GEMINI_MODEL_FALLBACK
+        value: gemini-3.8-flash
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: VERIFY_TOKEN
+        sync: false
+      # (v3.0) Secreto de la app de Meta: verifica la firma del webhook.
+      - key: META_APP_SECRET
+        sync: false
+      # (v3.0) Clave de dueño: protege /pausa y /reporte-semanal.
+      # La crea el instalador (muestra el valor una sola vez).
+      - key: ADMIN_TOKEN
         sync: false
       - key: OWNER_EMAIL
         sync: false
@@ -25,6 +38,13 @@ services:
         sync: false
       - key: GMAIL_APP_PASSWORD
         sync: false
+      # (v3.0) Perfil del negocio: qué dice el robot de quién es.
+      - key: NEGOCIO_NOMBRE
+        sync: false
+      - key: NEGOCIO_TIPO
+        value: una clínica
+      - key: RECEPCIONISTA_NOMBRE
+        value: Ana
       - key: GOOGLE_SHEETS_ID
         value: 1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo
       - key: GOOGLE_CREDENTIALS_JSON

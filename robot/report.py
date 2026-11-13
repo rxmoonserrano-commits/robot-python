@@ -31,6 +31,9 @@ def generar_reporte_semanal() -> dict:
         ", ".join(f"{m} ({n})" for m, n in conteo["motivos_top"])
         or "sin motivos registrados"
     )
+    # (v3.0) json_mode=False: el resumen es PROSA, no JSON. En la v2.13
+    # generar_texto pedía JSON siempre y el correo del lunes llegaba
+    # con el texto envuelto en llaves.
     resumen = generar_texto(
         "Escribe un resumen semanal corto y elegante para el dueño de un negocio, "
         "en español, con calma y sin exagerar. Usa SOLO estos datos, no inventes nada. "
@@ -41,7 +44,8 @@ def generar_reporte_semanal() -> dict:
         f"Citas agendadas: {conteo['citas_agendadas']}\n"
         f"Casos pasados a una persona: {conteo['handoffs']}\n"
         f"Mensajes sin responder porque una persona atendía: {conteo['sin_respuesta_por_humano']}\n"
-        f"Motivos más comunes: {motivos}"
+        f"Motivos más comunes: {motivos}",
+        json_mode=False,
     )
 
     cuerpo = (

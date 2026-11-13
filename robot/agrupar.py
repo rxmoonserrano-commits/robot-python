@@ -24,6 +24,8 @@ del temporizador. Así Meta nunca espera.
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 
 # Cuántos wamids se guardan en memoria antes de limpiar la lista.
@@ -35,17 +37,81 @@ _MAX_VISTOS = 5000
 class Agrupador:
     """Buzón por teléfono con temporizador. Hilo-seguro."""
 
-    def __init__(self, callback, espera_segundos: float = 15.0):
+    def __init__(self, callback, espera_segundos: float = 15.0, archivo: str | None = None):
         """callback(telefono, nombre, textos, wamids): qué hacer con el lote.
 
         textos: lista de textos en orden. wamids: sus ids de WhatsApp.
+        archivo: si se da, el buzón se guarda ahí en disco (lotes
+        pendientes + wamids ya vistos) cada vez que cambia, y se
+        recupera con cargar(). (v3.0) Antes todo vivía solo en
+        memoria: si el servidor se reiniciaba a mitad de un lote,
+        esos mensajes se perdían (Meta ya había recibido el 200).
+        El archivo es un respaldo, no una base de datos: un despliegue
+        nuevo lo borra, pero un reinicio del mismo despliegue no.
         """
         self.callback = callback
         self.espera_segundos = espera_segundos
+        self.archivo = archivo
         self._candado = threading.Lock()
         self._pendientes: dict[str, dict] = {}
         self._vistos: set[str] = set()
         self._procesando: set[str] = set()
+
+    def _guardar(self) -> None:
+        """Escribe el buzón en disco (escritura atómica). Best-effort."""
+        if not self.archivo:
+            return
+        try:
+            with self._candado:
+                datos = {
+                    "pendientes": {
+                        tel: {"textos": list(b["textos"]), "wamids": list(b["wamids"]),
+                              "nombre": b["nombre"]}
+                        for tel, b in self._pendientes.items()
+                    },
+                    "vistos": list(self._vistos)[:_MAX_VISTOS],
+                }
+            tmp = self.archivo + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as archivo:
+                json.dump(datos, archivo)
+            os.replace(tmp, self.archivo)
+        except Exception:
+            pass  # el buzón en disco es un respaldo; el de memoria sigue
+
+    def cargar(self) -> int:
+        """Recupera del disco los lotes que quedaron pendientes.
+
+        Se llama al arrancar el servidor (no en __init__, para que
+        importar el módulo no procese mensajes solo). Cada lote
+        recuperado se procesa cuando se acabe la espera, como si
+        acabara de llegar. Devuelve cuántos lotes se recuperaron.
+        """
+        if not self.archivo or not os.path.exists(self.archivo):
+            return 0
+        try:
+            with open(self.archivo, encoding="utf-8") as archivo:
+                datos = json.load(archivo)
+        except Exception:
+            return 0
+        restaurados = 0
+        with self._candado:
+            for telefono, buzon in (datos.get("pendientes") or {}).items():
+                if not buzon.get("textos"):
+                    continue
+                self._pendientes[telefono] = {
+                    "textos": list(buzon["textos"]),
+                    "wamids": list(buzon.get("wamids", [])),
+                    "nombre": buzon.get("nombre", ""),
+                    "timer": None,
+                }
+                timer = threading.Timer(self.espera_segundos, self._disparar, args=(telefono,))
+                timer.daemon = True
+                self._pendientes[telefono]["timer"] = timer
+                timer.start()
+                restaurados += 1
+            for wamid in (datos.get("vistos") or []):
+                self._vistos.add(wamid)
+        return restaurados
 
     def agregar(self, telefono: str, texto: str, wamid: str = "", nombre: str = "") -> bool:
         """Mete un mensaje en el buzón. Devuelve False si es un duplicado.
@@ -76,7 +142,8 @@ class Agrupador:
             timer.daemon = True
             buzon["timer"] = timer
             timer.start()
-            return True
+        self._guardar()
+        return True
 
     def procesar_ahora(self, telefono: str) -> bool:
         """Procesa el buzón de un teléfono ya, sin esperar. Para pruebas.
@@ -111,6 +178,7 @@ class Agrupador:
                 return
             self._procesando.add(telefono)
             textos, wamids, nombre = buzon["textos"], buzon["wamids"], buzon["nombre"]
+        self._guardar()
         try:
             self.callback(telefono, nombre, textos, wamids)
         finally:

@@ -1,5 +1,41 @@
 # DESPLEGAR — Poner el robot en internet (gratis)
 
+## Versión 3.0 — qué cambió al actualizar
+
+Para actualizar un robot ya desplegado: sube el código nuevo a GitHub
+y en Render dale a **Manual Deploy > Deploy latest commit**. No hay
+que tocar Meta ni el webhook. Pero hay **dos variables nuevas** que
+poner en Render (Environment) antes o después del deploy:
+
+- **`ADMIN_TOKEN`** — la clave de dueño, que el instalador genera y
+  muestra una sola vez (corre `python instalar.py` en tu Mac y
+  cópiala). Sin ella, `/pausa` y `/reporte-semanal` están cerrados.
+  Guarda la página de pausa en tu teléfono:
+  `https://TU-DIRECCION.onrender.com/pausa?token=TU_CLAVE`
+- **`META_APP_SECRET`** — el secreto de la app de Meta (Meta for
+  Developers → tu app → Configuración básica → Secreto de la app →
+  Mostrar). Con él, el robot verifica que cada webhook venga de Meta
+  de verdad. Sin él, el webhook acepta igual, y la revisión de salud
+  lo avisa en Diagnóstico.
+
+También nuevo en la v3.0: al arrancar, el robot revisa su salud y la
+escribe en la pestaña **Diagnóstico** de la hoja (Gemini, Sheets,
+Calendar, token de WhatsApp, Gmail, claves). Mírala después del
+primer deploy: si algo dice FALLO, ahí está el error exacto.
+
+**Sigue pendiente (solo lo puede hacer Jose):**
+- **Token permanente de WhatsApp.** El temporal dura 24 horas; al
+  vencerse, el robot deja de contestar (error 401 en Diagnóstico y en
+  los Logs). Sácalo en Meta y ponlo en Render como `WHATSAPP_TOKEN`.
+- **Contraseña de aplicación de Gmail.** Sin ella no llegan los
+  correos de handoff ni el reporte semanal del lunes. El robot
+  contesta igual, pero esos correos no llegan. Pon `GMAIL_USER` y
+  `GMAIL_APP_PASSWORD` en Render (Environment) y redeploya.
+- **Calendario del dueño.** Comparte el calendario del negocio con
+  el correo de la cuenta de servicio (Editor) y pon su ID en
+  `CALENDAR_ID` en Render, en vez de `primary`. Si no, las citas
+  caen en el calendario del robot y no se ven en tu app.
+
 El robot tiene que estar prendido 24/7 para contestar WhatsApp. En tu
 computadora solo vive mientras tú la tienes prendida. Por eso se
 despliega en un servicio gratis: ahí vive solo, y Meta le manda los
@@ -15,8 +51,9 @@ mensajes a su dirección pública.
 4. En el panel del servicio, pestaña **Environment**, pon las mismas
    variables que pusiste en tu `.env` (GEMINI_API_KEY, WHATSAPP_TOKEN,
    WHATSAPP_PHONE_NUMBER_ID, VERIFY_TOKEN, OWNER_EMAIL, GMAIL_USER,
-   GMAIL_APP_PASSWORD). Las que dicen `sync: false` en `render.yaml`
-   son justo esas: Render te las pide a ti.
+   GMAIL_APP_PASSWORD, ADMIN_TOKEN, META_APP_SECRET). Las que dicen
+   `sync: false` en `render.yaml` son justo esas: Render te las pide
+   a ti.
 5. El archivo de la cuenta de servicio de Google (`credenciales-google.json`)
    no se sube al repositorio. Súbelo en Render como **Secret File** con
    ese mismo nombre, o pega su contenido en la variable
@@ -59,7 +96,7 @@ Solo sirve mientras tu computadora está prendida y ngrok corriendo.
 
 1. Manda un WhatsApp al número de prueba de Meta.
 2. Debes ver las palomitas azules y "escribiendo..." en segundos.
-3. Manda 3 mensajes seguidos: el robot espera ~7 segundos y contesta
+3. Manda 3 mensajes seguidos: el robot espera ~15 segundos y contesta
    una sola vez, con todo junto.
 4. Pide una cita: te llegan los botones Confirmar / Cambiar hora /
    Hablar con una persona. Toca Confirmar y revisa Calendar.

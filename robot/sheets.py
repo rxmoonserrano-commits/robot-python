@@ -14,11 +14,15 @@ se descarga su archivo JSON y se comparte la hoja con su correo
 
 from __future__ import annotations
 
+import threading
+import time
+
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from .config import settings
+from .registro import error as log_error
 
 # Permisos mínimos: leer y escribir en Sheets, y ver/crear citas en Calendar.
 SCOPES = [
@@ -42,11 +46,37 @@ def _servicio_sheets():
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
 
+# --- Caché de lectura (v3.0) ---
+# Antes, cada mensaje hacía unas 8-12 llamadas a Google: Clientes se
+# leía tres veces (interruptor, fila del cliente, upsert) y
+# Conversaciones dos, cada una abriendo su propia conexión. Lento, y
+# con techo de cuota si el negocio crece. Ahora cada pestaña se guarda
+# 10 segundos en memoria: todas las lecturas de un mismo mensaje
+# comparten UNA llamada. 10 s es seguro: un mensaje se atiende en
+# segundos, y cualquier escritura (agregar, actualizar, borrar) borra
+# la caché de su pestaña al momento. Nadie lee datos viejos de más
+# de 10 segundos, y nadie lee lo que el propio robot acaba de escribir.
+_CACHE_TTL_SEGUNDOS = 10.0
+_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _invalidar_cache(pestana: str) -> None:
+    """Borra la caché de una pestaña (después de escribir en ella)."""
+    with _CACHE_LOCK:
+        _CACHE.pop(pestana, None)
+
+
 def leer_pestana(pestana: str) -> list[dict]:
     """Lee una pestaña y la devuelve como lista de filas (dict por columna).
 
     La primera fila son los encabezados. Las filas vacías se ignoran.
+    Las lecturas se comparten 10 s en caché (ver arriba).
     """
+    with _CACHE_LOCK:
+        guardado = _CACHE.get(pestana)
+        if guardado and time.monotonic() - guardado[0] < _CACHE_TTL_SEGUNDOS:
+            return list(guardado[1])
     servicio = _servicio_sheets()
     resultado = (
         servicio.values()
@@ -55,14 +85,17 @@ def leer_pestana(pestana: str) -> list[dict]:
     )
     valores = resultado.get("values", [])
     if not valores:
-        return []
-    encabezados = [h.strip() for h in valores[0]]
-    filas = []
-    for fila in valores[1:]:
-        if not any(str(c).strip() for c in fila):
-            continue
-        filas.append({h: (fila[i] if i < len(fila) else "") for i, h in enumerate(encabezados)})
-    return filas
+        filas: list[dict] = []
+    else:
+        encabezados = [h.strip() for h in valores[0]]
+        filas = []
+        for fila in valores[1:]:
+            if not any(str(c).strip() for c in fila):
+                continue
+            filas.append({h: (fila[i] if i < len(fila) else "") for i, h in enumerate(encabezados)})
+    with _CACHE_LOCK:
+        _CACHE[pestana] = (time.monotonic(), filas)
+    return list(filas)
 
 
 def agregar_fila(pestana: str, fila: list[str]) -> None:
@@ -74,6 +107,7 @@ def agregar_fila(pestana: str, fila: list[str]) -> None:
         valueInputOption="USER_ENTERED",
         body={"values": [fila]},
     ).execute()
+    _invalidar_cache(pestana)
 
 
 # --- Lecturas que usa el robot, una por pestaña ---
@@ -100,6 +134,7 @@ def actualizar_ultima_respuesta_humana(fecha_iso: str) -> None:
         valueInputOption="USER_ENTERED",
         body={"values": [[fecha_iso]]},
     ).execute()
+    _invalidar_cache("Control")
 
 
 def leer_conocimiento() -> list[dict]:
@@ -151,6 +186,7 @@ def cancelar_cita_cliente(telefono: str) -> None:
         valueInputOption="USER_ENTERED",
         body={"values": [[ "", existente.get("origen", "whatsapp"), "en conversacion" ]]},
     ).execute()
+    _invalidar_cache("Clientes")
 
 
 def leer_historial(telefono: str, limite: int = 20) -> list[dict]:
@@ -223,19 +259,14 @@ def _fila_cliente_por_telefono(telefono: str) -> tuple[int, dict] | None:
     """Busca un teléfono en Clientes. Devuelve (número de fila, fila) o None.
 
     La fila 1 son los encabezados, así que la primera fila de datos es la 2.
+    (v3.0) Lee por leer_pestana, que comparte la caché: antes hacía su
+    propia llamada a la hoja, así que Clientes se leía una vez más por
+    cada mensaje.
     """
-    servicio = _servicio_sheets()
-    resultado = (
-        servicio.values()
-        .get(spreadsheetId=settings.sheet_id, range="Clientes!A2:H1000")
-        .execute()
-    )
-    for i, fila in enumerate(resultado.get("values", [])):
-        if len(fila) < 3:
-            continue
-        if str(fila[2]).strip() == str(telefono).strip():
-            completa = list(fila) + [""] * (8 - len(fila))
-            return i + 2, dict(zip(_COLUMNAS_CLIENTES, completa))
+    for i, fila in enumerate(leer_pestana("Clientes")):
+        if str(fila.get("telefono", "")).strip() == str(telefono).strip():
+            completa = {k: str(fila.get(k, "") or "") for k in _COLUMNAS_CLIENTES}
+            return i + 2, completa
     return None
 
 
@@ -276,6 +307,7 @@ def registrar_cliente(
         valueInputOption="USER_ENTERED",
         body={"values": [fusionada]},
     ).execute()
+    _invalidar_cache("Clientes")
 
 
 # --- Propuestas de cita (v2.5): que sobrevivan a un reinicio ---
@@ -306,7 +338,7 @@ def registrar_diagnostico(fecha, componente: str, estado: str, detalle: str,
             str(telefono), str(contexto)[:300],
         ])
     except Exception as exc:  # noqa: BLE001 - el diagnóstico nunca rompe nada
-        print(f"[diagnostico] No pude escribir en la hoja: {exc}")
+        log_error(f"[diagnostico] No pude escribir en la hoja: {exc}")
 
 
 def leer_propuestas() -> list[dict]:
@@ -318,41 +350,37 @@ def leer_propuestas() -> list[dict]:
 
 
 def guardar_propuesta(telefono: str, propuesta: dict) -> None:
-    """Guarda o actualiza la propuesta de un teléfono (una fila por teléfono)."""
-    servicio = _servicio_sheets()
-    resultado = (
-        servicio.values()
-        .get(spreadsheetId=settings.sheet_id, range="Propuestas!A2:F1000")
-        .execute()
-    )
+    """Guarda o actualiza la propuesta de un teléfono (una fila por teléfono).
+
+    (v3.0) Busca por leer_pestana, que comparte la caché: antes hacía
+    su propia llamada a la hoja.
+    """
     fila_dato = [str(propuesta.get(c, "") or "") for c in _COLUMNAS_PROPUESTA]
     fila_dato[0] = str(telefono)
-    for i, fila in enumerate(resultado.get("values", [])):
-        if fila and str(fila[0]).strip() == str(telefono).strip():
+    for i, fila in enumerate(leer_pestana("Propuestas")):
+        if str(fila.get("telefono", "")).strip() == str(telefono).strip():
+            servicio = _servicio_sheets()
             servicio.values().update(
                 spreadsheetId=settings.sheet_id,
                 range=f"Propuestas!A{i + 2}:F{i + 2}",
                 valueInputOption="USER_ENTERED",
                 body={"values": [fila_dato]},
             ).execute()
+            _invalidar_cache("Propuestas")
             return
     agregar_fila("Propuestas", fila_dato)
 
 
 def borrar_propuesta(telefono: str) -> None:
     """Borra la propuesta de un teléfono (se confirmó, se cambió o se canceló)."""
-    servicio = _servicio_sheets()
-    resultado = (
-        servicio.values()
-        .get(spreadsheetId=settings.sheet_id, range="Propuestas!A2:F1000")
-        .execute()
-    )
-    for i, fila in enumerate(resultado.get("values", [])):
-        if fila and str(fila[0]).strip() == str(telefono).strip():
+    for i, fila in enumerate(leer_pestana("Propuestas")):
+        if str(fila.get("telefono", "")).strip() == str(telefono).strip():
+            servicio = _servicio_sheets()
             servicio.values().clear(
                 spreadsheetId=settings.sheet_id,
                 range=f"Propuestas!A{i + 2}:F{i + 2}",
             ).execute()
+            _invalidar_cache("Propuestas")
             return
 
 

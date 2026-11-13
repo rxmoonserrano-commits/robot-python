@@ -20,7 +20,9 @@ R2. NO OFRECER EN UN SALUDO: si la etapa es "saludo" (el cliente solo
     de la oferta; si no queda nada, se saluda y se pregunta qué necesita.
 R3. DE NOCHE, EL ROBOT NO CIERRA: si la respuesta dice "ya cerramos"
     o "ahora estamos cerrados" como si el robot cerrara, se cambia por
-    "la clínica ya cerró por hoy, pero yo te atiendo igual".
+    la frase de cierre del perfil del negocio (robot/negocio.py):
+    "El negocio ya cerró por hoy, pero yo te atiendo igual", o "En
+    <nombre> ya cerraron por hoy..." si el negocio tiene nombre.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -33,6 +35,8 @@ Reglas puras, sin internet: se prueban solas en test_v2_13.py.
 from __future__ import annotations
 
 import re
+
+from .negocio import frase_cierre
 
 # Frases que son una oferta de cita (nueva). Ojo: "Te aparto el lugar
 # hasta mañana sin compromiso" NO es una oferta nueva: es aguantar la
@@ -51,7 +55,9 @@ _CERRAMOS_RE = re.compile(
     re.IGNORECASE,
 )
 
-_FRASE_CIERRE = "la clínica ya cerró por hoy, pero yo te atiendo igual"
+# La frase de cierre sale del perfil del negocio (v3.0): antes estaba
+# escrita a mano aquí ("la clínica...") y el robot genérico se la
+# decía a cualquier negocio. Ver robot/negocio.py: frase_cierre().
 
 
 def _es_oferta(oracion: str) -> bool:
@@ -108,7 +114,7 @@ def revisar_respuesta(
 
     # R3 primero: la frase de cierre, se cambie lo que se cambie después.
     if _CERRAMOS_RE.search(texto):
-        texto = _CERRAMOS_RE.sub(_FRASE_CIERRE, texto)
+        texto = _CERRAMOS_RE.sub(frase_cierre(), texto)
         violaciones.append("R3")
 
     # R1/R2: quitar la frase de la oferta cuando no toca.

@@ -71,9 +71,28 @@ class Settings:
     reporte_hora: int = int(os.getenv("REPORTE_HORA", "8"))
     reporte_minuto: int = int(os.getenv("REPORTE_MINUTO", "0"))
 
-    # --- Versión 2: calidad Apple ---
-    # Nombre del negocio (opcional, solo para los mensajes).
+    # --- Perfil del negocio (v3.0): que el robot hable del negocio de verdad ---
+    # Nombre del negocio (opcional): si está, la recepcionista lo usa
+    # ("En Clínica Dental Sonrisa ya cerraron por hoy..."); si no,
+    # dice "el negocio". Antes este dato existía pero nadie lo usaba.
     negocio_nombre: str = os.getenv("NEGOCIO_NOMBRE", "")
+    # Tipo de negocio, CON artículo ("una clínica", "un restaurante",
+    # "un taller"): le dice a la IA de qué negocio es recepcionista.
+    # Por defecto, la clínica ficticia de las pruebas; cámbialo al
+    # desplegar para un negocio real.
+    negocio_tipo: str = os.getenv("NEGOCIO_TIPO", "una clínica")
+    # Nombre de la recepcionista (la persona que es el robot).
+    recepcionista_nombre: str = os.getenv("RECEPCIONISTA_NOMBRE", "Ana")
+
+    # --- Seguridad (v3.0) ---
+    # Clave para /pausa y /reporte-semanal: sin ella, esos endpoints
+    # están cerrados (antes cualquiera podía silenciar el robot).
+    # La crea el instalador; en Render va como variable de entorno.
+    admin_token: str = os.getenv("ADMIN_TOKEN", "")
+    # Secreto de la app de Meta (Meta for Developers → tu app → Configuración
+    # básica → Secreto de la app): verifica la firma de cada webhook.
+    # Si está vacío, el webhook acepta sin verificar y lo avisa al arrancar.
+    meta_app_secret: str = os.getenv("META_APP_SECRET", "")
     # Segundos que el robot espera, después del ÚLTIMO mensaje del cliente,
     # antes de contestar. Si llega otro mensaje, el contador se reinicia.
     # Así lee todo junto en vez de contestar mensaje por mensaje.

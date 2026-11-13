@@ -18,8 +18,23 @@ import re
 from dataclasses import dataclass
 
 from .gemini import generar_texto, ultimo_modelo
+from .negocio import frase_cierre, nombre_negocio, nombre_recepcionista, tipo_negocio
 
-GUION = """Te llamas Ana, eres la recepcionista del negocio. Atiendes por
+
+def _construir_guion() -> str:
+    """El guion, con el perfil del negocio (v3.0).
+
+    Antes el guion decía "Ana" y "la clínica" a mano: el robot
+    genérico hablaba como una clínica aunque fuera un restaurante.
+    Ahora el nombre, el giro y la frase de noche salen del perfil
+    (robot/negocio.py). Si cambias el perfil, llama a guion() de
+    nuevo para reconstruirlo.
+    """
+    recep = nombre_recepcionista()
+    nombre = nombre_negocio()
+    # El tipo ya trae su artículo ("una clínica", "un restaurante").
+    de_negocio = f"de {nombre}" if nombre else f"de {tipo_negocio()}"
+    return f"""Te llamas {recep}, eres la recepcionista {de_negocio}. Atiendes por
 WhatsApp, solo con texto, nunca con audio. Español mexicano, cálido y
 corto, siempre a la orden: "Claro que sí", "Con gusto", "Quedamos a tus
 órdenes". Frases cortas, una idea por mensaje.
@@ -48,7 +63,7 @@ fue tu último mensaje. Decide según la etapa:
   el precio.
 De noche: el negocio está cerrado, tú no. Atiende igual y deja la cita
 para la próxima apertura. Nunca digas "ya cerramos".
-Di: "La clínica ya cerró por hoy, pero yo te atiendo igual".
+Di: "{frase_cierre()}".
 
 Cómo hablas (ejemplos):
 Cliente: "¿cuánto cuesta la limpieza?"
@@ -78,6 +93,20 @@ Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita.
 """
+
+
+def guion() -> str:
+    """El guion actual, reconstruido con el perfil de ahora.
+
+    Para las pruebas (que cambian el perfil) y para cuando el perfil
+    cambie sin reiniciar: reconstruye el guion con los datos de ahora.
+    """
+    return _construir_guion()
+
+
+# El guion que se le manda a Gemini. Se construye al arrancar, con el
+# perfil del negocio de la configuración.
+GUION = _construir_guion()
 
 
 @dataclass

@@ -29,22 +29,28 @@ cliente recibe igual su respuesta de WhatsApp, sin duplicados.
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from robot import booking, gemini, mail, sheets, whatsapp
+from robot import booking, gemini, mail, salud, seguridad, sheets, whatsapp
 from robot.agent import preguntar_agente
 from robot.agrupar import Agrupador
 from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
+from robot.registro import aviso, configurar as configurar_registro, error, info
 from robot.report import generar_reporte_semanal
 
-app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.6.0")
+configurar_registro()
+
+VERSION = "3.0.0"
+app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
 # --- Las dependencias reales: conectan la lógica con Google, Gemini y WhatsApp ---
@@ -110,7 +116,7 @@ class DependenciasReales(Dependencias):
         try:
             mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
-            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     # --- Nuevos en la v2 ---
     def marcar_leido_y_escribiendo(self, message_id):
@@ -123,7 +129,7 @@ class DependenciasReales(Dependencias):
         try:
             mail.alerta_error(motivo, telefono, ultimo_mensaje, fecha)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
-            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     def registrar_diagnostico(self, fecha, componente, estado, detalle,
                               telefono="", contexto=""):
@@ -146,7 +152,7 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
     try:
         atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid)
     except Exception as exc:  # noqa: BLE001 - nunca dejar al cliente sin respuesta
-        print(f"[lote] Error atendiendo a {telefono}: {exc}")
+        error(f"[lote] Error atendiendo a {telefono}: {exc}")
         # (v2.5) El fallo queda VISIBLE en la hoja, no solo en el registro
         # del servidor: si el token de WhatsApp murió a las 3 am, el dueño
         # lo ve en Conversaciones en la mañana, aunque el correo falle.
@@ -162,7 +168,7 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
                 "no", motivo_fallo,
             )
         except Exception as exc4:  # noqa: BLE001 - la hoja también puede fallar
-            print(f"[lote] Tampoco pude registrar el fallo en la hoja: {exc4}")
+            error(f"[lote] Tampoco pude registrar el fallo en la hoja: {exc4}")
         # (v2.7) El fallo también queda en Diagnóstico, con el error exacto.
         sheets.registrar_diagnostico(
             datetime.now(timezone.utc), "whatsapp", "FALLO", str(exc)[:300],
@@ -176,16 +182,23 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
                 "Dame un momento, por favor. Estoy revisando tu mensaje y te atiendo enseguida.",
             )
         except Exception as exc2:  # noqa: BLE001
-            print(f"[lote] Tampoco pude avisar por WhatsApp a {telefono}: {exc2}")
+            error(f"[lote] Tampoco pude avisar por WhatsApp a {telefono}: {exc2}")
         try:
             mail.alerta_error(f"Error inesperado: {exc}", telefono, texto_unido,
                               datetime.now(timezone.utc).isoformat())
         except Exception as exc3:  # noqa: BLE001 - el correo nunca rompe WhatsApp
-            print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc3}")
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc3}")
 
 
 # Un solo Agrupador para todo el servidor: un buzón por teléfono.
-_AGRUPADOR = Agrupador(_procesar_lote, espera_segundos=settings.espera_agrupar_segundos)
+# (v3.0) El buzón se guarda en buzon.json: si el servidor se
+# reinicia, los lotes pendientes se recuperan al arrancar.
+_BUZON_ARCHIVO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "buzon.json")
+_AGRUPADOR = Agrupador(
+    _procesar_lote,
+    espera_segundos=settings.espera_agrupar_segundos,
+    archivo=_BUZON_ARCHIVO,
+)
 
 
 def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
@@ -215,7 +228,7 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         try:
             atender_boton(_DEPS, telefono, nombre, boton_id)
         except Exception as exc:  # noqa: BLE001
-            print(f"[boton] Error atendiendo botón {boton_id} de {telefono}: {exc}")
+            error(f"[boton] Error atendiendo botón {boton_id} de {telefono}: {exc}")
         return
     if tipo == "text":
         texto = mensaje.get("text", {}).get("body", "")
@@ -225,7 +238,7 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
             audio_bytes, mime = whatsapp.descargar_audio(media_id)
             texto = gemini.transcribir_audio(audio_bytes, mime)
         except Exception as exc:  # noqa: BLE001
-            print(f"[audio] No pude entender el audio de {telefono}: {exc}")
+            aviso(f"[audio] No pude entender el audio de {telefono}: {exc}")
             texto = ""
         if not texto:
             # (v2.5) Un audio que no se entendió NO se ignora en silencio:
@@ -265,12 +278,12 @@ def _responder_directo(telefono: str, texto: str, motivo: str) -> None:
     try:
         sheets.registrar_conversacion(ahora, telefono, "cliente", motivo, "si", "")
     except Exception as exc:  # noqa: BLE001
-        print(f"[directo] No pude registrar el mensaje de {telefono}: {exc}")
+        error(f"[directo] No pude registrar el mensaje de {telefono}: {exc}")
     try:
         whatsapp.enviar_texto(telefono, texto)
         sheets.registrar_conversacion(ahora, telefono, "robot", texto, "si", motivo)
     except Exception as exc:  # noqa: BLE001
-        print(f"[directo] No pude responder a {telefono}: {exc}")
+        error(f"[directo] No pude responder a {telefono}: {exc}")
         try:
             sheets.registrar_conversacion(
                 ahora, telefono, "robot",
@@ -286,8 +299,8 @@ def _responder_directo(telefono: str, texto: str, motivo: str) -> None:
 
 @app.get("/health")
 def health():
-    """¿Está vivo? Devuelve ok y la hora. Úsalo para probar que arrancó."""
-    return {"ok": True, "hora": datetime.now(timezone.utc).isoformat()}
+    """¿Está vivo? Devuelve ok, la versión y la hora. Úsalo para probar que arrancó."""
+    return {"ok": True, "version": VERSION, "hora": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/webhook")
@@ -311,8 +324,18 @@ async def recibir_whatsapp(request: Request):
 
     Lo que NO es un mensaje (p. ej. confirmaciones de entrega o de
     lectura que manda Meta) se ignora sin hacer nada.
+
+    (v3.0) Si META_APP_SECRET está configurado, se verifica la firma
+    X-Hub-Signature-256: sin firma válida, 403 sin procesar nada.
     """
-    datos = await request.json()
+    cuerpo = await request.body()
+    if not seguridad.verificar_firma_meta(
+        cuerpo,
+        request.headers.get("X-Hub-Signature-256"),
+        settings.meta_app_secret,
+    ):
+        return PlainTextResponse("Firma inválida", status_code=403)
+    datos = json.loads(cuerpo.decode("utf-8") or "{}")
     try:
         for entrada in datos.get("entry", []):
             for cambio in entrada.get("changes", []):
@@ -323,30 +346,114 @@ async def recibir_whatsapp(request: Request):
                     )
                     hilo.start()
     except Exception as exc:  # noqa: BLE001 - el webhook nunca debe caerse
-        print(f"[webhook] Error leyendo el mensaje: {exc}")
+        error(f"[webhook] Error leyendo el mensaje: {exc}")
     return {"ok": True}
+
+
+def _clave_dueno(request: Request, datos: dict | None = None) -> bool:
+    """¿Trae la clave de dueño (ADMIN_TOKEN)? Header, ?token= o body.
+
+    Sin ADMIN_TOKEN configurado, siempre NO: los endpoints están
+    cerrados hasta que el dueño ponga la clave en Render.
+    """
+    token = (
+        request.headers.get("X-Admin-Token")
+        or request.query_params.get("token")
+        or (datos or {}).get("token")
+    )
+    return seguridad.token_admin_ok(token, settings.admin_token)
+
+
+_PAGINA_PAUSA = """<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pausa del robot</title>
+<style>body{{font-family:-apple-system,system-ui,sans-serif;max-width:420px;margin:40px auto;padding:0 20px;color:#1d1d1f}}
+h1{{font-size:22px}}p{{color:#6e6e73;line-height:1.5}}
+input,button{{font-size:17px;padding:12px;width:100%;box-sizing:border-box;border-radius:10px}}
+input{{border:1px solid #d2d2d7;margin:8px 0}}button{{background:#0071e3;color:#fff;border:0;margin-top:8px}}
+.ok{{color:#1d7a1d}}</style></head><body>
+<h1>Ya contesté yo</h1>
+<p>Escribe el teléfono del cliente al que le contestaste. El robot se
+callará en ese chat 2 horas y después vuelve solo, con todo el contexto.</p>
+<form method="post"><input name="telefono" inputmode="tel" placeholder="Ej. 5216694608263" required>
+<input type="hidden" name="token" value="{token}">
+<button type="submit">Poner en pausa 2 horas</button></form>
+{mensaje}</body></html>"""
+
+
+@app.get("/pausa")
+def pagina_pausa(request: Request):
+    """La página del dueño: "ya contesté yo".
+
+    Meta no avisa cuando el dueño contesta por WhatsApp, así que la
+    pausa de 2 horas no puede ser automática: se activa aquí. El dueño
+    guarda esta dirección en su teléfono (con ?token=SU_CLAVE) y cada
+    vez que contesta a un cliente, pone el número y listo.
+    """
+    if not _clave_dueno(request):
+        return HTMLResponse("<h1>Sin acceso</h1><p>Falta la clave de dueño (?token=...).</p>", status_code=403)
+    token = request.query_params.get("token", "")
+    return HTMLResponse(_PAGINA_PAUSA.format(token=token, mensaje=""))
 
 
 @app.post("/pausa")
 async def marcar_pausa(request: Request):
     """Marca que una persona atendió un chat: arranca la pausa de 2 horas.
 
-    Úsalo cuando tú (o alguien del negocio) le escriba a un cliente por
-    WhatsApp. Body: {"telefono": "6671234567"}.
-    También puedes escribir la fecha directo en Control!B2 de la hoja.
+    Acepta JSON ({"telefono": "...", "token": "..."}) o el formulario
+    de la página GET /pausa. También puedes escribir la fecha directo
+    en Control!B2 de la hoja.
     """
-    datos = await request.json()
-    telefono = str(datos.get("telefono", ""))
+    content_type = request.headers.get("content-type", "")
+    if "application/x-www-form-urlencoded" in content_type:
+        # El formulario del dueño se manda así por defecto. Se parsea a
+        # mano para no depender de python-multipart en este camino.
+        from urllib.parse import parse_qs
+
+        cuerpo = await request.body()
+        datos = {k: v[0] for k, v in parse_qs(cuerpo.decode("utf-8", "replace")).items()}
+    elif "multipart/form-data" in content_type:
+        form = await request.form()
+        datos = dict(form)
+    else:
+        try:
+            datos = await request.json()
+        except Exception:
+            datos = {}
+    if not _clave_dueno(request, datos):
+        return PlainTextResponse("Sin acceso: falta la clave de dueño.", status_code=403)
+    telefono = str(datos.get("telefono", "")).strip()
     ahora = datetime.now(timezone.utc).isoformat()
-    sheets.actualizar_ultima_respuesta_humana(ahora)
-    # También queda registrado que un humano habló en ese chat.
-    sheets.registrar_conversacion(ahora, telefono, "humano", "(la persona atendió el chat)", "no", "humano activo hace menos de 2 horas")
+    es_formulario = "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type
+    # Si la hoja falla (sin credenciales, sin red), el dueño tiene que
+    # saberlo: una pausa que no se guardó es peor que un error visible.
+    try:
+        sheets.actualizar_ultima_respuesta_humana(ahora)
+        # También queda registrado que un humano habló en ese chat.
+        sheets.registrar_conversacion(ahora, telefono, "humano", "(la persona atendió el chat)", "no", "humano activo hace menos de 2 horas")
+    except Exception as exc:  # noqa: BLE001 - la pausa no se guardó
+        error(f"[pausa] No pude guardar la pausa para {telefono}: {exc}")
+        if es_formulario:
+            token = str(datos.get("token", ""))
+            mensaje = ('<p style="color:#b3261e">No se pudo guardar la pausa. '
+                       'Revisa que el robot esté conectado a la hoja de Google.</p>')
+            return HTMLResponse(_PAGINA_PAUSA.format(token=token, mensaje=mensaje))
+        return {"ok": False, "error": str(exc)}
+    if es_formulario:
+        token = str(datos.get("token", ""))
+        mensaje = f'<p class="ok">Listo. El robot está en pausa para {telefono} hasta dentro de 2 horas.</p>'
+        return HTMLResponse(_PAGINA_PAUSA.format(token=token, mensaje=mensaje))
     return {"ok": True, "pausa_hasta": ahora, "telefono": telefono}
 
 
 @app.post("/reporte-semanal")
-def reporte_ahora():
-    """Manda el reporte semanal ahora, sin esperar al lunes. Para probarlo."""
+async def reporte_ahora(request: Request):
+    """Manda el reporte semanal ahora, sin esperar al lunes. Para probarlo.
+
+    (v3.0) Protegido con la clave de dueño: sin ella, 403.
+    """
+    if not _clave_dueno(request):
+        return PlainTextResponse("Sin acceso: falta la clave de dueño.", status_code=403)
     resultado = generar_reporte_semanal()
     return {"ok": True, "semana": resultado["semana"]}
 
@@ -365,45 +472,41 @@ scheduler.add_job(
 
 @app.on_event("startup")
 def arrancar():
-    """Al arrancar: avisa si faltan claves y prende el programador del lunes."""
-    faltantes = __import__("robot.config", fromlist=["faltan_claves"]).faltan_claves()
+    """Al arrancar: avisa si faltan claves, recupera lo pendiente y
+    revisa la salud de cada pieza (ver robot/salud.py). Nada de esto
+    bloquea el arranque: el robot prende aunque algo falle, y el fallo
+    queda en Diagnóstico para que se vea en la hoja.
+    """
+    from robot.config import faltan_claves
+    from robot.logic import cargar_propuestas
+
+    faltantes = faltan_claves()
     if faltantes:
-        print(f"[robot] AVISO: faltan en el .env: {', '.join(faltantes)}. Ver README.")
+        aviso(f"AVISO: faltan en el .env: {', '.join(faltantes)}. Ver README.")
     else:
-        print("[robot] Claves listas. Robot arrancado.")
+        info("Claves listas. Robot arrancado.")
     # (v2.5) Recuperar las propuestas guardadas en la hoja: si Render se
     # reinició, los clientes pueden confirmar igual sus citas pendientes.
     try:
-        from robot.logic import cargar_propuestas
-
         n = cargar_propuestas(_DEPS)
         if n:
-            print(f"[robot] Recuperé {n} propuesta(s) de cita de la hoja.")
+            info(f"Recuperé {n} propuesta(s) de cita de la hoja.")
     except Exception as exc:  # noqa: BLE001 - sin propuestas, el robot sigue igual
-        print(f"[robot] No pude recuperar propuestas de la hoja: {exc}")
-    # (v2.6) Autoprueba de Gemini en segundo plano: una pregunta mínima
-    # para saber si la clave sirve. Si falla, queda en el registro de
-    # Render desde el primer minuto, en vez de descubrirlo de noche
-    # cuando un cliente ya se quejó. No bloquea el arranque.
-    def _probar_gemini():
-        # (v2.7) El resultado también queda en la pestaña Diagnóstico de
-        # la hoja: así se revisa la salud del robot sin entrar a Render
-        # ni pedir capturas. Si dice FALLO, ahí está el error exacto.
-        try:
-            from robot.gemini import generar_texto
-
-            generar_texto("Responde solo con la palabra OK.")
-            print("[gemini] OK: la clave funciona.")
-            _DEPS.registrar_diagnostico(
-                datetime.now(timezone.utc), "gemini", "OK",
-                "Autoprueba al arrancar: Gemini contestó.")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[gemini] FALLO: no pude hablar con Gemini: {exc}. Revisa GEMINI_API_KEY en Render.")
-            _DEPS.registrar_diagnostico(
-                datetime.now(timezone.utc), "gemini", "FALLO", str(exc))
-    threading.Thread(target=_probar_gemini, daemon=True).start()
+        aviso(f"No pude recuperar propuestas de la hoja: {exc}")
+    # (v3.0) Recuperar los lotes del buzón en disco: mensajes que
+    # llegaron y no se alcanzaron a procesar antes del reinicio.
+    try:
+        n = _AGRUPADOR.cargar()
+        if n:
+            info(f"Recuperé {n} lote(s) pendiente(s) del buzón.")
+    except Exception as exc:  # noqa: BLE001 - sin buzón, el robot sigue igual
+        aviso(f"No pude recuperar el buzón: {exc}")
+    # (v3.0) Revisión de salud en segundo plano: Gemini, hoja,
+    # calendario, token de WhatsApp, Gmail y claves de seguridad.
+    # Antes solo se probaba Gemini; lo demás se descubría de noche.
+    threading.Thread(target=salud.revisar_salud, args=(_DEPS,), daemon=True).start()
     scheduler.start()
-    print(f"[robot] Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
+    info(f"Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
 
 
 @app.on_event("shutdown")

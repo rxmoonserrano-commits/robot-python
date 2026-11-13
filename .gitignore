@@ -1,0 +1,12 @@
+# Secretos: nunca se suben a ningún lado.
+.env
+credenciales-google.json
+*.json
+!requirements.txt
+# Buzón en disco: mensajes pendientes, no es parte del código.
+buzon.json
+buzon.json.tmp
+__pycache__/
+*.pyc
+.venv/
+venv/

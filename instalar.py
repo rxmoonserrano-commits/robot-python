@@ -29,6 +29,7 @@ from __future__ import annotations
 import getpass
 import os
 import re
+import secrets
 import subprocess
 import sys
 
@@ -47,6 +48,9 @@ PREGUNTAS = [
     ("GMAIL_APP_PASSWORD", "La contraseña de aplicación de Gmail (no tu clave de Google)", True, False),
     ("GOOGLE_CREDENTIALS_JSON", "El archivo JSON de la cuenta de servicio de Google (p. ej. credenciales-google.json)", False, True),
     ("NEGOCIO_NOMBRE", "El nombre del negocio (opcional, Enter para saltarlo)", False, False),
+    ("NEGOCIO_TIPO", "El tipo de negocio, con artículo: una clínica, un restaurante, un taller... (Enter = una clínica)", False, False),
+    ("RECEPCIONISTA_NOMBRE", "El nombre de la recepcionista (Enter = Ana)", False, False),
+    ("META_APP_SECRET", "El secreto de la app de Meta (opcional: verifica el webhook; está en Meta → tu app → Configuración básica)", True, False),
 ]
 
 
@@ -80,7 +84,7 @@ def revisar_python() -> bool:
 def revisar_archivos() -> bool:
     """¿Están los archivos que el robot necesita?"""
     faltan = []
-    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py"):
+    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_conversaciones_doradas.py", "robot/estado.py", "robot/revision.py", "robot/negocio.py", "robot/salud.py", "robot/seguridad.py", "robot/registro.py"):
         if not os.path.exists(os.path.join(RAIZ, nombre)):
             faltan.append(nombre)
     if faltan:
@@ -121,11 +125,13 @@ def revisar_env_example() -> bool:
 def probar_todo() -> bool:
     """py_compile + pruebas simuladas + el servidor arranca e importa."""
     ok, salida = correr([sys.executable, "-m", "py_compile", "app.py", "instalar.py",
-                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py",
+                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_conversaciones_doradas.py",
                          "robot/config.py", "robot/logic.py", "robot/whatsapp.py",
                          "robot/agrupar.py", "robot/ritmo.py", "robot/agent.py",
                          "robot/gemini.py", "robot/sheets.py", "robot/booking.py",
-                         "robot/mail.py", "robot/report.py"],
+                         "robot/mail.py", "robot/report.py", "robot/estado.py",
+                         "robot/revision.py", "robot/negocio.py", "robot/salud.py",
+                         "robot/seguridad.py", "robot/registro.py"],
                         "compilar")
     if not ok:
         decir("❌ Hay un error en el código (py_compile). El error fue:")
@@ -147,7 +153,7 @@ def probar_todo() -> bool:
         decir("   Cambia GEMINI_MODEL a gemini-4-hydrogen y GEMINI_MODEL_FALLBACK a gemini-3.8-flash.")
         return False
     decir("✓ " + salida.strip().splitlines()[-1])
-    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py"):
+    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py"):
         ok, salida = correr([sys.executable, prueba], f"correr {prueba}")
         ultima = salida.strip().splitlines()[-1] if salida.strip() else ""
         if not ok:
@@ -198,7 +204,8 @@ def escribir_env(valores: dict[str, str]) -> bool:
                   "GMAIL_USER", "GMAIL_APP_PASSWORD", "CALENDAR_ID", "TIMEZONE",
                   "DURACION_CITA_MINUTOS", "PAUSA_HUMANO_HORAS", "REPORTE_DIA",
                   "REPORTE_HORA", "REPORTE_MINUTO", "NEGOCIO_NOMBRE",
-                  "ESPERA_AGRUPAR_SEGUNDOS"):
+                  "NEGOCIO_TIPO", "RECEPCIONISTA_NOMBRE", "ADMIN_TOKEN",
+                  "META_APP_SECRET", "ESPERA_AGRUPAR_SEGUNDOS"):
         if clave in valores:
             lineas.append(f"{clave}={valores[clave]}")
     # Valores que el instalador no pregunta: se copian del ejemplo si no están.
@@ -267,6 +274,17 @@ def main() -> int:
         if valor:
             valores[clave] = valor
 
+    # (v3.0) La clave de dueño se genera sola, no se pregunta: protege
+    # /pausa y /reporte-semanal. Se muestra UNA vez aquí: hay que
+    # ponerla en Render como ADMIN_TOKEN y guardarla para la página
+    # de pausa (tu-direccion.onrender.com/pausa?token=TU_CLAVE).
+    if "ADMIN_TOKEN" not in valores:
+        valores["ADMIN_TOKEN"] = secrets.token_urlsafe(24)
+        decir("\nTu clave de dueño (ADMIN_TOKEN). Guárdala, solo se muestra una vez:")
+        decir(f"  {valores['ADMIN_TOKEN']}")
+        decir("  Ponla en Render como variable de entorno ADMIN_TOKEN.")
+        decir("  La página de pausa es: https://TU-DIRECCION.onrender.com/pausa?token=TU_CLAVE")
+
     if not escribir_env(valores):
         return 0  # El usuario no quiso reemplazar el .env: no es un error.
 
@@ -294,7 +312,7 @@ def main() -> int:
     decir("     a pedir que verifiques: si el robot está prendido, pasa.")
     decir("  3. MANDA un mensaje de prueba al número de Meta y revisa")
     decir("     PROBARLO.md: el visto, el 'escribiendo...', la espera de")
-    decir("     7 segundos si mandas varios mensajes, y los botones de")
+    decir("     15 segundos si mandas varios mensajes, y los botones de")
     decir("     Confirmar / Cambiar hora / Hablar con una persona.")
     decir("\nPara arrancar el robot en tu computadora (pruebas):")
     decir("  uvicorn app:app --port 8000")

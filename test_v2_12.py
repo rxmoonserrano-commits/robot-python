@@ -7,7 +7,7 @@ Cubre solo lo nuevo de la v2.12:
     mensaje y el cliente aún no contestó.
 (c) el prompt prohíbe ofrecer cita cuando el cliente solo saludó y
     aún no se sabe qué quiere: primero saluda y pregunta.
-(d) el prompt ordena que de noche el robot diga que la clínica cerró
+(d) el prompt ordena que de noche el negocio cerró y el robot atiende igual
     pero él atiende igual; nunca "ya cerramos" como si él cerrara.
 (e) la espera para agrupar mensajes es 15 segundos (config, Agrupador
     y render.yaml).
@@ -160,9 +160,9 @@ def main():
              "el cliente solo saludó" in prompt
              and "NO ofrezcas cita todavía" in prompt
              and "pregúntale qué necesita" in prompt)
-        caso("(d) De noche: la clínica cerró, el robot atiende igual",
+        caso("(d) De noche: el negocio cerró, el robot atiende igual",
              "el negocio está cerrado, tú no" in prompt
-             and "La clínica ya cerró por hoy, pero yo te atiendo igual" in prompt
+             and "El negocio ya cerró por hoy, pero yo te atiendo igual" in prompt
              and 'Nunca digas "ya cerramos"' in prompt)
         caso("(g) Lo voraz de la v2.11 sigue: dos opciones y 'lo voy a pensar'",
              "DOS opciones concretas de día y hora" in prompt
@@ -177,7 +177,7 @@ def main():
         render = open(os.path.join(os.path.dirname(__file__), "render.yaml")).read()
         caso("(e) Espera de 15 s: config, Agrupador y render.yaml",
              s.espera_agrupar_segundos == 15
-             and agrupar_mod.Agrupador.__init__.__defaults__ == (15.0,)
+             and agrupar_mod.Agrupador.__init__.__defaults__ == (15.0, None)
              and 'value: "15"' in render and "ESPERA_AGRUPAR_SEGUNDOS" in render,
              f"config={s.espera_agrupar_segundos}, defaults={agrupar_mod.Agrupador.__init__.__defaults__}")
 

@@ -1,0 +1,44 @@
+"""El perfil del negocio: quién es el robot y de qué negocio habla.
+
+Antes, el robot genérico decía "la clínica" en el guion y en el
+revisor, aunque el negocio fuera un restaurante: el giro del negocio
+estaba escrito a mano en el código. Ahora el perfil vive en la
+configuración (NEGOCIO_NOMBRE, NEGOCIO_TIPO, RECEPCIONISTA_NOMBRE)
+y todo lo que el robot dice sale de aquí. Para venderle el robot a
+otro negocio, se cambia el perfil, no el código.
+
+- Recepcionista: el nombre que usa la IA para presentarse ("Ana").
+- Negocio: el nombre real si está; si no, "el negocio".
+- Frase de cierre (de noche): neutra para cualquier giro. Con nombre:
+  "En Clínica Dental Sonrisa ya cerraron por hoy, pero yo te atiendo
+  igual". Sin nombre: "El negocio ya cerró por hoy, pero yo te
+  atiendo igual". Lo importante es el verbo: cerraron / cerró el
+  negocio, nunca "ya cerramos" (el robot no cierra).
+"""
+
+from __future__ import annotations
+
+from .config import settings
+
+
+def nombre_recepcionista() -> str:
+    """El nombre de la recepcionista (la persona que es el robot)."""
+    return (settings.recepcionista_nombre or "Ana").strip()
+
+
+def nombre_negocio() -> str:
+    """El nombre del negocio, o "" si no se configuró."""
+    return (settings.negocio_nombre or "").strip()
+
+
+def tipo_negocio() -> str:
+    """El giro del negocio (clínica, restaurante, taller...)."""
+    return (settings.negocio_tipo or "clínica").strip()
+
+
+def frase_cierre() -> str:
+    """Lo que el robot dice de noche, en vez de "ya cerramos"."""
+    nombre = nombre_negocio()
+    if nombre:
+        return f"En {nombre} ya cerraron por hoy, pero yo te atiendo igual"
+    return "El negocio ya cerró por hoy, pero yo te atiendo igual"

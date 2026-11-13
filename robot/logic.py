@@ -1,118 +1,18 @@
 """El cerebro del robot: el flujo completo, paso a paso.
 
-Versión 2. Lo que ya hacía la v1 sigue igual (botón de apagado, pausa
-de 2 h, lista blanca de fotos, Gemini gratis, agendar, handoff por
-correo, registro en las DOS hojas). Lo nuevo de la v2:
+atender_mensaje recibe UN mensaje (o un lote ya juntado) y decide:
+frenos (botón global, pausa humana, interruptor por cliente) →
+registro → visto y "escribiendo..." → confirmación de cita por texto
+→ cambio/cancelación → agente (con estado y revisor) → botones de
+confirmación → registro en Conversaciones y Clientes.
 
-1. Visto + "escribiendo...": cuando el robot va a contestar, marca el
-   mensaje como leído (palomitas azules) y muestra la burbuja. Si Gemini
-   tarda más de ~20 s, se vuelve a prender (un hilo que refresca).
-   Nunca en pausa, nunca apagado, nunca en handoff.
-2. Esperar y juntar: app.py mete los mensajes en el Agrupador y aquí
-   llega UN solo texto con todo junto. Esta función ya no contesta
-   mensaje por mensaje.
-3. Ritmo humano: antes de contestar espera 1-3 s y, si la respuesta es
-   larga, la parte en 2 mensajes cortos (robot/ritmo.py).
-4. Botones: cuando el agente propone agendar, NO se crea la cita
-   todavía. Se le muestran 3 botones: Confirmar, Cambiar hora, Hablar
-   con una persona. La cita se crea solo cuando el cliente toca
-   Confirmar (logic.atender_boton). Así no se agenda nada por error.
-5. Confirmación bonita: al confirmar, la respuesta trae nombre, día,
-   hora y duración, y cómo cambiarla. Es una respuesta inmediata en
-   la misma conversación, NO un recordatorio (no hay recordatorios
-   por WhatsApp en este robot, por decisión de Jose).
-6. Si Gemini falla: el cliente recibe un "dame un momento" y el dueño
-   un correo. El robot NUNCA se queda callado por un error.
-7. Fuera de horario: si el negocio está cerrado según Conocimiento,
-   se le dice a qué hora abre y se le ofrece agendar para el próximo
-   día que abre, en vez de agendar una hora imposible.
+La historia de cada versión vive en CHANGELOG.md, no aquí: este
+archivo describe lo que el robot hace HOY, no lo que hacía en la v2.
 
-Versión 2.1: las alertas por correo son best-effort. Si Gmail no está
-configurado (falta la contraseña de aplicación), el correo falla, pero
-eso NUNCA rompe la respuesta de WhatsApp: se deja en el registro y el
-cliente recibe igual su respuesta. Antes, un correo fallido rompía
-atender_mensaje y el cliente se quedaba sin respuesta.
-
-Versión 2.2 (pulido, 2026-11-12):
-1. Fuera de horario ya no pierde al cliente: se guarda la propuesta
-   (próxima apertura) y se registra el lead en Clientes. Si el cliente
-   contesta "sí" por texto, la cita se crea de verdad, aunque siga
-   siendo de noche. Antes, un "sí" nocturno volvía a ofrecer lo mismo
-   en un bucle y nunca se agendaba nada.
-2. Clientes sin duplicados: registrar_cliente ya no agrega una fila
-   nueva por cada mensaje del mismo teléfono. Si el teléfono ya existe,
-   actualiza su fila (ver sheets.fusionar_cliente): un cliente, una
-   fila. Eso también arregla los contadores, que contaban filas y no
-   clientes distintos.
-
-Versión 2.3 (pulido, 2026-11-12):
-1. Interruptor por cliente: la columna robot_activo de Clientes (SI/NO)
-   se respeta de verdad. Con NO, el robot no contesta, no marca visto,
-   no confirma citas de ese cliente y solo registra que llegó el
-   mensaje. En blanco o sin fila en Clientes = SI (contesta por
-   defecto). La pestaña Control (global) sigue existiendo y sigue
-   mandando: si está en NO, nadie recibe respuesta.
-2. "Hablar con una persona" sigue funcionando aunque el robot esté
-   apagado para ese cliente: es justo el camino al humano, no una
-   respuesta del robot.
-
-Versión 2.4 (corrección urgente, 2026-11-12):
-El robot contestaba de noche SIEMPRE con la misma frase grabada
-("Ahora estamos cerrados... ¿te va el viernes a las 09:00?"), sin
-importar lo que el cliente dijera: ni "quiero cambiar mi cita", ni
-"prefiero otra", ni una pregunta. La IA (Gemini) nunca se llamaba
-de noche: el paso de fuera de horario cortaba todo antes del agente.
-Por eso parecía que no había IA conectada. Ahora:
-1. De noche SÍ hay IA: el agente contesta siempre, con el contexto
-   de que el negocio está cerrado y cuál es la próxima apertura.
-   Si el agente propone una hora en que el negocio está cerrado (o
-   en el pasado), se corrige sola a la próxima apertura. La frase
-   grabada solo queda como respaldo si Gemini falla.
-2. Cambiar / cancelar cita funciona, de día y de noche: si el
-   cliente dice "mejor no", "prefiero otra", "quiero cambiar/cancelar
-   mi cita", el robot cancela la propuesta o la cita ya creada
-   (borra el evento de Calendar y limpia la hoja) y pregunta por
-   el nuevo día, en vez de repetir la misma frase.
-
-Versión 2.6 (la IA contesta siempre, 2026-11-12):
-Jose lo vio en el chat en vivo: el robot contestaba con una plantilla
-y parecía no tener cerebro. Tenía razón, y había DOS causas:
-1. El atajo de "petición simple" de noche mandaba la frase grabada
-   sin llamar a Gemini. Eliminado: ahora TODOS los mensajes van al
-   agente, de día y de noche, con un contexto que siempre incluye
-   fecha, hora, si el negocio está abierto, horarios, próxima
-   apertura, el nombre del cliente y su propuesta pendiente.
-2. El respaldo de noche también mandaba la frase grabada cuando
-   Gemini fallaba, así que un Gemini caído se disfrazaba de robot
-   tonto. Eliminado: si Gemini falla, el cliente recibe un "dame un
-   momento" honesto y el dueño un correo (paso 8). El fallo se ve.
-   Además, al arrancar el servidor se hace una autoprueba de Gemini
-   en segundo plano (ver app.py): si la clave está mal, queda en el
-   registro de Render desde el primer minuto.
-
-Versión 2.5 (24/7 de verdad, 2026-11-12):
-Jose pidió anticiparse a los problemas para que el robot atienda,
-califique, responda y agende 24/7, aunque los dueños duerman:
-1. Las propuestas de cita ya no viven solo en memoria: se guardan
-   también en la pestaña Propuestas de la hoja y se recuperan al
-   arrancar. Un reinicio de Render de noche ya no deja al cliente
-   con botones que no llevan a ningún lado.
-2. De noche, todo el que escribe queda registrado como lead, aunque
-   el agente no saque nombre ni motivo: su mensaje queda como motivo.
-   De día se mantiene la regla de siempre.
-3. Lo que antes se ignoraba en silencio (una foto, una ubicación,
-   un sticker, un audio que no se entendió) ahora recibe respuesta
-   (ver app.py): el cliente nunca se queda sin nada.
-4. Si WhatsApp falla al enviar (p. ej. token vencido a las 3 am),
-   queda una fila visible en Conversaciones avisándolo, además del
-   correo al dueño: el fallo no se esconde hasta la mañana siguiente.
-5. Gemini reintenta una vez si responde 429/500/502/503 antes de
-   rendirse y pasar al respaldo (ver gemini.py).
-
-Para que se pueda probar sin internet, `atender_mensaje` recibe un
-objeto `dependencias` con los servicios (Sheets, agente, WhatsApp,
-Calendar, correo). En producción son los reales; en las pruebas
-(test_simulado.py, test_v2.py) son falsos. La lógica es la misma.
+Para probarlo sin internet, atender_mensaje recibe un objeto
+`dependencias` con los servicios (Sheets, agente, WhatsApp, Calendar,
+correo). En producción son los reales; en las pruebas son falsos.
+La lógica es la misma.
 """
 
 from __future__ import annotations
@@ -128,6 +28,7 @@ from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
 from .revision import revisar_respuesta
+from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo
 
 PAUSA = timedelta(hours=2)
@@ -140,9 +41,8 @@ BOTONES_CITA = [
 ]
 
 # Citas propuestas esperando que el cliente toque un botón (o diga "sí").
-# Vive en memoria: si el servidor se reinicia, la propuesta se pierde
-# y el cliente solo tiene que volver a pedir la cita (sin drama).
-# Mejora pendiente (no de esta versión): guardarla en la hoja, no en memoria.
+# Viven en memoria Y en la pestaña Propuestas de la hoja (v2.5): si el
+# servidor se reinicia, se recuperan al arrancar (ver cargar_propuestas).
 _CITAS_PENDIENTES: dict[str, dict] = {}
 
 def _guardar_propuesta(deps: Dependencias, telefono: str, propuesta: dict) -> None:
@@ -528,28 +428,6 @@ def proxima_apertura(conocimiento: list[dict], ahora: datetime | None = None) ->
     return None
 
 
-def mensaje_fuera_de_horario(conocimiento: list[dict], ahora: datetime | None = None) -> str:
-    """Qué decirle al cliente cuando escribe fuera de horario.
-
-    Ojo (v2.6): esto ya NO se manda solo. La IA contesta siempre; esta
-    frase queda solo como texto de respaldo manual, para que el dueño
-    la copie si algún día quiere contestar a mano.
-    """
-    _, resumen = horario_abierto(conocimiento, ahora)
-    proxima = proxima_apertura(conocimiento, ahora)
-    if proxima is not None:
-        dia_txt = formatear_cita_bonita(proxima.isoformat())
-        return (
-            f"Hola, gracias por escribir. Ahora estamos cerrados, "
-            f"abrimos {resumen}. Te puedo agendar para el {dia_txt}, "
-            f"¿te va esa fecha o prefieres otra?"
-        )
-    return (
-        f"Hola, gracias por escribir. Ahora estamos cerrados, "
-        f"abrimos {resumen}. ¿Quieres que te agende para cuando abramos?"
-    )
-
-
 def formatear_cita_bonita(fecha_iso: str) -> str:
     """'2026-11-14T10:00:00' → 'sábado 14 de noviembre a las 10:00'.
 
@@ -688,7 +566,7 @@ def _avisar_por_correo(avisar, *args) -> None:
     try:
         avisar(*args)
     except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
-        print(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+        log_aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
 
 def _diagnostico(deps: Dependencias, fecha, componente: str, estado: str,
@@ -704,7 +582,7 @@ def _diagnostico(deps: Dependencias, fecha, componente: str, estado: str,
         if registrar is not None:
             registrar(fecha, componente, estado, detalle, telefono, contexto)
     except Exception as exc:  # noqa: BLE001 - el diagnóstico nunca rompe nada
-        print(f"[diagnostico] No pude escribir en la hoja: {exc}")
+        log_aviso(f"[diagnostico] No pude escribir en la hoja: {exc}")
 
 
 def _refrescar_escribiendo(deps: Dependencias, message_id: str, parar: threading.Event) -> None:

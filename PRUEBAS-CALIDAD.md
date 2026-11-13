@@ -163,3 +163,28 @@ Se corre así (desde la carpeta del robot, con la clave en el entorno):
 Regla: si una conversación dorada falla, esa versión NO se sube a
 Render. Y cada error nuevo que aparezca en vivo se agrega como una
 conversación dorada nueva, para que no vuelva a pasar.
+
+
+## Lo nuevo de la v3.0 (test_v3.py)
+
+- **Reporte en prosa:** el resumen semanal ya no llega con JSON crudo
+  (el modo JSON es solo para el agente). Se prueba con la llamada a
+  Gemini interceptada, mirando el cuerpo que se manda.
+- **Seguridad:** la clave de dueño y la firma de Meta se prueban como
+  funciones puras (sin servidor): clave exacta pasa, otra no; firma
+  buena pasa, mala no.
+- **Perfil del negocio:** con tres perfiles distintos (sin nombre, con
+  nombre, otro giro y otra recepcionista), el guion y el revisor
+  cambian sin tocar el código.
+- **Salud:** cada pieza se prueba con fakes (Gemini que falla, token
+  401, Gmail sin configurar): los estados salen como deben y quedan
+  en Diagnóstico.
+- **Sheets con caché:** dos lecturas seguidas hacen una sola llamada;
+  escribir borra la caché.
+- **Buzón persistente:** el buzón se guarda en disco y se recupera
+  al arrancar, con los wamids ya vistos.
+- **En vivo (con el servidor prendido):** `/health` dice 3.0.0;
+  `/pausa` sin clave da 403 y con clave 200; `/reporte-semanal` sin
+  clave da 403; el webhook con firma mala da 403 y con firma buena
+  200. La página de pausa, si la hoja falla, muestra el error en vez
+  de un 500 vacío.

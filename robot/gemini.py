@@ -34,6 +34,7 @@ import time
 import requests
 
 from .config import settings
+from .registro import info as log_info
 
 _API = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -173,7 +174,7 @@ def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
             ultimo_error = exc
             sugerido = _modelo_sugerido(str(exc))
             if sugerido and sugerido not in candidatos:
-                print(f"[gemini] Google retiró {modelo}; pruebo {sugerido} como sugiere el error.")
+                log_info(f"[gemini] Google retiró {modelo}; pruebo {sugerido} como sugiere el error.")
                 candidatos.append(sugerido)
             continue
         _ULTIMO_MODELO_OK = modelo
@@ -181,16 +182,22 @@ def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
     raise ultimo_error or GeminiError("Gemini no contestó con ningún modelo.")
 
 
-def generar_texto(prompt: str) -> str:
+def generar_texto(prompt: str, json_mode: bool = True) -> str:
     """Pide texto a Gemini. Prueba los modelos en orden; si Google
     retira uno, usa el que Google sugiere, solo.
 
     (v2.13) Modo JSON: la API devuelve JSON válido y el modelo va con
     temperatura 0.3, para que siga las reglas en vez de improvisar.
+    Es el modo del agente (que devuelve un JSON con la respuesta).
+    (v3.0) OJO: json_mode=True es SOLO para el agente. El reporte
+    semanal y la autoprueba piden prosa y usan json_mode=False: con
+    JSON obligatorio, Gemini les devolvía el texto envuelto en llaves
+    y el correo del lunes llegaba con JSON crudo. Ese fue un error de
+    la v2.13, corregido aquí.
     """
     if not settings.gemini_api_key:
         raise GeminiError("Falta GEMINI_API_KEY en el .env. Ver README, paso 2.")
-    return _probar_candidatos([{"text": prompt}], json_mode=True)
+    return _probar_candidatos([{"text": prompt}], json_mode=json_mode)
 
 
 def transcribir_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
