@@ -29,15 +29,20 @@ class Settings:
 
     # --- Inteligencia artificial gratis: Google Gemini ---
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    # (v2.7) Modelos VIGENTES y gratis a noviembre de 2026. Los viejos
-    # (gemini-2.0-flash y gemini-2.5-flash) Google los retiró para
-    # usuarios nuevos: el 12 de noviembre de 2026 el robot se quedó
-    # sin cerebro por eso (404 "no longer available"). Si Google retira
-    # otro modelo, el robot lee el modelo que Google sugiere en el
-    # error y lo prueba solo (ver robot/gemini.py).
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    # (v2.9) Modelos VIGENTES y gratis a noviembre de 2026. El 12 de
+    # noviembre el robot se quedó sin cerebro porque Google retiró
+    # gemini-2.0-flash y gemini-2.5-flash (404 "no longer available").
+    # La v2.7 pasó a gemini-3.8-flash, que SÍ contestó la autoprueba,
+    # pero a las 22:19 devolvió 503 "high demand": el modelo gratis
+    # estaba saturado. La v2.9 cambia el principal a Gemini 4 Hydrogen
+    # (gratis, lanzado el 12 de noviembre de 2026, misma clave de
+    # Google, sin hacer nada nuevo) y deja 3.8-flash y 3.6-flash de
+    # respaldo; el robot además siempre prueba Flash-Lite al final.
+    # Si Google retira otro modelo, el robot lee el modelo que Google
+    # sugiere en el error y lo prueba solo (ver robot/gemini.py).
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-4-hydrogen")
     # Si Google retira el modelo de arriba, se prueba este, también gratis.
-    gemini_model_fallback: str = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.6-flash")
+    gemini_model_fallback: str = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.8-flash")
 
     # --- WhatsApp Cloud API (Meta for Developers) ---
     whatsapp_token: str = os.getenv("WHATSAPP_TOKEN", "")

@@ -12,13 +12,14 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 119 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 127 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
-> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 8 de la v2.7 en
-> `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py`). El **12 de noviembre
-> de 2026 el robot contestó su primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
+> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
+> `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
+> `test_v2_9.py`). El **12 de noviembre de 2026 el robot contestó su
+> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -344,6 +345,41 @@ la respuesta del agente". Dos causas:
 120 s, prosa sin JSON se manda tal cual, JSON roto con detalle, error
 de red con el error real en el motivo, historial recortado a 8.
 
+## Versión 2.9 — Cambio de IA (sin que el dueño pique nada)
+
+**Lo que pasó en vivo (2026-11-12 22:19, visto en Diagnóstico):** Jose
+mandó "bueno" y el robot contestó "dame un momento". Diagnóstico:
+`Gemini devolvió 503: "This model is currently experiencing high
+demand. Spikes in demand are usually temporary. Please try again
+later."` El modelo 3.8-flash SÍ funcionaba (la autoprueba de las
+22:00 dijo OK), pero a las 22:19 estaba saturado: la capa gratuita
+tiene tope y a esa hora había mucha demanda. Con un solo reintento
+de 2 segundos no alcanzó.
+
+**Qué se corrigió:**
+1. **Cambio de IA principal: Gemini 4 Hydrogen.** Gratis, lanzado el
+   12 de noviembre de 2026, misma clave de Google: el dueño no tiene
+   que sacar nada nuevo ni picarle a nada. Respaldo: gemini-3.8-flash.
+2. **Flash-Lite siempre al final.** El modelo gratis más chico
+   (gemini-3.5-flash-lite) es el menos saturado: si los grandes están
+   a tope, el chico suele contestar.
+3. **El 503 se reintenta con espera larga (2 s y 8 s)**, porque Google
+   mismo dice que la saturación es temporal. Antes era un solo
+   reintento de 2 s.
+4. **Si todos dan 503, el error final dice 503** (no se esconde): en
+   Diagnóstico se ve que fue saturación, no otra cosa.
+
+**Si ni así contesta:** el siguiente paso es otro proveedor (Groq,
+gratis y rapidísimo, con modelos Llama), pero eso SÍ necesita una
+clave nueva del dueño en console.groq.com. Por ahora no hace falta:
+con 4 Hydrogen + 3.8 + Flash-Lite hay tres modelos gratis con la
+misma clave.
+
+**Pruebas nuevas:** `test_v2_9.py`, 7 casos: modelo principal
+gemini-4-hydrogen por defecto, Flash-Lite último candidato, 503 con
+reintentos de 2 s y 8 s, todos con 503 dan error 503, y los modelos
+retirados ni se intentan.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -375,6 +411,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_6.py` | 7 pruebas nuevas de la v2.6 (la IA contesta siempre, con contexto): `python test_v2_6.py` |
 | `test_v2_7.py` | 8 pruebas nuevas de la v2.7 (autocuración de modelo, "sí" tras fallo, Diagnóstico): `python test_v2_7.py` |
 | `test_v2_8.py` | 6 pruebas nuevas de la v2.8 (timeout con reintento, prosa sin JSON, historial recortado): `python test_v2_8.py` |
+| `test_v2_9.py` | 7 pruebas nuevas de la v2.9 (Gemini 4 Hydrogen, 503 con espera larga, Flash-Lite): `python test_v2_9.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |

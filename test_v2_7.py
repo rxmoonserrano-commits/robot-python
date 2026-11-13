@@ -151,18 +151,24 @@ def main():
     caso("(a) Sin sugerencia en el error, devuelve vacío",
          _modelo_sugerido("Gemini devolvió 429: cuota por minuto") == "")
 
-    # (b) Autocuración: modelos retirados en la config, Google sugiere 3.8.
+    # (b) Autocuración: modelo desconocido en la config, Google sugiere 3.8.
+    # (v2.9) Los modelos retirados (2.0, 2.5) ya ni se intentan: se saltan
+    # directo en _candidatos(). La autocuración es para un modelo que
+    # Google retire DESPUÉS, como este ficticio 9.9.
     modelo_viejo, respaldo_viejo = settings.gemini_model, settings.gemini_model_fallback
     clave_vieja = settings.gemini_api_key
     llamar_viejo = gemini_mod._llamar
     try:
         settings.gemini_api_key = "clave-de-prueba"  # _llamar es falso, no sale a internet
-        settings.gemini_model = "gemini-2.5-flash"
-        settings.gemini_model_fallback = "gemini-2.0-flash"
+        settings.gemini_model = "gemini-9.9-flash"
+        settings.gemini_model_fallback = "gemini-2.0-flash"  # retirado: se salta
         gemini_mod._ULTIMO_MODELO_OK = None
+        caso("(b) Los modelos retirados ni se intentan",
+             gemini_mod._candidatos() == ["gemini-9.9-flash", "gemini-3.5-flash-lite"],
+             f"candidatos={gemini_mod._candidatos()}")
 
         def llamar_falso(modelo, partes):
-            if modelo in ("gemini-2.5-flash", "gemini-2.0-flash"):
+            if modelo in ("gemini-9.9-flash", "gemini-3.5-flash-lite"):
                 raise GeminiError(ERROR_GOOGLE)
             if modelo == "gemini-3.8-flash":
                 return "OK"
@@ -170,7 +176,7 @@ def main():
 
         gemini_mod._llamar = llamar_falso
         texto = generar_texto("Responde solo con la palabra OK.")
-        caso("(b) Con modelos retirados, cambia solo a gemini-3.8-flash",
+        caso("(b) Con modelo retirado por Google, cambia solo a gemini-3.8-flash",
              texto == "OK", f"salió: {texto!r}")
         caso("(b) Recuerda el modelo que funcionó",
              gemini_mod._ULTIMO_MODELO_OK == "gemini-3.8-flash",

@@ -1,11 +1,13 @@
 """Google Gemini, capa gratuita. La única IA del robot.
 
-Modelo (v2.7): gemini-3.8-flash (respaldo: gemini-3.6-flash), ambos
-gratis a noviembre de 2026. Los viejos gemini-2.0-flash y
-gemini-2.5-flash Google los retiró para usuarios nuevos: el 12 de
-noviembre de 2026 el robot se quedó sin cerebro por eso (404 "This
-model ... is no longer available to new users. Please update your
-code to use models/gemini-3.8-flash").
+Modelo (v2.9): gemini-4-hydrogen (respaldo: gemini-3.8-flash, y
+siempre Flash-Lite al final), todos gratis a noviembre de 2026. Los
+viejos gemini-2.0-flash y gemini-2.5-flash Google los retiró para
+usuarios nuevos: el 12 de noviembre de 2026 el robot se quedó sin
+cerebro por eso (404 "This model ... is no longer available to new
+users. Please update your code to use models/gemini-3.8-flash"). El
+3.8-flash sí funcionó, pero a las 22:19 devolvió 503 "high demand":
+estaba saturado, por eso el cambio a 4 Hydrogen.
 Clave: se saca en Google AI Studio (aistudio.google.com), sin tarjeta.
 Se habla con Gemini por su API REST con `requests`, sin SDK pesado:
 un POST con el texto (y el audio en base64, si lo hay) y listo.
@@ -79,7 +81,7 @@ def _llamar(modelo: str, partes: list[dict]) -> str:
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
     ultimo_error: GeminiError | None = None
-    for intento in range(2):
+    for intento in range(3):
         try:
             respuesta = requests.post(
                 url, json={"contents": [{"parts": partes}]}, timeout=120
@@ -95,7 +97,15 @@ def _llamar(modelo: str, partes: list[dict]) -> str:
         ultimo_error = GeminiError(
             f"Gemini devolvió {respuesta.status_code}: {respuesta.text[:300]}"
         )
-        if respuesta.status_code in (429, 500, 502, 503) and intento == 0:
+        # (v2.9) 503 "high demand" (modelo saturado): Google mismo dice
+        # que es temporal ("spikes are usually temporary"). Se espera
+        # más cada vez (2 s, 8 s) antes de rendirse y probar otro modelo.
+        # El 12 de noviembre a las 22:19 el 3.8-flash estaba saturado y
+        # con un solo reintento de 2 s no alcanzó.
+        if respuesta.status_code == 503 and intento < 2:
+            time.sleep(2 if intento == 0 else 8)
+            continue
+        if respuesta.status_code in (429, 500, 502) and intento == 0:
             time.sleep(2)
             continue
         raise ultimo_error
@@ -112,12 +122,16 @@ def _candidatos() -> list[str]:
     Empieza por el último que funcionó (si lo hay), luego el principal
     y el respaldo. Los retirados se quitan: no tiene caso llamar a un
     modelo que Google ya dio de baja.
+    (v2.9) Al final siempre va Flash-Lite, el modelo gratis más chico
+    y el menos saturado: si los Flash grandes están a tope (503), el
+    chico suele contestar.
     """
     orden = []
-    for modelo in (_ULTIMO_MODELO_OK, settings.gemini_model, settings.gemini_model_fallback):
+    for modelo in (_ULTIMO_MODELO_OK, settings.gemini_model, settings.gemini_model_fallback,
+                   "gemini-3.5-flash-lite"):
         if modelo and modelo not in orden and modelo not in _MODELOS_RETIRADOS:
             orden.append(modelo)
-    return orden or ["gemini-3.8-flash"]
+    return orden or ["gemini-4-hydrogen"]
 
 
 def _probar_candidatos(partes: list[dict]) -> str:
