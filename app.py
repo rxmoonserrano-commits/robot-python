@@ -44,7 +44,7 @@ from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.report import generar_reporte_semanal
 
-app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.2.0")
+app = FastAPI(title="Robot WhatsApp — IA gratis", version="2.5.0")
 
 
 # --- Las dependencias reales: conectan la lógica con Google, Gemini y WhatsApp ---
@@ -55,6 +55,15 @@ class DependenciasReales(Dependencias):
 
     def leer_control(self):
         return sheets.leer_control()
+
+    def leer_robot_activo(self, telefono):
+        return sheets.leer_robot_activo(telefono)
+
+    def leer_cliente(self, telefono):
+        return sheets.leer_cliente(telefono)
+
+    def cancelar_cita_cliente(self, telefono):
+        sheets.cancelar_cita_cliente(telefono)
 
     def leer_conocimiento(self):
         return sheets.leer_conocimiento()
@@ -82,6 +91,18 @@ class DependenciasReales(Dependencias):
 
     def crear_cita(self, nombre, telefono, motivo, fecha_cita):
         return booking.crear_cita(nombre, telefono, motivo, fecha_cita)
+
+    def cancelar_cita(self, telefono, fecha_cita):
+        return booking.cancelar_cita(telefono, fecha_cita)
+
+    def guardar_propuesta(self, telefono, propuesta):
+        sheets.guardar_propuesta(telefono, propuesta)
+
+    def borrar_propuesta(self, telefono):
+        sheets.borrar_propuesta(telefono)
+
+    def leer_propuestas(self):
+        return sheets.leer_propuestas()
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         # Best-effort también aquí (doble protección, ver logic.py):
@@ -122,6 +143,22 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
         atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid)
     except Exception as exc:  # noqa: BLE001 - nunca dejar al cliente sin respuesta
         print(f"[lote] Error atendiendo a {telefono}: {exc}")
+        # (v2.5) El fallo queda VISIBLE en la hoja, no solo en el registro
+        # del servidor: si el token de WhatsApp murió a las 3 am, el dueño
+        # lo ve en Conversaciones en la mañana, aunque el correo falle.
+        # Un 401 es casi siempre "token vencido o inválido".
+        motivo_fallo = (
+            "token de WhatsApp inválido o vencido (401)"
+            if "401" in str(exc) else "error whatsapp"
+        )
+        try:
+            sheets.registrar_conversacion(
+                datetime.now(timezone.utc).isoformat(), telefono, "robot",
+                "(no se pudo enviar la respuesta por WhatsApp: revisa el token)",
+                "no", motivo_fallo,
+            )
+        except Exception as exc4:  # noqa: BLE001 - la hoja también puede fallar
+            print(f"[lote] Tampoco pude registrar el fallo en la hoja: {exc4}")
         # El aviso por WhatsApp y el aviso por correo van separados:
         # si el correo falla (p. ej. Gmail sin configurar), el cliente
         # igual recibe su "dame un momento" y no hay duplicados.
@@ -182,11 +219,58 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"[audio] No pude entender el audio de {telefono}: {exc}")
             texto = ""
+        if not texto:
+            # (v2.5) Un audio que no se entendió NO se ignora en silencio:
+            # se le pide al cliente que lo escriba. 24/7 significa que
+            # nadie se queda esperando sin saber qué pasó.
+            _responder_directo(
+                telefono,
+                "No pude escuchar tu audio, ¿me lo escribes por favor? Así te atiendo enseguida.",
+                "(audio no entendido)",
+            )
+            return
+    elif tipo in ("image", "sticker", "location", "document", "video", "contacts"):
+        # (v2.5) Una foto, una ubicación o un sticker tampoco se ignoran
+        # en silencio: el robot no puede ver la foto, así que pide que se
+        # lo cuenten con palabras. Antes, esto no recibía nada.
+        _responder_directo(
+            telefono,
+            "Gracias, lo recibí. ¿Me cuentas con tus palabras qué necesitas? Así te ayudo mejor.",
+            f"({tipo} recibido)",
+        )
+        return
     else:
         return
     if not texto:
         return
     _AGRUPADOR.agregar(telefono, texto, wamid=wamid, nombre=nombre)
+
+
+def _responder_directo(telefono: str, texto: str, motivo: str) -> None:
+    """Manda un texto corto directo (sin Agrupador ni agente) y lo registra.
+
+    Para los casos que el robot no puede atender con IA (una foto, un
+    audio que no se entendió): el cliente recibe algo en vez de silencio.
+    Todo con try/except: esto nunca debe tumbar el webhook.
+    """
+    ahora = datetime.now(timezone.utc).isoformat()
+    try:
+        sheets.registrar_conversacion(ahora, telefono, "cliente", motivo, "si", "")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[directo] No pude registrar el mensaje de {telefono}: {exc}")
+    try:
+        whatsapp.enviar_texto(telefono, texto)
+        sheets.registrar_conversacion(ahora, telefono, "robot", texto, "si", motivo)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[directo] No pude responder a {telefono}: {exc}")
+        try:
+            sheets.registrar_conversacion(
+                ahora, telefono, "robot",
+                "(no se pudo enviar la respuesta por WhatsApp: revisa el token)",
+                "no", "error whatsapp",
+            )
+        except Exception:
+            pass
 
 
 # --- Endpoints ---
@@ -279,6 +363,16 @@ def arrancar():
         print(f"[robot] AVISO: faltan en el .env: {', '.join(faltantes)}. Ver README.")
     else:
         print("[robot] Claves listas. Robot arrancado.")
+    # (v2.5) Recuperar las propuestas guardadas en la hoja: si Render se
+    # reinició, los clientes pueden confirmar igual sus citas pendientes.
+    try:
+        from robot.logic import cargar_propuestas
+
+        n = cargar_propuestas(_DEPS)
+        if n:
+            print(f"[robot] Recuperé {n} propuesta(s) de cita de la hoja.")
+    except Exception as exc:  # noqa: BLE001 - sin propuestas, el robot sigue igual
+        print(f"[robot] No pude recuperar propuestas de la hoja: {exc}")
     scheduler.start()
     print(f"[robot] Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
 

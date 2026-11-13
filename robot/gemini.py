@@ -15,6 +15,7 @@ Nada de pago aquí: ni Whisper, ni GPT.
 from __future__ import annotations
 
 import base64
+import time
 
 import requests
 
@@ -28,15 +29,28 @@ class GeminiError(RuntimeError):
 
 
 def _llamar(modelo: str, partes: list[dict]) -> str:
-    """Un POST a Gemini. Devuelve el texto de la respuesta."""
+    """Un POST a Gemini. Devuelve el texto de la respuesta.
+
+    (v2.5) Si Gemini responde 429 (cuota por minuto) o 500/502/503
+    (Google saturado), se reintenta UNA vez tras 2 segundos antes de
+    rendirse. De noche, sin nadie despierto para reintentarlo a mano,
+    ese segundo intento es lo que evita un silencio.
+    """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
-    respuesta = requests.post(
-        url, json={"contents": [{"parts": partes}]}, timeout=60
-    )
-    if respuesta.status_code != 200:
-        raise GeminiError(
+    ultimo_error: GeminiError | None = None
+    for intento in range(2):
+        respuesta = requests.post(
+            url, json={"contents": [{"parts": partes}]}, timeout=60
+        )
+        if respuesta.status_code == 200:
+            break
+        ultimo_error = GeminiError(
             f"Gemini devolvió {respuesta.status_code}: {respuesta.text[:300]}"
         )
+        if respuesta.status_code in (429, 500, 502, 503) and intento == 0:
+            time.sleep(2)
+            continue
+        raise ultimo_error
     datos = respuesta.json()
     try:
         return datos["candidates"][0]["content"]["parts"][0]["text"]

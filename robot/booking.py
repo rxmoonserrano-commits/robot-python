@@ -67,6 +67,39 @@ def hora_libre(inicio_iso: str, duracion_min: int | None = None) -> bool:
     return len(lista) == 0
 
 
+def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
+    """Borra del calendario la cita de ese teléfono en esa fecha.
+
+    Busca en el día de la cita el evento cuyo título trae el teléfono
+    (los eventos se crean como "Cita <nombre> — <teléfono>") y lo
+    borra. Devuelve True si borró al menos uno. Si no encuentra nada,
+    no hace nada y devuelve False (no se inventa una cancelación).
+    """
+    inicio = _a_datetime(fecha_cita_iso)
+    dia_inicio = inicio.replace(hour=0, minute=0, second=0, microsecond=0)
+    dia_fin = dia_inicio + timedelta(days=1)
+    servicio = _servicio_calendar()
+    eventos = (
+        servicio.events()
+        .list(
+            calendarId=settings.calendar_id,
+            timeMin=dia_inicio.isoformat(),
+            timeMax=dia_fin.isoformat(),
+            singleEvents=True,
+        )
+        .execute()
+        .get("items", [])
+    )
+    borrados = 0
+    for evento in eventos:
+        if str(telefono) in str(evento.get("summary", "")):
+            servicio.events().delete(
+                calendarId=settings.calendar_id, eventId=evento["id"]
+            ).execute()
+            borrados += 1
+    return borrados > 0
+
+
 def crear_cita(
     nombre: str,
     telefono: str,

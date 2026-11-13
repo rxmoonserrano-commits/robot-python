@@ -112,6 +112,47 @@ def leer_fotos_oficiales() -> list[dict]:
     return leer_pestana("Fotos oficiales")
 
 
+def leer_robot_activo(telefono: str) -> str:
+    """Interruptor por cliente: lo que dice la columna robot_activo de Clientes.
+
+    Devuelve "SI" o "NO". Si el cliente no está en la hoja, o la celda
+    está en blanco, es "SI": el robot contesta por defecto. Solo un NO
+    explícito lo apaga para ese cliente. La columna robot_activo vive
+    en Clientes (columna P), nunca se escribe desde aquí, solo se lee:
+    la pone el dueño o el cliente que ve la hoja.
+    """
+    for fila in leer_pestana("Clientes"):
+        if str(fila.get("telefono", "")).strip() == str(telefono).strip():
+            valor = str(fila.get("robot_activo", "") or "").strip().upper()
+            return "NO" if valor in {"NO", "N", "FALSE", "FALSO"} else "SI"
+    return "SI"
+
+
+def leer_cliente(telefono: str) -> dict | None:
+    """La fila de Clientes de un teléfono (con estatus y fecha_cita), o None."""
+    for fila in leer_pestana("Clientes"):
+        if str(fila.get("telefono", "")).strip() == str(telefono).strip():
+            return fila
+    return None
+
+
+def cancelar_cita_cliente(telefono: str) -> None:
+    """Limpia la cita de un cliente en Clientes: fecha_cita vacía y
+    estatus de vuelta a "en conversacion". No borra la fila ni toca
+    las columnas extra (resumen, calificación...)."""
+    encontrado = _fila_cliente_por_telefono(telefono)
+    if encontrado is None:
+        return
+    numero_fila, existente = encontrado
+    servicio = _servicio_sheets()
+    servicio.values().update(
+        spreadsheetId=settings.sheet_id,
+        range=f"Clientes!E{numero_fila}:G{numero_fila}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[ "", existente.get("origen", "whatsapp"), "en conversacion" ]]},
+    ).execute()
+
+
 def leer_historial(telefono: str, limite: int = 20) -> list[dict]:
     """Últimos mensajes de un teléfono, incluido lo que dijo el humano en la pausa."""
     filas = leer_pestana("Conversaciones")
@@ -235,6 +276,63 @@ def registrar_cliente(
         valueInputOption="USER_ENTERED",
         body={"values": [fusionada]},
     ).execute()
+
+
+# --- Propuestas de cita (v2.5): que sobrevivan a un reinicio ---
+# Las propuestas vivían solo en la memoria del servidor: si Render se
+# reiniciaba de noche, el cliente tocaba Confirmar y el robot ya no
+# sabía de qué cita hablaba. Ahora viven también en la pestaña
+# Propuestas (una fila por teléfono, se borra al confirmarse).
+# Columnas: telefono, nombre, motivo, fecha_cita, fecha_bonita, creado_en.
+_COLUMNAS_PROPUESTA = ["telefono", "nombre", "motivo", "fecha_cita",
+                       "fecha_bonita", "creado_en"]
+
+
+def leer_propuestas() -> list[dict]:
+    """Todas las propuestas guardadas. Si la pestaña no existe aún, []."""
+    try:
+        return leer_pestana("Propuestas")
+    except Exception:
+        return []
+
+
+def guardar_propuesta(telefono: str, propuesta: dict) -> None:
+    """Guarda o actualiza la propuesta de un teléfono (una fila por teléfono)."""
+    servicio = _servicio_sheets()
+    resultado = (
+        servicio.values()
+        .get(spreadsheetId=settings.sheet_id, range="Propuestas!A2:F1000")
+        .execute()
+    )
+    fila_dato = [str(propuesta.get(c, "") or "") for c in _COLUMNAS_PROPUESTA]
+    fila_dato[0] = str(telefono)
+    for i, fila in enumerate(resultado.get("values", [])):
+        if fila and str(fila[0]).strip() == str(telefono).strip():
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Propuestas!A{i + 2}:F{i + 2}",
+                valueInputOption="USER_ENTERED",
+                body={"values": [fila_dato]},
+            ).execute()
+            return
+    agregar_fila("Propuestas", fila_dato)
+
+
+def borrar_propuesta(telefono: str) -> None:
+    """Borra la propuesta de un teléfono (se confirmó, se cambió o se canceló)."""
+    servicio = _servicio_sheets()
+    resultado = (
+        servicio.values()
+        .get(spreadsheetId=settings.sheet_id, range="Propuestas!A2:F1000")
+        .execute()
+    )
+    for i, fila in enumerate(resultado.get("values", [])):
+        if fila and str(fila[0]).strip() == str(telefono).strip():
+            servicio.values().clear(
+                spreadsheetId=settings.sheet_id,
+                range=f"Propuestas!A{i + 2}:F{i + 2}",
+            ).execute()
+            return
 
 
 def guardar_reporte(
