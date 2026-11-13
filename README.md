@@ -12,14 +12,15 @@ con la misma lógica, portada a Python. La ventaja de Python: no pagas por
 operación, el código es tuyo, y lo puedes vender como producto, no como
 flujo rentado en una plataforma.
 
-> **Honestidad, como siempre:** la lógica pasa 127 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 135 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
-> `test_v2_9.py`). El **12 de noviembre de 2026 el robot contestó su
-> primer mensaje real** por WhatsApp (fuera de horario, proponiendo el
+> `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py`). El **12 de
+> noviembre de 2026 el robot contestó su primer mensaje real** por
+> WhatsApp (fuera de horario, proponiendo el
 > viernes 13 a las 09:00) y **esa misma noche Jose confirmó con un
 > "sí" y la cita se creó**: "Tu cita quedó para el viernes 13 de
 > noviembre a las 09:00", con una sola fila en Clientes (agendado).
@@ -380,6 +381,45 @@ gemini-4-hydrogen por defecto, Flash-Lite último candidato, 503 con
 reintentos de 2 s y 8 s, todos con 503 dan error 503, y los modelos
 retirados ni se intentan.
 
+## Versión 2.10 — Prompt comercial (Ana, la recepcionista)
+
+**El problema (en vivo, 2026-11-12 22:31–22:33, ya con la IA
+contestando):** el robot contestaba, pero como empleada de mostrador
+aburrida: correcto, sin alma. Cada respuesta terminaba en pregunta
+genérica ("¿Te gustaría saber más detalles?", "¿Tienes alguna otra
+duda?"), soltaba el catálogo entero de 9 servicios y 9 precios, nunca
+ofrecía la cita, nunca calificaba al cliente, y hasta inventaba
+detallitos ("primera valoración gratis", "se descuenta si te haces el
+tratamiento") que NO están en Conocimiento.
+
+**Qué se corrigió (solo el prompt, en `robot/agent.py` y
+`guion-robot.md`):**
+1. **Personaje:** ahora se llama Ana, la recepcionista del negocio.
+   Español mexicano, cálido y corto, siempre a la orden ("Claro que
+   sí", "Con gusto", "Quedamos a tus órdenes"). Saluda por su nombre.
+   El nombre es una línea del GUION: si el negocio quiere otro nombre,
+   se cambia ahí.
+2. **Método comercial en 3 pasos: Entiende, Responde, Avanza.**
+   Entiende qué necesita (qué le duele, desde cuándo, si es urgente);
+   responde justo lo que preguntó (1-2 frases, nunca el catálogo
+   entero: si piden servicios o precios, pregunta cuál les interesa, o
+   da solo los 3 más pedidos); avanza (cada respuesta termina con un
+   paso concreto: ofrecer la cita con la próxima apertura).
+3. **Cero inventos:** solo Conocimiento, palabra por palabra. Si algo
+   no está ahí: "Déjame confirmarlo con el encargado y te aviso" +
+   handoff. Nunca precios, descuentos, promociones ni horarios
+   inventados.
+4. **Ejemplos dentro del prompt** (few-shot): cómo contesta un precio
+   ("La limpieza cuesta $600, dura 60 minutos y no duele. ¿Te la agendo
+   para mañana a las 9:00? Ese horario está libre.") y cómo pide el
+   servicio ("¿Cuál te interesa? Los más pedidos son...").
+
+**Pruebas nuevas:** `test_v2_10.py`, 8 casos: el prompt tiene el
+personaje y el método, ordena ofrecer la cita, prohíbe el catálogo
+entero y prohíbe inventar, sigue pidiendo solo JSON, y de punta a
+punta la respuesta comercial llega al cliente con botones y la
+propuesta se guarda.
+
 ## Qué hace el robot (en una frase)
 
 Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio), revisa
@@ -412,6 +452,7 @@ y registra todo. Si el cliente necesita una persona, avisa por correo y se calla
 | `test_v2_7.py` | 8 pruebas nuevas de la v2.7 (autocuración de modelo, "sí" tras fallo, Diagnóstico): `python test_v2_7.py` |
 | `test_v2_8.py` | 6 pruebas nuevas de la v2.8 (timeout con reintento, prosa sin JSON, historial recortado): `python test_v2_8.py` |
 | `test_v2_9.py` | 7 pruebas nuevas de la v2.9 (Gemini 4 Hydrogen, 503 con espera larga, Flash-Lite): `python test_v2_9.py` |
+| `test_v2_10.py` | 8 pruebas nuevas de la v2.10 (prompt comercial: Ana, método, cero inventos): `python test_v2_10.py` |
 | `PRUEBAS-CALIDAD.md` | Plan de pruebas de seguridad, calidad y conversación natural (qué probar, cómo, qué es pasar) |
 | `robot/agrupar.py` | V2: espera y junta los mensajes (7 s tras el último) |
 | `robot/ritmo.py` | V2: demora humana y partir respuestas largas |
