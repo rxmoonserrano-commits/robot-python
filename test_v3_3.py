@@ -504,6 +504,10 @@ def main():
     caso("Guion: dice que pregunte el nombre una sola vez",
          "¿Con quién tengo el gusto?" in guion_normal,
          "falta la regla del nombre")
+    caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
+         "enlace de mapa" in guion_normal
+         and "Nunca inventes un enlace ni una dirección" in guion_normal,
+         "falta la regla de ubicación/mapa")
     caso("Guion: si no hay huecos libres, no ofrece cita",
          "no hay huecos libres" in guion_normal,
          "falta la regla de agenda llena")
