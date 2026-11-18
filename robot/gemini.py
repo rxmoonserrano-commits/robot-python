@@ -91,11 +91,13 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
     antes, un timeout (ReadTimeout) salía volando sin reintentar y sin
     probar el siguiente modelo, y el cliente se quedaba con un "dame
     un momento". Ahora el timeout se convierte en GeminiError y se
-    reintenta igual. El tiempo de espera es 120 s: el robot contesta
-    en segundo plano (el webhook ya respondió 200) y la burbuja de
-    "escribiendo..." se refresca cada 20 s, así que al cliente no le
-    afecta esperar un poco más; lo que no puede pasar es rendirse a
-    los 60 s cuando el modelo está frío y contesta a los 70.
+    reintenta igual. El tiempo de espera es 45 s y solo 2 intentos por
+    modelo (v3.4.1): con 120 s y 3 intentos, una llamada colgada dejaba
+    al cliente esperando minutos con un "dame un momento" y el lote
+    atorado. Mejor fallar rápido y probar el siguiente modelo: si el
+    modelo estaba frío, el segundo intento ya lo agarra tibio y contesta
+    en segundos; si Gemini está caído, el fallo se ve en Diagnóstico
+    en vez de colgar al cliente.
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
     config = {"temperature": 0.3, "maxOutputTokens": 600}
@@ -103,9 +105,9 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
         config["response_mime_type"] = "application/json"
     cuerpo = {"contents": [{"parts": partes}], "generationConfig": config}
     ultimo_error: GeminiError | None = None
-    for intento in range(3):
+    for intento in range(2):
         try:
-            respuesta = requests.post(url, json=cuerpo, timeout=120)
+            respuesta = requests.post(url, json=cuerpo, timeout=45)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
             ultimo_error = GeminiError(f"Gemini tardó demasiado o se cortó la red: {exc}")
             if intento == 0:
@@ -118,12 +120,12 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
             f"Gemini devolvió {respuesta.status_code}: {respuesta.text[:300]}"
         )
         # (v2.9) 503 "high demand" (modelo saturado): Google mismo dice
-        # que es temporal ("spikes are usually temporary"). Se espera
-        # más cada vez (2 s, 8 s) antes de rendirse y probar otro modelo.
+        # que es temporal ("spikes are usually temporary"). Se reintenta
+        # una vez tras 2 s antes de rendirse y probar otro modelo.
         # El 12 de noviembre a las 22:19 el 3.8-flash estaba saturado y
         # con un solo reintento de 2 s no alcanzó.
-        if respuesta.status_code == 503 and intento < 2:
-            time.sleep(2 if intento == 0 else 8)
+        if respuesta.status_code == 503 and intento == 0:
+            time.sleep(2)
             continue
         if respuesta.status_code in (429, 500, 502) and intento == 0:
             time.sleep(2)

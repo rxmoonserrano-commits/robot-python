@@ -5,8 +5,9 @@ Cubre solo lo nuevo de la v2.9:
     misma clave, sin que el dueño haga nada nuevo).
 (b) la lista de candidatos siempre termina en Flash-Lite, el modelo
     gratis más chico y menos saturado.
-(c) un 503 "high demand" se reintenta dos veces con espera larga
-    (2 s y 8 s) antes de rendirse y probar otro modelo.
+(c) un 503 "high demand" se reintenta una vez tras 2 s antes de
+    rendirse y probar otro modelo (v3.4.1: antes dos reintentos con
+    2 s y 8 s, que colgaba los lotes).
 (d) si todos los modelos dan 503, el error final es un 503 (no se
     esconde: en Diagnóstico se ve que fue saturación).
 
@@ -55,7 +56,7 @@ def main():
          and not set(candidatos) & set(gemini_mod._MODELOS_RETIRADOS),
          f"candidatos={candidatos}")
 
-    # (c) 503: reintenta dos veces con espera larga y luego contesta.
+    # (c) 503: reintenta una vez tras 2 s y luego contesta.
     clave_vieja = settings.gemini_api_key
     post_viejo = gemini_mod.requests.post
     dormir_viejo = gemini_mod.time.sleep
@@ -67,17 +68,17 @@ def main():
 
         def post_falso(url, json=None, timeout=None):
             llamadas.append(url.split("/models/")[1].split(":")[0])
-            if len(llamadas) <= 2:
+            if len(llamadas) <= 1:
                 return _RespuestaFalsa(503, '{"error": {"message": "high demand"}}')
             return _RespuestaFalsa(200, "OK")
 
         gemini_mod.requests.post = post_falso
         gemini_mod.time.sleep = lambda s: esperas.append(s)
         texto = gemini_mod.generar_texto("Responde solo con la palabra OK.")
-        caso("(c) Tras dos 503, reintenta y contesta",
-             texto == "OK" and len(llamadas) == 3, f"texto={texto!r} llamadas={llamadas}")
-        caso("(c) Las esperas son 2 s y 8 s",
-             esperas == [2, 8], f"esperas={esperas}")
+        caso("(c) Tras un 503, reintenta una vez y contesta",
+             texto == "OK" and len(llamadas) == 2, f"texto={texto!r} llamadas={llamadas}")
+        caso("(c) La espera es de 2 s",
+             esperas == [2], f"esperas={esperas}")
     finally:
         settings.gemini_api_key = clave_vieja
         gemini_mod.requests.post = post_viejo

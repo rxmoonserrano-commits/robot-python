@@ -3,14 +3,14 @@
 Cubre solo lo nuevo de la v2.8:
 (a) un timeout de Gemini se reintenta (antes salía volando sin
     reintentar ni probar el siguiente modelo) y el tiempo de espera
-    sube a 120 s.
+    es de 45 s (v3.4.1: antes 120 s, que colgaba los lotes).
 (b) Gemini contesta en prosa, sin JSON: esa prosa ES la respuesta al
     cliente, no se tira a la basura.
 (c) Gemini contesta un JSON roto: respuesta segura, y el motivo dice
     qué devolvió (para verlo en Diagnóstico).
 (d) Gemini no contesta (error de red): el motivo lleva el error real,
     no un texto genérico.
-(e) el historial que se le manda a Gemini se recorta a los últimos 8
+(e) el historial que se le manda a Gemini se recorta a los últimos 5
     mensajes (antes eran 20 y el prompt era enorme).
 
 Uso:  python test_v2_8.py
@@ -49,7 +49,7 @@ def caso(nombre, condicion, detalle=""):
 
 
 def main():
-    # (a) Timeout: se reintenta y contesta; el timeout es de 120 s.
+    # (a) Timeout: se reintenta y contesta; el timeout es de 45 s.
     clave_vieja = settings.gemini_api_key
     post_viejo = gemini_mod.requests.post
     llamadas = []
@@ -67,8 +67,8 @@ def main():
         texto = gemini_mod.generar_texto("Responde solo con la palabra OK.")
         caso("(a) Tras un timeout, reintenta y contesta",
              texto == "OK" and len(llamadas) == 2, f"texto={texto!r} llamadas={len(llamadas)}")
-        caso("(a) El tiempo de espera es de 120 segundos",
-             llamadas == [120, 120], f"llamadas={llamadas}")
+        caso("(a) El tiempo de espera es de 45 segundos",
+             llamadas == [45, 45], f"llamadas={llamadas}")
     finally:
         settings.gemini_api_key = clave_vieja
         gemini_mod.requests.post = post_viejo
@@ -111,7 +111,7 @@ def main():
     finally:
         agent_mod.generar_texto = generar_viejo
 
-    # (e) Historial recortado a los últimos 8 mensajes.
+    # (e) Historial recortado a los últimos 5 mensajes.
     try:
         prompts = []
         agent_mod.generar_texto = lambda prompt: (
@@ -121,10 +121,10 @@ def main():
         historial = [{"telefono": "1", "quien_hablo": "cliente", "mensaje": f"m{i}"}
                      for i in range(20)]
         r = preguntar_agente("hola", CONOCIMIENTO, FOTOS, historial)
-        parte = prompts[0].split("Historial de este teléfono: ", 1)[1]
+        parte = prompts[0].split("mensajes viejos): ", 1)[1].split("\n\n", 1)[0]
         enviados = json.loads(parte)
-        caso("(e) El historial que se manda son los últimos 8 mensajes",
-             len(enviados) == 8 and enviados[0]["mensaje"] == "m12"
+        caso("(e) El historial que se manda son los últimos 5 mensajes",
+             len(enviados) == 5 and enviados[0]["mensaje"] == "m15"
              and enviados[-1]["mensaje"] == "m19",
              f"enviados={len(enviados)}")
     finally:

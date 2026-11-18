@@ -26,12 +26,18 @@ import threading
 LOTE_LENTO_SEGUNDOS = 90
 
 
-def con_vigilancia(trabajo, al_tardar, segundos: float = LOTE_LENTO_SEGUNDOS) -> bool:
+def con_vigilancia(trabajo, al_tardar, segundos: float = LOTE_LENTO_SEGUNDOS,
+                   espera_extra: float = 60.0) -> bool:
     """Corre trabajo() con vigilancia. Devuelve True si terminó a tiempo.
 
     `trabajo`: la función sin argumentos que hace el trabajo.
     `al_tardar`: se llama UNA vez si pasan `segundos` sin terminar.
     Si trabajo() lanza, la excepción se vuelve a lanzar aquí.
+    (v3.4.1) Si tras avisar el trabajo sigue sin terminar después de
+    `espera_extra` segundos más, se deja de esperar: el lote se
+    abandona (el hilo sigue en segundo plano, es daemon) y el teléfono
+    se libera para el siguiente mensaje. Antes se esperaba para
+    siempre: un lote atorado dejaba al cliente mudo hasta 5 minutos.
     """
     hecho = threading.Event()
     errores: list[BaseException] = []
@@ -52,7 +58,7 @@ def con_vigilancia(trabajo, al_tardar, segundos: float = LOTE_LENTO_SEGUNDOS) ->
             al_tardar()
         except Exception:
             pass  # el aviso nunca rompe el trabajo
-        hecho.wait()
+        hecho.wait(espera_extra)
     if errores:
         raise errores[0]
     return a_tiempo

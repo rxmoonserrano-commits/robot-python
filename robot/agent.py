@@ -243,15 +243,21 @@ def preguntar_agente(
     3. Gemini contesta algo roto (JSON a medias): respuesta segura,
        con un pedazo de lo que devolvió en el motivo, para verlo en
        Diagnóstico.
-    Además el historial que se le manda se recorta a los últimos 8
+    Además el historial que se le manda se recorta a los últimos 5
     mensajes: con 20 el prompt era enorme y el modelo tardaba más.
+    (v3.4.1) El mensaje nuevo va AL FINAL, marcado como "responde
+    SOLO a este": antes iba primero y el historial al final, y el
+    modelo a veces contestaba un mensaje viejo del historial en vez
+    del nuevo.
     """
     prompt = (
         f"{GUION}\n\n"
-        f"Mensaje del cliente: {mensaje}\n\n"
+        f"Historial reciente de este teléfono (solo contexto; NO respondas "
+        f"a estos mensajes viejos): "
+        f"{json.dumps((historial or [])[-5:], ensure_ascii=False)}\n\n"
         f"Conocimiento del negocio: {json.dumps(conocimiento, ensure_ascii=False)}\n\n"
         f"Fotos oficiales: {json.dumps(fotos, ensure_ascii=False)}\n\n"
-        f"Historial de este teléfono: {json.dumps((historial or [])[-8:], ensure_ascii=False)}"
+        f"Mensaje nuevo del cliente (responde SOLO a este): {mensaje}"
     )
     try:
         texto = generar_texto(prompt)
