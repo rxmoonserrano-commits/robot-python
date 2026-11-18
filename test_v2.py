@@ -202,7 +202,8 @@ def main():
         fecha_cita="2026-11-14T10:00:00", quiere_agendar="si")
     d = DepsV2(agente=agente_agenda)
     r = atender_mensaje(d, "6671234567", "Ana", "Soy Ana, quiero cita el sábado a las 10",
-                         con_ritmo=False)
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
     caso("(i) Proponer cita: botones, sin crear la cita todavía",
          r.get("cita_propuesta") is True and len(d.citas) == 0
          and len(d.botones_enviados) == 1)
@@ -213,7 +214,8 @@ def main():
          any("14 de noviembre" in t and "10:00" in t and "60 minutos" in t
              for _, t in d.textos_enviados), f"textos={d.textos_enviados}")
     d2 = DepsV2(agente=agente_agenda)
-    atender_mensaje(d2, "6671234567", "Ana", "Soy Ana, quiero cita", con_ritmo=False)
+    atender_mensaje(d2, "6671234567", "Ana", "Soy Ana, quiero cita", con_ritmo=False,
+                    ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
     r3 = atender_boton(d2, "6671234567", "Ana", "cambiar_hora", con_ritmo=False)
     caso("(i) Cambiar hora: no crea cita y pregunta por otro día",
          len(d2.citas) == 0 and any("qué día" in t.lower() for _, t in d2.textos_enviados))

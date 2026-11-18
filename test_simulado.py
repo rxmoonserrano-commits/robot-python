@@ -159,7 +159,8 @@ def main():
     from robot.logic import atender_boton
     d = DepsFalsas()
     r = atender_mensaje(d, "6671234567", "Ana", "Soy Ana, quiero una cita el 14 a las 10",
-                         con_ritmo=False)
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
     caso("6. Agendar: propone con botones (no crea la cita todavía)",
          r.get("cita_propuesta") is True and len(d.citas) == 0
          and len(d.botones_enviados) == 1, f"r={r}")

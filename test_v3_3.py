@@ -309,7 +309,7 @@ def main():
                     con_ritmo=False, ahora=VIERNES)
     mensaje = d.mensajes_al_agente[0] if d.mensajes_al_agente else ""
     caso("(b) Nombre: el contexto ya no lo fuerza (lo pide el guion)",
-         "Con quién tengo el gusto" not in mensaje,
+         "Me das tu nombre completo" not in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
     d = DepsV33(
@@ -320,7 +320,7 @@ def main():
                     con_ritmo=False, ahora=VIERNES)
     mensaje = d.mensajes_al_agente[0] if d.mensajes_al_agente else ""
     caso("(b) Nombre: si ya lo sabe, no lo vuelve a preguntar",
-         "Con quién tengo el gusto" not in mensaje,
+         "Me das tu nombre completo" not in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
     d = DepsV33(
@@ -332,7 +332,7 @@ def main():
                     con_ritmo=False, ahora=VIERNES)
     mensaje = d.mensajes_al_agente[0] if d.mensajes_al_agente else ""
     caso("(b) Nombre: si ya lo preguntó en el último mensaje, no repite",
-         "Con quién tengo el gusto" not in mensaje,
+         "Me das tu nombre completo" not in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
     # ---- (c) Urgencias a humano, sin llamar a la IA ----
@@ -501,9 +501,12 @@ def main():
     caso("Guion: dice que solo ofrezca los huecos libres del contexto",
          "solo con los huecos libres que vienen en el contexto" in guion_normal,
          "falta la regla de huecos")
-    caso("Guion: dice que pregunte el nombre una sola vez",
-         "¿Con quién tengo el gusto?" in guion_normal,
+    caso("Guion: dice que pregunte el nombre completo una sola vez",
+         "¿Me das tu nombre completo?" in guion_normal,
          "falta la regla del nombre")
+    caso("Guion: al agendar pide nombre completo y número para el registro",
+         "a qué número registrarlo" in guion_normal,
+         "falta la regla de registro")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,
