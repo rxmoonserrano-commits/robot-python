@@ -29,6 +29,7 @@ Tarda unos minutos (cada llamada real a Gemini tarda segundos).
 
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import robot.agent as agent_mod
@@ -211,8 +212,8 @@ def no_tiene(texto, *opciones):
     return all(o.lower() not in bajo for o in opciones)
 
 
-def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None):
-    """Corre una conversación y devuelve (deps, resultado, respuesta_texto)."""
+def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None):
+    """Corre una conversación una sola vez. Devuelve (deps, resultado, texto)."""
     logic_mod._CITAS_PENDIENTES.clear()
     if propuesta:
         logic_mod._CITAS_PENDIENTES["5216694608263"] = dict(propuesta)
@@ -222,6 +223,21 @@ def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None):
     logic_mod._CITAS_PENDIENTES.clear()
     textos = [t for _, t in d.textos_enviados] + [t for _, t, _ in d.botones_enviados]
     return d, resultado, "\n".join(textos)
+
+
+def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None):
+    """Corre una conversación y devuelve (deps, resultado, respuesta_texto).
+
+    (v3.4.7) Si Gemini tuvo un mal momento (falla técnica: cuota, red,
+    texto vacío en todos los modelos), se reintenta UNA vez tras una
+    pausa: eso es un tropiezo de infraestructura, no un fallo de
+    contenido. Un fallo de contenido nunca se reintenta.
+    """
+    d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta)
+    if resultado.get("falla_tecnica"):
+        time.sleep(3)
+        d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta)
+    return d, resultado, txt
 
 
 RESULTADOS = []
@@ -250,15 +266,17 @@ def main():
               and tiene(txt, "ayudar", "necesitas", "en qué te"),
               "ofreció cita o dijo 'ya cerramos' o no preguntó qué necesita", txt)
 
-    # G2. Precio después de saludar: precio exacto, oferta con dos opciones, sin catálogo.
+    # G2. Precio después de saludar: precio exacto, sin catálogo y sin
+    # presionar con huecos (el guion nuevo solo ofrece cita si el
+    # cliente mostró interés).
     d, r, txt = correr(
         "G2", [fila("cliente", "buenas noches"),
                fila("robot", "¡Buenas noches, Jose Ramon! ¿En qué te puedo ayudar?")],
         "¿cuánto cuesta la limpieza?", DIA)
-    escenario("G2 precio tras saludo: $600, oferta, sin catálogo",
-              "$600" in txt and tiene(txt, "agendo", "9:00")
-              and txt.count("$") <= 2,
-              "falta el precio o la oferta, o soltó el catálogo", txt)
+    escenario("G2 precio tras saludo: precio exacto, sin catálogo ni presión",
+              "$600" in txt and txt.count("$") <= 2
+              and no_tiene(txt, "sábado", "domingo", "lunes", "9:00", "10:00", "mañana a las"),
+              "falta el precio, soltó el catálogo o presionó con huecos", txt)
 
     # G3. "Lo voy a pensar": aparta el lugar, sin descontar ni ofrecer otra hora.
     d, r, txt = correr(
@@ -380,18 +398,19 @@ def main():
               apartado and tiene(txt2, "apart", "guardado", "reservado", "sigue"),
               f"no guardó o no recordó el apartado (día 1: {txt!r} / día 2: {txt2!r})", txt2)
 
-    # G13 (v3.3). Huecos libres de verdad: pregunta el precio y el
-    # robot ofrece SOLO los dos huecos libres (sábado 14 a las 10:00
-    # o lunes 16 a las 09:00). Nunca un domingo (cerrado) ni una hora
-    # inventada.
+    # G13 (v3.3). Huecos libres de verdad: con interés en agendar y
+    # pregunta de precio, ofrece SOLO los dos huecos libres (sábado 14
+    # a las 10:00 o lunes 16 a las 09:00). Nunca un domingo (cerrado)
+    # ni una hora inventada.
     d, r, txt = correr(
         "G13", [],
-        "¿cuánto cuesta la limpieza?",
+        "quiero agendar una limpieza dental, ¿cuánto cuesta?",
         DIA)
     escenario("G13 horas libres de verdad: ofrece solo los huecos que existen",
-              tiene(txt, "sábado 14", "lunes 16", "sábado a las 10",
-                    "lunes a las 9", "lunes a las 09", "mañana a las 10",
-                    "mañana sábado")
+              "$600" in txt
+              and tiene(txt, "sábado 14", "lunes 16", "sábado a las 10",
+                        "lunes a las 9", "lunes a las 09", "mañana a las 10",
+                        "mañana sábado")
               and no_tiene(txt, "domingo"),
               f"no ofreció un hueco libre real (respuesta: {txt!r})", txt)
 
@@ -406,17 +425,23 @@ def main():
               and tiene(txt, "persona", "inmediato", "urgente"),
               f"no pasó a una persona (resultado={r})", txt)
 
-    # G15 (v3.3). Preguntar el nombre: el cliente escribe sin que el
-    # robot sepa quién es. El robot le pregunta su nombre una vez.
+    # G15 (v3.3, rediseñado en v3.4.7). Nombre al agendar: el cliente
+    # escribe sin que el robot sepa quién es (sin nombre de perfil) y
+    # quiere agendar. El robot pide el nombre completo y a qué número
+    # registrarlo, una sola vez. (Antes pedía el nombre ante cualquier
+    # pregunta; el guion nuevo responde primero y pide el nombre al
+    # agendar.)
     logic_mod._CITAS_PENDIENTES.clear()
     d = DepsDoradas()
     r = atender_mensaje(d, "5216694608263", "",
-                        "¿cuánto cuesta la limpieza?", con_ritmo=False, ahora=DIA)
-    txt = "\n".join(t for _, t in d.textos_enviados)
+                        "quiero agendar una limpieza", con_ritmo=False, ahora=DIA)
+    txt = ("\n".join(t for _, t in d.textos_enviados)
+           + "\n".join(t for _, t, _ in d.botones_enviados))
     logic_mod._CITAS_PENDIENTES.clear()
-    escenario("G15 preguntar el nombre: si no lo sabe, lo pregunta una vez",
-              tiene(txt, "gusto", "te llamas", "tu nombre", "cómo te llamas"),
-              f"no preguntó el nombre (respuesta: {txt!r})", txt)
+    escenario("G15 nombre al agendar: pide nombre completo y número de registro",
+              r.get("cita_propuesta") is True
+              and tiene(txt, "nombre completo", "número", "numero", "registrar"),
+              f"no pidió nombre/número al agendar (resultado={r})", txt)
 
     # G16 (v3.4.7). Identidad: "a quien hablo?" → dice quién es (la
     # recepcionista de la clínica), sin soltar nada interno. El nombre
@@ -461,24 +486,33 @@ def main():
     # G20 (v3.4.7). Flujo completo de cliente nuevo: saludo → precio →
     # "sí, quiero agendar" → propuesta con botones (pide nombre y
     # número) → confirmar → cita creada con confirmación bonita.
-    logic_mod._CITAS_PENDIENTES.clear()
-    d = DepsDoradas()
-    r1 = atender_mensaje(d, "5216694608263", "Jose Ramon", "hola buenas tardes",
-                         con_ritmo=False, ahora=DIA)
-    txt1 = "\n".join(t for _, t in d.textos_enviados)
-    d.textos_enviados = []
-    r2 = atender_mensaje(d, "5216694608263", "Jose Ramon",
-                         "¿cuánto cuesta el blanqueamiento?", con_ritmo=False, ahora=DIA)
-    txt2 = "\n".join(t for _, t in d.textos_enviados)
-    d.textos_enviados = []
-    r3 = atender_mensaje(d, "5216694608263", "Jose Ramon",
-                         "sí, quiero agendar una", con_ritmo=False, ahora=DIA)
-    txt3 = ("\n".join(t for _, t in d.textos_enviados)
-            + "\n".join(t for _, t, _ in d.botones_enviados))
-    r4 = atender_boton(d, "5216694608263", "Jose Ramon", "confirmar_cita",
-                       con_ritmo=False)
-    txt4 = "\n".join(t for _, t in d.textos_enviados)
-    logic_mod._CITAS_PENDIENTES.clear()
+    # (v3.4.7) Si el primer turno cae por falla técnica de Gemini
+    # (tropiezo de infraestructura), se reintenta el flujo UNA vez.
+    def flujo_completo():
+        logic_mod._CITAS_PENDIENTES.clear()
+        d = DepsDoradas()
+        r1 = atender_mensaje(d, "5216694608263", "Jose Ramon", "hola buenas tardes",
+                             con_ritmo=False, ahora=DIA)
+        txt1 = "\n".join(t for _, t in d.textos_enviados)
+        d.textos_enviados = []
+        r2 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                             "¿cuánto cuesta el blanqueamiento?", con_ritmo=False, ahora=DIA)
+        txt2 = "\n".join(t for _, t in d.textos_enviados)
+        d.textos_enviados = []
+        r3 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                             "sí, quiero agendar una", con_ritmo=False, ahora=DIA)
+        txt3 = ("\n".join(t for _, t in d.textos_enviados)
+                + "\n".join(t for _, t, _ in d.botones_enviados))
+        r4 = atender_boton(d, "5216694608263", "Jose Ramon", "confirmar_cita",
+                           con_ritmo=False)
+        txt4 = "\n".join(t for _, t in d.textos_enviados)
+        logic_mod._CITAS_PENDIENTES.clear()
+        return r1, txt1, r2, txt2, r3, txt3, r4, txt4, d
+
+    r1, txt1, r2, txt2, r3, txt3, r4, txt4, d = flujo_completo()
+    if r1.get("falla_tecnica"):
+        time.sleep(3)
+        r1, txt1, r2, txt2, r3, txt3, r4, txt4, d = flujo_completo()
     escenario("G20 flujo completo: saludo → precio → agendar con botones → confirmar",
               "cita_propuesta" not in r1
               and "$1,800" in txt2

@@ -520,6 +520,12 @@ def main():
     caso("Guion: el nombre del robot viene de Conocimiento, no se inventa",
          "no inventes un nombre" in guion_normal,
          "falta la regla del nombre")
+    caso("Guion: al agendar pide nombre completo aunque el perfil traiga uno",
+         "aunque el perfil ya traiga un nombre" in guion_normal,
+         "falta la regla de nombre completo al agendar")
+    caso("Guion: un agradecimiento no es un sí a agendar",
+         "Un agradecimiento no es un sí a agendar" in guion_normal,
+         "falta la regla de cortesía tras fallo")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,
