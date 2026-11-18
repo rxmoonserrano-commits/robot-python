@@ -507,6 +507,12 @@ def main():
     caso("Guion: al agendar pide nombre completo y número para el registro",
          "a qué número registrarlo" in guion_normal,
          "falta la regla de registro")
+    caso("Guion: si preguntan qué recibiste, responde con la verdad",
+         "Nunca inventes que fue un aviso del sistema" in guion_normal,
+         "falta la regla de mensajes no-texto")
+    caso("Guion: cliente que vuelve, responde su pregunta primero",
+         "responde su pregunta primero" in guion_normal,
+         "falta la regla de regreso")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,

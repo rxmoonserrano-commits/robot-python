@@ -314,6 +314,21 @@ def main():
              for m in deps3.mensajes_al_agente),
          f"salió: {deps3.mensajes_al_agente}")
 
+    # (a3) Cliente que vuelve y PREGUNTA algo: se responde eso primero,
+    # el saludo de regreso no tapa la pregunta (v3.4.6).
+    deps4 = DepsV32(
+        historial=[fila("cliente", "¿cuánto cuesta la limpieza?"),
+                   fila("robot", "La limpieza cuesta $600.")],
+        respuesta_agente=RespuestaAgente(
+            respuesta_texto="Estamos en Av. del Mar 123, en Mazatlán.",
+            modelo="falso"))
+    atender_mensaje(deps4, TELEFONO, "Jose Ramon", "¿y dónde están?",
+                    ahora=VIERNES, con_ritmo=False)
+    caso("(a3) Cliente que vuelve y pregunta: responde su pregunta primero",
+         any("Responde su pregunta actual primero" in m
+             for m in deps4.mensajes_al_agente),
+         f"salió: {deps4.mensajes_al_agente}")
+
     # ---- (b) Memoria de apartados ----
     logic_mod._CITAS_PENDIENTES.clear()
     propuesta = {

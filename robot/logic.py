@@ -929,22 +929,30 @@ def atender_mensaje(
     # saludo recuerda de qué hablaban en vez de tratarlo como nuevo.
     # Si pasaron días desde el último mensaje, se dice explícitamente
     # para que el saludo suene a regreso, no a arranque en frío.
-    if (
-        (_mensajes_previos(historial, texto) or memoria)
-        and estado["etapa"] in ("saludo", "pregunto")
-    ):
-        dias = _dias_desde_ultimo_mensaje(historial, texto, ahora)
-        if dias is not None and dias >= 1:
+    if _mensajes_previos(historial, texto) or memoria:
+        if estado["etapa"] == "saludo":
+            dias = _dias_desde_ultimo_mensaje(historial, texto, ahora)
+            if dias is not None and dias >= 1:
+                contexto.append(
+                    f"Hace {dias} día(s) que este cliente no escribía. "
+                    "Salúdalo con gusto recordando de qué hablaban la última "
+                    "vez; no lo trates como nuevo ni le preguntes el nombre "
+                    "otra vez."
+                )
+            else:
+                contexto.append(
+                    "Este cliente ya ha hablado contigo antes: salúdalo "
+                    "recordando de qué hablaban, no como a un desconocido."
+                )
+        elif estado["etapa"] == "pregunto":
+            # (v3.4.6) Si preguntó algo concreto, se responde eso primero.
+            # Antes el saludo de regreso tapaba la pregunta (en vivo:
+            # "¿qué recibiste?" recibió un saludo en vez de respuesta).
             contexto.append(
-                f"Hace {dias} día(s) que este cliente no escribía. "
-                "Salúdalo con gusto recordando de qué hablaban la última "
-                "vez; no lo trates como nuevo ni le preguntes el nombre "
-                "otra vez."
-            )
-        else:
-            contexto.append(
-                "Este cliente ya ha hablado contigo antes: salúdalo "
-                "recordando de qué hablaban, no como a un desconocido."
+                "Este cliente ya ha hablado contigo antes. Responde su "
+                "pregunta actual primero; si encaja con naturalidad, "
+                "recuerda de qué hablaban. No lo trates como nuevo, pero "
+                "tampoco ignores lo que pregunta."
             )
     # (v3.4.2) El nombre ya no se fuerza desde el contexto (antes pedía
     # preguntarlo "antes de seguir con lo demás", y sonaba a robot).

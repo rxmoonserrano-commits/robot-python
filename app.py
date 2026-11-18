@@ -321,10 +321,15 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         # (v2.5) Una foto, una ubicación o un sticker tampoco se ignoran
         # en silencio: el robot no puede ver la foto, así que pide que se
         # lo cuenten con palabras. Antes, esto no recibía nada.
+        # (v3.4.6) El registro dice en palabras claras qué mandó el
+        # cliente: si luego pregunta "¿qué recibiste?", el robot lo sabe
+        # por el historial y no inventa (en vivo inventó "un sticker
+        # del sistema" porque el registro decía solo "(image recibido)").
         _responder_directo(
             telefono,
             "Gracias, lo recibí. ¿Me cuentas con tus palabras qué necesitas? Así te ayudo mejor.",
-            f"({tipo} recibido)",
+            f"(el cliente mandó un mensaje que no es texto ({tipo}); "
+            "el robot no lo puede ver, solo texto)",
         )
         return
     else:
