@@ -98,6 +98,12 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
     modelo estaba frío, el segundo intento ya lo agarra tibio y contesta
     en segundos; si Gemini está caído, el fallo se ve en Diagnóstico
     en vez de colgar al cliente.
+    (v3.4.5) Si Gemini contesta 200 pero con texto VACÍO (''), antes se
+    aceptaba como éxito y el agente moría con "no es JSON: ''", dejando
+    al cliente solo con el "dame un momento". Ahora el texto vacío se
+    reintenta una vez y, si sigue vacío, se prueba el siguiente modelo;
+    el error lleva el finishReason para ver en Diagnóstico si fue un
+    bloqueo o un tropiezo.
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
     config = {"temperature": 0.3, "maxOutputTokens": 600}
@@ -115,7 +121,26 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
                 continue
             raise ultimo_error
         if respuesta.status_code == 200:
-            break
+            datos = respuesta.json()
+            try:
+                texto = datos["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise GeminiError(f"Gemini respondió algo que no entiendo: {datos}") from exc
+            if texto and str(texto).strip():
+                return texto
+            # (v3.4.5) Texto vacío con 200: el modelo contestó nada.
+            # Se reintenta una vez; si sigue vacío, se prueba el
+            # siguiente modelo (no se acepta como éxito).
+            candidato = (datos.get("candidates") or [{}])[0] or {}
+            ultimo_error = GeminiError(
+                "Gemini devolvió texto vacío "
+                f"(finishReason={candidato.get('finishReason', '?')}, "
+                f"promptFeedback={datos.get('promptFeedback', {})})"
+            )
+            if intento == 0:
+                time.sleep(2)
+                continue
+            raise ultimo_error
         ultimo_error = GeminiError(
             f"Gemini devolvió {respuesta.status_code}: {respuesta.text[:300]}"
         )
@@ -131,11 +156,6 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
             time.sleep(2)
             continue
         raise ultimo_error
-    datos = respuesta.json()
-    try:
-        return datos["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise GeminiError(f"Gemini respondió algo que no entiendo: {datos}") from exc
 
 
 def _candidatos() -> list[str]:

@@ -10,6 +10,10 @@ Cubre solo lo nuevo de la v2.9:
     2 s y 8 s, que colgaba los lotes).
 (d) si todos los modelos dan 503, el error final es un 503 (no se
     esconde: en Diagnóstico se ve que fue saturación).
+(e) (v3.4.5) texto vacío con 200: no se acepta como éxito; se prueba
+    el siguiente modelo.
+(f) (v3.4.5) si todos devuelven vacío, el error dice "texto vacío"
+    con el finishReason.
 
 Uso:  python test_v2_9.py
 """
@@ -98,6 +102,50 @@ def main():
         except gemini_mod.GeminiError as exc:
             caso("(d) Todos con 503: el error final es un 503",
                  "503" in str(exc), f"error={exc}")
+    finally:
+        settings.gemini_api_key = clave_vieja
+        gemini_mod.requests.post = post_viejo
+        gemini_mod.time.sleep = dormir_viejo
+        gemini_mod._ULTIMO_MODELO_OK = None
+
+    # (e) Texto vacío con 200: no se acepta; se prueba el siguiente modelo.
+    try:
+        settings.gemini_api_key = "clave-de-prueba"
+        gemini_mod._ULTIMO_MODELO_OK = None
+        llamadas = []
+
+        def post_vacio_luego_ok(url, json=None, timeout=None):
+            modelo = url.split("/models/")[1].split(":")[0]
+            llamadas.append(modelo)
+            if modelo == "gemini-4-hydrogen":
+                return _RespuestaFalsa(200, "")
+            return _RespuestaFalsa(200, "OK")
+
+        gemini_mod.requests.post = post_vacio_luego_ok
+        gemini_mod.time.sleep = lambda s: None
+        texto = gemini_mod.generar_texto("Hola.")
+        caso("(e) Texto vacío: prueba el siguiente modelo",
+             texto == "OK" and llamadas[0] == "gemini-4-hydrogen"
+             and llamadas[-1] == "gemini-3.8-flash",
+             f"texto={texto!r} llamadas={llamadas}")
+    finally:
+        settings.gemini_api_key = clave_vieja
+        gemini_mod.requests.post = post_viejo
+        gemini_mod.time.sleep = dormir_viejo
+        gemini_mod._ULTIMO_MODELO_OK = None
+
+    # (f) Todos devuelven vacío: el error dice "texto vacío".
+    try:
+        settings.gemini_api_key = "clave-de-prueba"
+        gemini_mod._ULTIMO_MODELO_OK = None
+        gemini_mod.requests.post = lambda url, json=None, timeout=None: _RespuestaFalsa(200, "")
+        gemini_mod.time.sleep = lambda s: None
+        try:
+            gemini_mod.generar_texto("Hola.")
+            caso("(f) Todos vacíos: lanza el error", False, "no lanzó nada")
+        except gemini_mod.GeminiError as exc:
+            caso("(f) Todos vacíos: el error dice texto vacío",
+                 "texto vacío" in str(exc), f"error={exc}")
     finally:
         settings.gemini_api_key = clave_vieja
         gemini_mod.requests.post = post_viejo
