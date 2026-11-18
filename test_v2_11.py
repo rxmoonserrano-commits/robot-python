@@ -152,9 +152,9 @@ def main():
         caso("(a) Cada respuesta acerca a la cita: beneficio, precio, cita",
              "Beneficio primero" in prompt and "precio después, cita al final" in prompt
              and "DOS opciones concretas de día y hora" in prompt)
-        caso("(b) Ofrece DOS opciones concretas de día y hora",
+        caso("(b) Ofrece DOS opciones concretas de día y hora (con interés)",
              "DOS opciones concretas de día y hora" in prompt
-             and "para mañana a las 9:00 o el sábado a las 10:00?" in prompt)
+             and "Ofrece la cita SOLO si el cliente mostró interés" in prompt)
         caso("(c) Prohíbe cerrar con preguntas genéricas",
              'Nunca termines con "¿tienes alguna otra duda?"' in prompt
              and 'ni "¿te gustaría saber' in prompt)

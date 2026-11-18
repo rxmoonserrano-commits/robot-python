@@ -146,6 +146,46 @@ def _sin_acentos(texto: str) -> str:
     return texto.lower().strip()
 
 
+def _mensajes_previos(
+    historial: list[dict] | None, texto_actual: str
+) -> list[dict]:
+    """Mensajes del historial SIN el actual (si viene al final).
+
+    En producción el mensaje actual ya se registró antes de leer el
+    historial, así que viene como última fila; en pruebas la última
+    fila ya es previa. Si la última fila coincide con el texto actual,
+    se excluye: es el mensaje que se está atendiendo.
+    """
+    filas = list(historial or [])
+    if filas and str(filas[-1].get("mensaje", "")) == texto_actual:
+        filas = filas[:-1]
+    return filas
+
+
+def _dias_desde_ultimo_mensaje(
+    historial: list[dict] | None, texto_actual: str, ahora: datetime
+) -> int | None:
+    """Días desde el último mensaje PREVIO al actual, o None si no se sabe.
+
+    (v3.4.2) Para que un cliente que vuelve después de días sea saludado
+    recordando de qué hablaban, no como nuevo. Si la fecha no se puede
+    leer, devuelve None.
+    """
+    filas = _mensajes_previos(historial, texto_actual)
+    if not filas:
+        return None
+    try:
+        fecha_txt = str(filas[-1].get("fecha", "") or "").strip()
+        if not fecha_txt:
+            return None
+        fecha = datetime.fromisoformat(fecha_txt.replace("Z", "+00:00"))
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=timezone.utc)
+        return max(0, (ahora - fecha).days)
+    except (ValueError, TypeError):
+        return None
+
+
 def _es_afirmacion(texto: str) -> bool:
     """¿El cliente está diciendo que sí a la cita propuesta?
 
@@ -870,31 +910,46 @@ def atender_mensaje(
     # minutos. Solo se pone lo que hay: un campo vacío no se menciona.
     memoria = []
     if str(fila_cliente.get("resumen_conversacion", "") or "").strip():
-        memoria.append(f"Resumen de este cliente: {fila_cliente['resumen_conversacion']}")
+        memoria.append(f"Resumen: {fila_cliente['resumen_conversacion']}")
     if str(fila_cliente.get("intereses", "") or "").strip():
-        memoria.append(f"Le interesa: {fila_cliente['intereses']}")
+        memoria.append(f"Le interesa {fila_cliente['intereses']}")
     if str(fila_cliente.get("proxima_accion", "") or "").strip():
-        memoria.append(f"Pendiente con este cliente: {fila_cliente['proxima_accion']}")
+        memoria.append(f"Quedaron en: {fila_cliente['proxima_accion']}")
     if str(fila_cliente.get("notas", "") or "").strip():
-        memoria.append(f"Prefiere: {fila_cliente['notas']}")
+        memoria.append(f"Prefiere {fila_cliente['notas']}")
     if memoria:
         contexto.append(
             "Lo que sabes de este cliente: " + " ".join(memoria)
-            + " Úsalo: no vuelvas a preguntar lo que ya sabes."
+            + " Úsalo con naturalidad: si vuelve, salúdalo recordando de qué "
+            "hablaban, como si lo conocieras de antes. No vuelvas a preguntar "
+            "lo que ya sabes y nunca menciones 'pendientes' ni listas: dilo "
+            "en una frase corta y cálida."
         )
-    # (v3.3) Preguntar el nombre: una recepcionista pregunta "¿con
-    # quién tengo el gusto?" si no sabe quién es. Una sola vez: si el
-    # último mensaje del robot ya lo preguntó, no se repite.
-    if not nombre and not str(fila_cliente.get("nombre", "") or "").strip():
-        ultimo_robot = _sin_acentos(estado.get("ultimo_mensaje_robot", "") or "")
-        if ("gusto" not in ultimo_robot
-                and "como te llamas" not in ultimo_robot
-                and "tu nombre" not in ultimo_robot):
+    # (v3.4.2) Cliente que vuelve: si ya hay historial o memoria, el
+    # saludo recuerda de qué hablaban en vez de tratarlo como nuevo.
+    # Si pasaron días desde el último mensaje, se dice explícitamente
+    # para que el saludo suene a regreso, no a arranque en frío.
+    if (
+        (_mensajes_previos(historial, texto) or memoria)
+        and estado["etapa"] in ("saludo", "pregunto")
+    ):
+        dias = _dias_desde_ultimo_mensaje(historial, texto, ahora)
+        if dias is not None and dias >= 1:
             contexto.append(
-                "No sabes cómo se llama este cliente: pregúntale su nombre "
-                "una sola vez, con naturalidad ('¿Con quién tengo el gusto?'), "
-                "antes de seguir con lo demás."
+                f"Hace {dias} día(s) que este cliente no escribía. "
+                "Salúdalo con gusto recordando de qué hablaban la última "
+                "vez; no lo trates como nuevo ni le preguntes el nombre "
+                "otra vez."
             )
+        else:
+            contexto.append(
+                "Este cliente ya ha hablado contigo antes: salúdalo "
+                "recordando de qué hablaban, no como a un desconocido."
+            )
+    # (v3.4.2) El nombre ya no se fuerza desde el contexto (antes pedía
+    # preguntarlo "antes de seguir con lo demás", y sonaba a robot).
+    # Lo pide el guion cuando encaje con naturalidad: al agendar o al
+    # saludar a un cliente nuevo.
     # (v3.3) Huecos libres de verdad: el agente solo ofrece horas que
     # existen en el calendario. Antes inventaba "mañana a las 9:00" y
     # al confirmar salía "esa hora ya se ocupó". Solo se calculan

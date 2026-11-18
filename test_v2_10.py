@@ -154,8 +154,9 @@ def main():
              and "Beneficio primero" in prompt
              and "precio después, cita al final" in prompt,
              "falta la decisión por etapa")
-        caso("(b) El prompt ordena ofrecer la cita después de cada precio",
-             "¿Te la agendo" in prompt and "para mañana a las 9:00" in prompt)
+        caso("(b) El prompt ofrece la cita solo con interés (embudo natural)",
+             "Ofrece la cita SOLO si el cliente mostró interés" in prompt
+             and "¿Quieres que te agende una?" in prompt)
         caso("(c) El prompt prohíbe el catálogo entero (máximo 3 servicios)",
              "pregunta cuál les interesa" in prompt
              and "da solo los 3 más pedidos" in prompt)

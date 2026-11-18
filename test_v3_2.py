@@ -4,7 +4,7 @@ Lo nuevo de la v3.2:
 (a) Memoria del cliente: el agente devuelve en su JSON lo que aprendió
     (resumen, interés, próxima acción, preferencias) y logic.py lo guarda
     en Clientes (K, L, N, O). En el siguiente mensaje, el contexto lleva
-    "Lo que sabes de este cliente", ANTES de los últimos 8 mensajes.
+    "Lo que sabes de este cliente", ANTES del historial reciente.
 (b) Memoria de apartados: si el robot le aparta el lugar a un cliente
     con una propuesta activa, el apartado queda guardado en Propuestas
     (columnas nuevas G apartado, H aparta_hasta) y el contexto lo recuerda.
@@ -287,6 +287,32 @@ def main():
              and "Solo en las mañanas" in m
              for m in deps.mensajes_al_agente),
          f"salió: {deps.mensajes_al_agente}")
+
+    # ---- (a2) Cliente que vuelve: saludo con memoria, no como nuevo ----
+    deps2 = DepsV32(
+        historial=[fila("cliente", "¿cuánto cuesta la limpieza?"),
+                   fila("robot", "La limpieza cuesta $600.")],
+        respuesta_agente=RespuestaAgente(
+            respuesta_texto="¡Hola! ¿Seguimos con la limpieza?",
+            modelo="falso"))
+    atender_mensaje(deps2, TELEFONO, "Jose Ramon", "hola",
+                    ahora=datetime(2026, 11, 14, 16, 0, tzinfo=timezone.utc),
+                    con_ritmo=False)
+    caso("(a2) Cliente que vuelve: el contexto lo recuerda, no lo trata como nuevo",
+         any("ya ha hablado contigo antes" in m or "no escribía" in m
+             for m in deps2.mensajes_al_agente),
+         f"salió: {deps2.mensajes_al_agente}")
+
+    deps3 = DepsV32(
+        respuesta_agente=RespuestaAgente(
+            respuesta_texto="¡Hola! ¿En qué te ayudo?",
+            modelo="falso"))
+    atender_mensaje(deps3, TELEFONO, "", "hola",
+                    ahora=VIERNES, con_ritmo=False)
+    caso("(a2) Cliente nuevo: el contexto no lo trata como regreso",
+         all("ya ha hablado contigo antes" not in m and "no escribía" not in m
+             for m in deps3.mensajes_al_agente),
+         f"salió: {deps3.mensajes_al_agente}")
 
     # ---- (b) Memoria de apartados ----
     logic_mod._CITAS_PENDIENTES.clear()

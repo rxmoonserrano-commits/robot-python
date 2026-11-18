@@ -155,7 +155,7 @@ def main():
         caso("(b) No repite la oferta si ya se ofreció y no contestaron",
              "ya le ofreciste una cita y no ha contestado" in prompt
              and "NO repitas la oferta" in prompt
-             and "los horarios quedaron arriba" in prompt)
+             and "recuérdala en una frase corta" in prompt)
         caso("(c) Si solo saludó, no ofrece cita: saluda y pregunta",
              "el cliente solo saludó" in prompt
              and "NO ofrezcas cita todavía" in prompt

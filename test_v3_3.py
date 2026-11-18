@@ -4,8 +4,9 @@ Lo nuevo de la v3.3:
 (a) Horas libres de verdad: el agente solo ofrece huecos que existen
     en el calendario (una sola llamada freebusy). Si no hay huecos, el
     contexto dice que la agenda está llena y el robot no inventa horas.
-(b) Preguntar el nombre: si el robot no sabe cómo se llama el cliente,
-    se lo pregunta una sola vez ("¿Con quién tengo el gusto?").
+(b) Preguntar el nombre: el guion lo pide una sola vez, cuando encaje
+    con naturalidad (al saludar o al agendar). El contexto ya no lo
+    fuerza antes de responder (v3.4.2: sonaba a robot).
 (c) Urgencias a humano: "me duele", "urgente", "sangrando"... van
     directo a una persona, sin llamar a la IA. "¿duele la limpieza?"
     NO es urgencia: es una pregunta.
@@ -307,8 +308,8 @@ def main():
     atender_mensaje(d, TELEFONO, "", "¿cuánto cuesta la limpieza?",
                     con_ritmo=False, ahora=VIERNES)
     mensaje = d.mensajes_al_agente[0] if d.mensajes_al_agente else ""
-    caso("(b) Nombre: si no lo sabe, el contexto pide preguntarlo",
-         "¿Con quién tengo el gusto?" in mensaje,
+    caso("(b) Nombre: el contexto ya no lo fuerza (lo pide el guion)",
+         "Con quién tengo el gusto" not in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
     d = DepsV33(
