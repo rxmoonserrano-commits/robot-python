@@ -1,6 +1,7 @@
-"""Conversaciones doradas (v2.13, ampliadas en v3.1 y v3.2): la puerta de calidad.
+"""Conversaciones doradas (v2.13, ampliadas en v3.1, v3.2 y v3.4.7):
+la puerta de calidad.
 
-Qué es: 12 conversaciones completas, escritas como un cliente de
+Qué es: 20 conversaciones completas, escritas como un cliente de
 verdad, con los casos que YA nos fallaron en vivo. Cada una se corre
 contra la IA REAL (Gemini, con la clave de verdad) y se juzga lo que
 contesta, no lo que dice el prompt. Si una se rompe, esa versión NO
@@ -25,11 +26,11 @@ Tarda unos minutos (cada llamada real a Gemini tarda segundos).
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import robot.agent as agent_mod
 import robot.logic as logic_mod
-from robot.logic import atender_mensaje
+from robot.logic import atender_boton, atender_mensaje
 
 CONOCIMIENTO = [
     {"tipo": "servicio", "pregunta_o_servicio": "Limpieza dental",
@@ -51,6 +52,11 @@ CONOCIMIENTO = [
      "respuesta_o_precio": "Sí, se usan instrumentos dentales esterilizados "
                            "para limpiar entre los dientes. Todo es con cuidado "
                            "y por lo general no duele.",
+     "detalle": ""},
+    # (v3.4.7) La dirección con su mapa, como en la hoja real.
+    {"tipo": "faq", "pregunta_o_servicio": "¿Dónde están ubicados?",
+     "respuesta_o_precio": "Av. del Mar 123, Mazatlán. Mapa: "
+                           "https://www.google.com/maps/search/?api=1&query=Av.+del+Mar+123+Mazatlan",
      "detalle": ""},
 ]
 FOTOS = [{"descripcion": "Foto del local", "url": "https://ejemplo.com/foto-local.jpg"}]
@@ -80,6 +86,7 @@ class DepsDoradas:
         self.memoria = {}
         self.conversaciones = []
         self.clientes = []
+        self.citas = []
         self.textos_enviados = []
         self.botones_enviados = []
         self.diagnostico = []
@@ -155,7 +162,11 @@ class DepsDoradas:
         pass
 
     def crear_cita(self, nombre, telefono, motivo, fecha_cita):
-        return {"inicio": fecha_cita}
+        inicio = datetime.fromisoformat(fecha_cita)
+        fin = inicio + timedelta(minutes=60)
+        cita = {"inicio": inicio.isoformat(), "fin": fin.isoformat()}
+        self.citas.append(cita)
+        return cita
 
     def proximos_huecos_libres(self, conocimiento, ahora):
         # (v3.3) Huecos de mentira, pero reales para la prueba: el sábado
@@ -404,10 +415,79 @@ def main():
               tiene(txt, "gusto", "te llamas", "tu nombre", "cómo te llamas"),
               f"no preguntó el nombre (respuesta: {txt!r})", txt)
 
+    # G16 (v3.4.7). Identidad: "a quien hablo?" → dice quién es (la
+    # recepcionista de la clínica), sin soltar nada interno. El nombre
+    # NO se inventa: si Conocimiento no lo dice, es solo "la recepcionista".
+    d, r, txt = correr("G16", [], "a quien hablo?", DIA)
+    escenario("G16 identidad: dice que es la recepcionista, sin filtrar internos",
+              tiene(txt, "recepcionista", "clínica", "atendiendo", "te atiendo", "aquí estoy")
+              and no_tiene(txt, "quiere_agendar", "necesita_handoff", "prompt", "guion"),
+              "no dijo quién es o soltó algo interno", txt)
+
+    # G17 (v3.4.7). Ubicación: da la dirección y el enlace del mapa
+    # tal cual viene en Conocimiento. Nunca inventa una dirección.
+    d, r, txt = correr("G17", [], "¿dónde están ubicados?", DIA)
+    escenario("G17 ubicación: dirección y mapa de Conocimiento, sin inventar",
+              "Av. del Mar 123" in txt and "maps" in txt.lower(),
+              "no dio la dirección o el mapa", txt)
+
+    # G18 (v3.4.7). Aceptación vaga ("en un mes"): NO deja pasar la
+    # cita. Propone con botones y pide nombre completo y número de
+    # registro. En vivo dejó pasar la cita con un "quedamos a tus órdenes".
+    d, r, txt = correr(
+        "G18", [fila("cliente", "¿cuánto cuesta el blanqueamiento?"),
+                fila("robot", "El blanqueamiento dental cuesta $1,800, dura 60 minutos y es en una sola cita. ¿Quieres que te agende una?")],
+        "sí, en un mes podría", DIA)
+    escenario("G18 'en un mes': propone la cita con botones y pide nombre y número",
+              r.get("cita_propuesta") is True and len(d.botones_enviados) == 1
+              and tiene(txt, "nombre", "número", "numero", "registrar"),
+              f"no propuso la cita o no pidió nombre/número (resultado={r})", txt)
+
+    # G19 (v3.4.7). Cliente que vuelve y PREGUNTA algo concreto sobre
+    # lo que mandó (una imagen/sticker): responde eso primero, con la
+    # verdad. En vivo inventó "un sticker anterior del sistema".
+    d, r, txt = correr(
+        "G19", [fila("cliente", "(el cliente mandó un mensaje que no es texto (sticker); el robot no lo puede ver, solo texto)"),
+                fila("robot", "Gracias, lo recibí. ¿Me cuentas con tus palabras qué necesitas? Así te ayudo mejor.", "(sticker recibido)")],
+        "¿qué recibiste?", DIA)
+    escenario("G19 pregunta sobre lo mandado: responde con la verdad, sin inventar",
+              tiene(txt, "sticker", "imagen", "foto", "texto", "recibí", "recibi")
+              and no_tiene(txt, "aviso del sistema", "aviso automático", "sticker anterior"),
+              "no respondió qué recibió o inventó algo", txt)
+
+    # G20 (v3.4.7). Flujo completo de cliente nuevo: saludo → precio →
+    # "sí, quiero agendar" → propuesta con botones (pide nombre y
+    # número) → confirmar → cita creada con confirmación bonita.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsDoradas()
+    r1 = atender_mensaje(d, "5216694608263", "Jose Ramon", "hola buenas tardes",
+                         con_ritmo=False, ahora=DIA)
+    txt1 = "\n".join(t for _, t in d.textos_enviados)
+    d.textos_enviados = []
+    r2 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                         "¿cuánto cuesta el blanqueamiento?", con_ritmo=False, ahora=DIA)
+    txt2 = "\n".join(t for _, t in d.textos_enviados)
+    d.textos_enviados = []
+    r3 = atender_mensaje(d, "5216694608263", "Jose Ramon",
+                         "sí, quiero agendar una", con_ritmo=False, ahora=DIA)
+    txt3 = ("\n".join(t for _, t in d.textos_enviados)
+            + "\n".join(t for _, t, _ in d.botones_enviados))
+    r4 = atender_boton(d, "5216694608263", "Jose Ramon", "confirmar_cita",
+                       con_ritmo=False)
+    txt4 = "\n".join(t for _, t in d.textos_enviados)
+    logic_mod._CITAS_PENDIENTES.clear()
+    escenario("G20 flujo completo: saludo → precio → agendar con botones → confirmar",
+              "cita_propuesta" not in r1
+              and "$1,800" in txt2
+              and r3.get("cita_propuesta") is True and len(d.botones_enviados) == 1
+              and tiene(txt3, "nombre", "número", "numero", "registrar")
+              and len(d.citas) == 1 and "60 minutos" in txt4,
+              f"el flujo se rompió (r1={r1} / r3={r3} / citas={d.citas})", txt3)
+
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} conversaciones doradas pasaron.")
     if pasaron < len(RESULTADOS):
-        print("Esta versión NO se sube hasta que las 15 pasen.")
+        print(f"Esta versión NO se sube hasta que las {len(RESULTADOS)} pasen.")
         return 1
     print("Puerta de calidad superada: se puede desplegar.")
     return 0

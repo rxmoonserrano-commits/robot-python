@@ -517,6 +517,9 @@ def main():
          "calcula la fecha aproximada" in guion_normal
          and "no dejes pasar la cita" in guion_normal,
          "falta la regla de fecha vaga")
+    caso("Guion: el nombre del robot viene de Conocimiento, no se inventa",
+         "no inventes un nombre" in guion_normal,
+         "falta la regla del nombre")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,
