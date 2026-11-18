@@ -220,6 +220,23 @@ def main():
     caso("(i) Cambiar hora: no crea cita y pregunta por otro día",
          len(d2.citas) == 0 and any("qué día" in t.lower() for _, t in d2.textos_enviados))
 
+    # (i2) Cita a un mes ("en un mes podría"): el sistema la acepta y
+    # propone con botones, sin crear la cita todavía.
+    agente_mes = RespuestaAgente(
+        respuesta_texto="Perfecto, te agendo el blanqueamiento. "
+                        "¿Me das tu nombre completo y a qué número lo registro?",
+        nombre="Ana", motivo="Blanqueamiento",
+        fecha_cita="2026-12-18T10:00:00", quiere_agendar="si")
+    d3 = DepsV2(agente=agente_mes)
+    r4 = atender_mensaje(d3, "6671234567", "Ana", "sí, en un mes podría",
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc))
+    caso("(i2) Cita a un mes: propuesta con botones, sin crear la cita",
+         r4.get("cita_propuesta") is True and len(d3.citas) == 0
+         and len(d3.botones_enviados) == 1
+         and "18 de diciembre" in d3.botones_enviados[0][1],
+         f"r={r4} botones={d3.botones_enviados}")
+
     # (f) Si Gemini falla: el cliente recibe "dame un momento" y el dueño un correo.
     agente_falla = RespuestaAgente.segura(
         "Dame un momento, por favor. Estoy revisando tu mensaje y te atiendo enseguida.",

@@ -513,6 +513,10 @@ def main():
     caso("Guion: cliente que vuelve, responde su pregunta primero",
          "responde su pregunta primero" in guion_normal,
          "falta la regla de regreso")
+    caso("Guion: aceptación vaga ('en un mes') no pierde la cita",
+         "calcula la fecha aproximada" in guion_normal
+         and "no dejes pasar la cita" in guion_normal,
+         "falta la regla de fecha vaga")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,
