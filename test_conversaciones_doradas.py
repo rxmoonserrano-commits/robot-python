@@ -7,8 +7,11 @@ contra la IA REAL (Gemini, con la clave de verdad) y se juzga lo que
 contesta, no lo que dice el prompt. Si una se rompe, esa versión NO
 se sube a Render.
 
-Cómo se corre (desde esta carpeta, con la clave en el entorno):
-    GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py
+Cómo se corre (desde esta carpeta, en Mac es python3, no python):
+    python3 test_conversaciones_doradas.py
+La clave sale de tu archivo .env (GEMINI_API_KEY). Si no está en
+.env, también puedes pasarla en el momento:
+    GEMINI_API_KEY=tu_clave python3 test_conversaciones_doradas.py
 
 Códigos de salida: 0 = todas pasaron; 1 = alguna falló (la respuesta
 que falló se imprime para juzgarla a ojo); 2 = no se pudo correr
@@ -236,8 +239,8 @@ def escenario(nombre, ok, detalle, respuesta=""):
 
 def main():
     if not os.environ.get("GEMINI_API_KEY"):
-        print("NO SE EJECUTÓ: falta GEMINI_API_KEY en el entorno.")
-        print("Corre:  GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py")
+        print("NO SE EJECUTÓ: falta GEMINI_API_KEY (en tu .env o en el entorno).")
+        print("Corre:  python3 test_conversaciones_doradas.py")
         return 2
 
     # G1. Saludo de noche: saluda y pregunta, NO ofrece cita, NO dice "ya cerramos".
