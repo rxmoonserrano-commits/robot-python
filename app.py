@@ -39,7 +39,7 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from robot import booking, gemini, mail, salud, seguridad, sheets, whatsapp
+from robot import booking, estado_servidor, gemini, mail, salud, seguridad, sheets, whatsapp
 from robot.abuso import Limitador
 from robot.agent import preguntar_agente
 from robot.agrupar import Agrupador
@@ -51,7 +51,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.3.1"
+VERSION = "3.4.0"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -205,12 +205,15 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
             error(f"[lote] Tampoco pude avisar que el lote tarda a {telefono}: {exc2}")
 
     try:
+        estado_servidor.contar_lote_inicio()
         con_vigilancia(
             lambda: atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid),
             _avisar_lote_lento,
             segundos=LOTE_LENTO_SEGUNDOS,
         )
+        estado_servidor.contar_lote_fin(True)
     except Exception as exc:  # noqa: BLE001 - nunca dejar al cliente sin respuesta
+        estado_servidor.contar_lote_fin(False, str(exc))
         error(f"[lote] Error atendiendo a {telefono}: {exc}")
         # (v2.5) El fallo queda VISIBLE en la hoja, no solo en el registro
         # del servidor: si el token de WhatsApp murió a las 3 am, el dueño
@@ -380,6 +383,19 @@ def health():
     return {"ok": True, "version": VERSION, "hora": datetime.now(timezone.utc).isoformat()}
 
 
+@app.get("/estado")
+def estado():
+    """¿Está vivo POR DENTRO? Lo que /health no dice: si el chequeo de
+    salud terminó, cuántos mensajes llegaron al webhook, cuántos lotes
+    se procesaron y cuántos fallaron, y cuál fue el último error.
+    Solo números, sin teléfonos ni datos de clientes (v3.4)."""
+    foto = estado_servidor.foto()
+    foto["version"] = VERSION
+    foto["lotes_pendientes"] = _AGRUPADOR.pendientes()
+    foto["lotes_procesando"] = _AGRUPADOR.procesando()
+    return foto
+
+
 @app.get("/webhook")
 def verificar_webhook(
     hub_mode: str = Query("", alias="hub.mode"),
@@ -418,6 +434,10 @@ async def recibir_whatsapp(request: Request):
             for cambio in entrada.get("changes", []):
                 valor = cambio.get("value", {})
                 for mensaje in valor.get("messages", []):
+                    # (v3.4) Contar cada mensaje que llega: si el robot se
+                    # calla, /estado dice si el webhook recibió algo o si
+                    # el problema está después (lotes que no arrancan).
+                    estado_servidor.contar_webhook()
                     hilo = threading.Thread(
                         target=_ingresar_mensaje, args=(mensaje, valor), daemon=True
                     )
@@ -599,7 +619,15 @@ def arrancar():
     # (v3.0) Revisión de salud en segundo plano: Gemini, hoja,
     # calendario, token de WhatsApp, Gmail y claves de seguridad.
     # Antes solo se probaba Gemini; lo demás se descubría de noche.
-    threading.Thread(target=salud.revisar_salud, args=(_DEPS,), daemon=True).start()
+    # (v3.4) Al terminar se marca en /estado: si el chequeo nunca
+    # termina (p. ej. Gemini colgado), se ve en segundos.
+    def _salud_y_marca():
+        try:
+            salud.revisar_salud(_DEPS)
+        finally:
+            estado_servidor.marcar_salud_lista()
+
+    threading.Thread(target=_salud_y_marca, daemon=True).start()
     scheduler.start()
     info(f"Reporte semanal programado: lunes {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
     info(f"Resumen de la mañana programado: todos los días {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")

@@ -7,7 +7,7 @@ y se calla. Todo lo que sabe del negocio vive en una hoja de Google
 Sheets. Nada de audio de respuesta, nada de mensajes automáticos por
 WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa 275 pruebas simuladas
+> **Honestidad, como siempre:** la lógica pasa 284 pruebas simuladas
 > sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
@@ -17,7 +17,7 @@ WhatsApp: solo responde cuando le escriben.
 > `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 18 de la v2.13
 > en `test_v2_13.py` + 29 de la v3.0 en `test_v3.py` + 27 de la v3.1
 > en `test_v3_1.py` + 17 de la v3.2 en `test_v3_2.py` + 33 de la v3.3
-> en `test_v3_3.py`). Y hay 15 **conversaciones doradas** aparte
+> en `test_v3_3.py` + 9 de la v3.4 en `test_v3_4.py`). Y hay 15 **conversaciones doradas** aparte
 > (`test_conversaciones_doradas.py`): conversaciones completas contra
 > la IA real, que se corren con la clave de Gemini antes de cada
 > despliegue. El **12 de noviembre de 2026 el robot contestó su
@@ -102,6 +102,8 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_v3_1.py` | 27 pruebas de la v3.1: `python test_v3_1.py` |
 | `test_v3_2.py` | 17 pruebas de la v3.2: `python test_v3_2.py` |
 | `test_v3_3.py` | 33 pruebas de la v3.3: `python test_v3_3.py` |
+| `test_v3_4.py` | 9 pruebas de la v3.4: `python test_v3_4.py` |
+| `robot/estado_servidor.py` | Estado en memoria para GET /estado: contadores de webhooks, lotes y último error, sin datos de clientes |
 | `robot/abuso.py` | Anti-abuso: más de 10 mensajes en 60 s por teléfono → se avisa una vez y se ignoran los demás |
 | `robot/vigilancia.py` | Vigilancia anti-atasco: si un lote tarda más de 90 s, avisa en Diagnóstico y el cliente recibe un "dame un momento" |
 | `test_conversaciones_doradas.py` | 15 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
@@ -235,7 +237,7 @@ Seis cosas que se notan, pensadas desde los dos lados del mostrador:
 - **Alertas en el momento.** Cuando un cliente pide agendar con sus palabras (\"quiero una cita\"), el dueño recibe un correo de lead caliente en ese momento. Y cuando se confirma una cita (botón o \"sí\" por texto), otro correo con el nombre, el teléfono y la fecha. Sin esto, el dueño no ve las citas en su calendario.
 - **Anti-abuso.** Más de 10 mensajes en 60 s de un mismo teléfono: el robot le pide calma una vez y no procesa los demás hasta que pase la ventana. Protege la cuota gratis de Gemini, que es lo que deja mudo al robot para todos.
 - **v3.3.1: el cliente también escucha el handoff.** En un handoff normal, el cliente recibe el texto (\"te paso con una persona...\") además del correo al dueño. Antes quedaba en silencio.
-
+- **v3.4: que nunca se calle.** El 13 de noviembre el robot dejó de contestar sin dejar rastro: el webhook devolvía 200 pero ningún lote se procesaba. Ahora (1) el Agrupador libera solo un teléfono atascado más de 5 minutos —un lote muerto ya no deja mudo a ese cliente para siempre— y (2) hay un `GET /estado` que dice si el chequeo de salud terminó, cuántos mensajes llegaron y cuántos lotes se procesaron, solo números, sin datos de clientes.
 ## El reporte semanal
 
 Cada lunes a las 08:00 (hora del negocio), solo, el sistema lee los
@@ -260,7 +262,7 @@ python instalar.py
 
 Te pregunta tus claves una por una, en español, sin mostrarlas en
 pantalla. Instala las librerías, escribe el `.env`, genera tu clave
-de dueño, corre las 275 pruebas y al final te dice los 3 pasos que
+de dueño, corre las 284 pruebas y al final te dice los 3 pasos que
 siguen: desplegar, pegar el webhook en Meta y mandar el primer mensaje
 de prueba. Se puede correr dos veces: si ya tienes `.env`, te pregunta
 antes de tocarlo.
@@ -337,7 +339,7 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 275 pruebas + el servidor arranca
+python instalar.py --check   # todo: 284 pruebas + el servidor arranca
 python test_v3_3.py          # 33 casos nuevos de la v3.3
 ```
 

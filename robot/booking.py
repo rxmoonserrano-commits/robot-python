@@ -36,8 +36,10 @@ def _servicio_calendar():
             f"en tu .env (ahora apunta a: {settings.google_credentials_json})."
         ) from exc
     import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
 
-    return build("calendar", "v3", credentials=creds, http=httplib2.Http(timeout=30))
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
+    return build("calendar", "v3", http=http)
 
 
 def _a_datetime(fecha_iso: str) -> datetime:

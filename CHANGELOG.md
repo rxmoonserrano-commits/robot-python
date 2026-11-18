@@ -5,6 +5,26 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4 — Que nunca se calle (2026-11-13)
+
+El 13 de noviembre, a las 02:00, el robot dejó de contestar: el
+webhook devolvía 200, pero ningún lote se procesaba, no había filas
+nuevas en la hoja ni aviso del vigilante, y no había nada que mirar
+para saber por qué. El código estaba bien (la misma prueba, en local,
+procesó el lote y dejó constancia); el proceso en Render tenía el
+trabajo de segundo plano atascado mientras el servidor web seguía
+respondiendo. El reinicio del despliegue lo despeja, y esta versión
+pone dos cosas para que no vuelva a pasar en silencio:
+(1) el Agrupador libera solo un teléfono atascado más de 5 minutos
+(un lote muerto ya no deja mudo a ese cliente para siempre);
+(2) GET /estado: versión, tiempo prendido, salud lista o no,
+webhooks recibidos, lotes iniciados/terminados/fallidos, último
+error, lotes pendientes y en proceso. Solo números, sin teléfonos
+ni datos de clientes. El webhook cuenta cada mensaje que llega y
+cada lote cuenta su inicio y su fin. 9 casos nuevos en
+`test_v3_4.py` (284 en total). El caso (e) de `test_v2_12.py` se
+actualizó (el Agrupador tiene un parámetro más).
+
 ## v3.3.1 — El cliente también escucha el handoff (2026-11-13)
 
 Jose lo pidió al ver la v3.3: en un handoff normal, el cliente

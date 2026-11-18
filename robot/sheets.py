@@ -51,10 +51,10 @@ def _servicio_sheets():
             "Ver README, paso 3."
         ) from exc
     import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
 
-    return build(
-        "sheets", "v4", credentials=creds, http=httplib2.Http(timeout=30)
-    ).spreadsheets()
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=30))
+    return build("sheets", "v4", http=http).spreadsheets()
 
 
 # --- Caché de lectura (v3.0) ---

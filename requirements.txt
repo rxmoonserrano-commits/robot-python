@@ -6,6 +6,7 @@ requests==2.32.*
 python-dotenv==1.0.*
 google-api-python-client==2.150.*
 google-auth==2.36.*
+google-auth-httplib2==0.4.*
 apscheduler==3.10.*
 # Para los formularios (la página /pausa del dueño).
 python-multipart==0.0.*

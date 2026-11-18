@@ -197,7 +197,7 @@ conversación dorada nueva, para que no vuelva a pasar.
 - **Guion:** las 4 reglas nuevas están escritas (huecos, nombre, agenda llena, urgencia).
 - **Doradas G13, G14 y G15:** huecos libres, urgencia y preguntar el nombre, con la IA real. Son 15 doradas; la regla sigue: si una falla, la versión no se sube.
 - **v3.3.1:** en un handoff normal el cliente recibe el texto (antes quedaba en silencio); queda registrado con motivo \"handoff\" y `respondio` es True. G5 ahora exige el texto además del handoff.
-
+- **v3.4 (test_v3_4.py, 9 casos):** un teléfono atascado se libera solo a los 5 min; sin atasco, el segundo lote espera su turno y luego se procesa; los contadores de /estado suben y la foto trae solo claves previstas (nada de clientes); GET /estado existe y el webhook cuenta cada mensaje.
 ## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
 
 - **Oferta verbal:** el estado detecta la oferta en el último mensaje

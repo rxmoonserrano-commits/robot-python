@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 
 # Cuántos wamids se guardan en memoria antes de limpiar la lista.
 # Un negocio chico no llega a esto en meses; es solo para que la
@@ -37,7 +38,8 @@ _MAX_VISTOS = 5000
 class Agrupador:
     """Buzón por teléfono con temporizador. Hilo-seguro."""
 
-    def __init__(self, callback, espera_segundos: float = 15.0, archivo: str | None = None):
+    def __init__(self, callback, espera_segundos: float = 15.0, archivo: str | None = None,
+                 atascado_segundos: float = 300.0):
         """callback(telefono, nombre, textos, wamids): qué hacer con el lote.
 
         textos: lista de textos en orden. wamids: sus ids de WhatsApp.
@@ -48,14 +50,30 @@ class Agrupador:
         esos mensajes se perdían (Meta ya había recibido el 200).
         El archivo es un respaldo, no una base de datos: un despliegue
         nuevo lo borra, pero un reinicio del mismo despliegue no.
+        atascado_segundos: (v3.4) si un lote lleva más que esto en
+        proceso, se da por muerto y el teléfono se libera: sin esto,
+        un atasco deja a ese cliente mudo para siempre (sus lotes
+        nuevos se re-encolan cada 2 s sin fin, sin aviso y sin fila).
         """
         self.callback = callback
         self.espera_segundos = espera_segundos
         self.archivo = archivo
+        self.atascado_segundos = atascado_segundos
         self._candado = threading.Lock()
         self._pendientes: dict[str, dict] = {}
         self._vistos: set[str] = set()
-        self._procesando: set[str] = set()
+        # Teléfono -> momento (monotonic) en que empezó su lote.
+        self._procesando: dict[str, float] = {}
+
+    def pendientes(self) -> int:
+        """Cuántos teléfonos tienen un lote esperando (para /estado)."""
+        with self._candado:
+            return sum(1 for b in self._pendientes.values() if b["textos"])
+
+    def procesando(self) -> int:
+        """Cuántos teléfonos tienen un lote en proceso (para /estado)."""
+        with self._candado:
+            return len(self._procesando)
 
     def _guardar(self) -> None:
         """Escribe el buzón en disco (escritura atómica). Best-effort."""
@@ -163,24 +181,31 @@ class Agrupador:
         """El temporizador se acabó: sacar el lote y procesarlo."""
         with self._candado:
             if telefono in self._procesando:
-                # Todavía se está procesando el lote anterior: esperar 2 s
-                # más y volver a intentar (los mensajes nuevos ya están
-                # guardados en el buzón como lote nuevo).
-                buzon = self._pendientes.get(telefono)
-                if buzon and buzon["textos"]:
-                    timer = threading.Timer(2.0, self._disparar, args=(telefono,))
-                    timer.daemon = True
-                    buzon["timer"] = timer
-                    timer.start()
-                return
+                # (v3.4) Si el lote anterior lleva demasiado sin terminar,
+                # se da por muerto y se libera: el teléfono no se queda
+                # mudo para siempre. El lote atascado ya no se recupera;
+                # lo que importa es que el siguiente sí se atienda.
+                if time.monotonic() - self._procesando[telefono] > self.atascado_segundos:
+                    del self._procesando[telefono]
+                else:
+                    # Todavía se está procesando el lote anterior: esperar 2 s
+                    # más y volver a intentar (los mensajes nuevos ya están
+                    # guardados en el buzón como lote nuevo).
+                    buzon = self._pendientes.get(telefono)
+                    if buzon and buzon["textos"]:
+                        timer = threading.Timer(2.0, self._disparar, args=(telefono,))
+                        timer.daemon = True
+                        buzon["timer"] = timer
+                        timer.start()
+                    return
             buzon = self._pendientes.pop(telefono, None)
             if not buzon or not buzon["textos"]:
                 return
-            self._procesando.add(telefono)
+            self._procesando[telefono] = time.monotonic()
             textos, wamids, nombre = buzon["textos"], buzon["wamids"], buzon["nombre"]
         self._guardar()
         try:
             self.callback(telefono, nombre, textos, wamids)
         finally:
             with self._candado:
-                self._procesando.discard(telefono)
+                self._procesando.pop(telefono, None)
