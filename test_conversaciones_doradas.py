@@ -212,31 +212,39 @@ def no_tiene(texto, *opciones):
     return all(o.lower() not in bajo for o in opciones)
 
 
-def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None):
+def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None, nombre="Jose Ramon"):
     """Corre una conversación una sola vez. Devuelve (deps, resultado, texto)."""
     logic_mod._CITAS_PENDIENTES.clear()
     if propuesta:
         logic_mod._CITAS_PENDIENTES["5216694608263"] = dict(propuesta)
     d = DepsDoradas(historial=historial, cliente=cliente)
-    resultado = atender_mensaje(d, "5216694608263", "Jose Ramon", mensaje,
+    resultado = atender_mensaje(d, "5216694608263", nombre, mensaje,
                                 con_ritmo=False, ahora=ahora)
     logic_mod._CITAS_PENDIENTES.clear()
     textos = [t for _, t in d.textos_enviados] + [t for _, t, _ in d.botones_enviados]
     return d, resultado, "\n".join(textos)
 
 
-def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None):
+def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None, nombre_cliente="Jose Ramon"):
     """Corre una conversación y devuelve (deps, resultado, respuesta_texto).
 
     (v3.4.7) Si Gemini tuvo un mal momento (falla técnica: cuota, red,
     texto vacío en todos los modelos), se reintenta UNA vez tras una
-    pausa: eso es un tropiezo de infraestructura, no un fallo de
-    contenido. Un fallo de contenido nunca se reintenta.
+    pausa larga: eso es un tropiezo de infraestructura, no un fallo de
+    contenido. Un fallo de contenido nunca se reintenta. Entre
+    escenarios se deja una pausa de 1 s para no saturar la cuota
+    gratis con ráfagas.
     """
-    d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta)
+    d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta,
+                                 nombre=nombre_cliente)
     if resultado.get("falla_tecnica"):
-        time.sleep(3)
-        d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta)
+        time.sleep(15)
+        d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta,
+                                     nombre=nombre_cliente)
+        if resultado.get("falla_tecnica"):
+            print("      [FALLA TÉCNICA] Gemini no contestó tras reintentar; "
+                  "no es un fallo de contenido.")
+    time.sleep(1)
     return d, resultado, txt
 
 
@@ -431,13 +439,7 @@ def main():
     # registrarlo, una sola vez. (Antes pedía el nombre ante cualquier
     # pregunta; el guion nuevo responde primero y pide el nombre al
     # agendar.)
-    logic_mod._CITAS_PENDIENTES.clear()
-    d = DepsDoradas()
-    r = atender_mensaje(d, "5216694608263", "",
-                        "quiero agendar una limpieza", con_ritmo=False, ahora=DIA)
-    txt = ("\n".join(t for _, t in d.textos_enviados)
-           + "\n".join(t for _, t, _ in d.botones_enviados))
-    logic_mod._CITAS_PENDIENTES.clear()
+    d, r, txt = correr("G15", [], "quiero agendar una limpieza", DIA, nombre_cliente="")
     escenario("G15 nombre al agendar: pide nombre completo y número de registro",
               r.get("cita_propuesta") is True
               and tiene(txt, "nombre completo", "número", "numero", "registrar"),
@@ -495,10 +497,12 @@ def main():
                              con_ritmo=False, ahora=DIA)
         txt1 = "\n".join(t for _, t in d.textos_enviados)
         d.textos_enviados = []
+        time.sleep(1)
         r2 = atender_mensaje(d, "5216694608263", "Jose Ramon",
                              "¿cuánto cuesta el blanqueamiento?", con_ritmo=False, ahora=DIA)
         txt2 = "\n".join(t for _, t in d.textos_enviados)
         d.textos_enviados = []
+        time.sleep(1)
         r3 = atender_mensaje(d, "5216694608263", "Jose Ramon",
                              "sí, quiero agendar una", con_ritmo=False, ahora=DIA)
         txt3 = ("\n".join(t for _, t in d.textos_enviados)
@@ -511,8 +515,11 @@ def main():
 
     r1, txt1, r2, txt2, r3, txt3, r4, txt4, d = flujo_completo()
     if r1.get("falla_tecnica"):
-        time.sleep(3)
+        time.sleep(15)
         r1, txt1, r2, txt2, r3, txt3, r4, txt4, d = flujo_completo()
+        if r1.get("falla_tecnica"):
+            print("      [FALLA TÉCNICA] Gemini no contestó tras reintentar; "
+                  "no es un fallo de contenido.")
     escenario("G20 flujo completo: saludo → precio → agendar con botones → confirmar",
               "cita_propuesta" not in r1
               and "$1,800" in txt2
