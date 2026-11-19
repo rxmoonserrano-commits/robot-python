@@ -44,10 +44,11 @@ class DepsV2:
     """Servicios de mentira para la v2: guardan todo en memoria."""
 
     def __init__(self, bot_activo="SI", ultima_humana="", agente=None,
-                 conocimiento=None, alertas_fallan=False):
+                 conocimiento=None, alertas_fallan=False, huecos=None):
         # alertas_fallan=True simula Gmail sin configurar: las alertas
         # por correo lanzan el mismo error que mail.CorreoError en real.
         self.alertas_fallan = alertas_fallan
+        self.huecos = huecos or []
         self.bot_activo = bot_activo
         self.ultima_humana = ultima_humana
         self.agente = agente or RespuestaAgente(
@@ -91,6 +92,9 @@ class DepsV2:
     def preguntar_agente(self, mensaje, conocimiento, fotos, historial):
         self.llamadas_agente.append(mensaje)
         return self.agente
+
+    def proximos_huecos_libres(self, conocimiento, ahora):
+        return self.huecos
 
     def enviar_texto(self, telefono, texto):
         self.textos_enviados.append((telefono, texto))
@@ -236,6 +240,24 @@ def main():
          and len(d3.botones_enviados) == 1
          and "18 de diciembre" in d3.botones_enviados[0][1],
          f"r={r4} botones={d3.botones_enviados}")
+
+    # (i3) Red de seguridad: el cliente dijo "quiero agendar" pero el
+    # agente no disparó la propuesta (listó los huecos en texto). El
+    # programa propone con el primer hueco libre y pide nombre y número.
+    agente_texto = RespuestaAgente(
+        respuesta_texto="Claro que sí, tengo espacio mañana sábado a las 10:00 "
+                        "o el lunes a las 09:00, ¿cuál te queda mejor?",
+        nombre="Ana", motivo="Quiere agendar")
+    d4 = DepsV2(agente=agente_texto,
+                huecos=["2026-11-14T10:00:00-07:00", "2026-11-16T09:00:00-07:00"])
+    r5 = atender_mensaje(d4, "6679999999", "Ana", "sí, quiero agendar una",
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
+    caso("(i3) Red de seguridad: 'quiero agendar' sin propuesta → botones + nombre",
+         r5.get("cita_propuesta") is True and len(d4.citas) == 0
+         and len(d4.botones_enviados) == 1
+         and "nombre completo" in d4.botones_enviados[0][1],
+         f"r={r5} botones={d4.botones_enviados}")
 
     # (f) Si Gemini falla: el cliente recibe "dame un momento" y el dueño un correo.
     agente_falla = RespuestaAgente.segura(

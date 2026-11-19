@@ -1096,6 +1096,23 @@ def atender_mensaje(
         return {"respondio": True, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
+    # (v3.4.7) Red de seguridad determinista: si el cliente pidió
+    # agendar con sus propias palabras ("quiero agendar", "agéndame")
+    # pero el agente no disparó la propuesta (listó los huecos en
+    # texto en vez de marcar quiere_agendar), el programa propone
+    # con el primer hueco libre y pide nombre completo y número.
+    # El paso que vende no se deja al azar del modelo.
+    if respuesta.quiere_agendar != "si" and _quiere_agendar_ya(texto):
+        _huecos = locals().get("huecos")
+        if _huecos:
+            respuesta.quiere_agendar = "si"
+            respuesta.fecha_cita = _huecos[0]
+            if "nombre completo" not in respuesta.respuesta_texto.lower():
+                respuesta.respuesta_texto = (
+                    respuesta.respuesta_texto.rstrip()
+                    + " ¿Me das tu nombre completo y a qué número registrarlo?"
+                )
+
     # 9. Agendar: NO se crea la cita todavía. Se propone con botones y
     # el cliente confirma. Así no se agenda nada por un malentendido.
     # (v2.4) La fecha que propone el agente se valida: si cae fuera de
