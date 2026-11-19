@@ -5,6 +5,47 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4.8 — Visto instantáneo, propuesta sin duplicados y playbook (2026-11-18)
+
+Cuatro mejoras pedidas por Jose tras ver la conversación en vivo:
+
+1. **Visto instantáneo.** En cuanto llega un mensaje se marca como
+   leído (palomitas azules), antes de esperar los 15 segundos del
+   buffer. El "escribiendo..." sigue saliendo solo cuando el robot
+   de verdad está redactando. Nueva función `marcar_leido` en
+   `robot/whatsapp.py`, llamada desde `_ingresar_mensaje` en
+   `app.py` (best-effort: si falla, el mensaje sigue su curso).
+2. **La propuesta siempre pide nombre y número.** Si el agente
+   propone con botones pero no pidió el nombre completo y el número
+   de registro, el código lo agrega. El paso que vende no se deja
+   al azar del modelo.
+3. **Sin botones duplicados.** Si ya hay una propuesta con botones
+   pendiente para la MISMA cita (misma fecha, vigente menos de
+   48 h), no se mandan botones otra vez: el cliente recibe el texto
+   (su pregunta contestada) y la propuesta sigue viva. En vivo, dos
+   mensajes seguidos generaron dos "¿Confirmo tu cita...?" para la
+   misma cita.
+4. **Playbook en el guion.** Nueva sección "Playbook: situaciones
+   frecuentes y hacia dónde llevar la conversación" en
+   `robot/agent.py` (y su espejo en `guion-robot.md`): ~28
+   situaciones recurrentes con la frase exacta y el propósito de
+   cada respuesta (que se sienta atendido, recibido, en calma, y
+   que la conversación avance hacia la cita, la calificación o una
+   persona). Además: el agente ya no pregunta "¿Te agendo?" ni
+   "¿Confirmo?" cuando propone con botones (el sistema agrega la
+   confirmación), ni "¿a qué hora te gustaría?" si ya propone un
+   hueco; y con propuesta pendiente contesta la pregunta sin
+   mandar botones nuevos.
+5. **Partes.** El agente puede decidir si su respuesta va en 1 solo
+   mensaje o en varios (campo opcional "partes" en el JSON): cada
+   parte es su propio mensaje, en orden, con pausita entre cada
+   una. Cada parte pasa por el revisor. Sin "partes", todo sigue
+   igual que antes.
+
+Tests: +5 casos en `test_v2.py` (35/35), +4 afirmaciones de guion
+en `test_v3_3.py` (46/46). Suite falsa completa en verde. La
+batería dorada queda pendiente de correr en la Mac de Jose.
+
 ## v3.4 — Que nunca se calle (2026-11-13)
 
 El 13 de noviembre, a las 02:00, el robot dejó de contestar: el

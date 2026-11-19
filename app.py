@@ -51,7 +51,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.4.7"
+VERSION = "3.4.8"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -287,6 +287,15 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
             nombre = contacto.get("profile", {}).get("name", "")
     tipo = mensaje.get("type", "")
     wamid = mensaje.get("id", "")
+    # (v3.4.8) Visto instantáneo: en cuanto llega el mensaje, se marca
+    # como leído (palomitas azules), antes de esperar los 15 segundos
+    # del buffer. Es lo que Jose pidió: que se sienta atendido desde el
+    # primer segundo. Best-effort: si falla, el mensaje sigue su curso.
+    if wamid:
+        try:
+            whatsapp.marcar_leido(wamid)
+        except Exception as exc:  # noqa: BLE001 - el visto nunca rompe el webhook
+            aviso(f"[visto] No pude marcar leído {wamid} de {telefono}: {exc}")
     if tipo == "interactive":
         boton = mensaje.get("interactive", {}).get("button_reply", {})
         boton_id = boton.get("id", "")

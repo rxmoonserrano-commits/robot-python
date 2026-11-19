@@ -30,6 +30,34 @@ def _headers() -> dict:
     }
 
 
+def marcar_leido(message_id: str) -> None:
+    """Marca un mensaje como leído (palomitas azules), sin "escribiendo...".
+
+    (v3.4.8) Se llama en cuanto llega el mensaje, antes de esperar los
+    15 segundos del buffer: el cliente ve al instante que su mensaje
+    llegó y fue leído, como cuando una persona lo ve en su teléfono.
+    El "escribiendo..." sigue saliendo solo cuando el robot de verdad
+    está redactando (ver marcar_leido_y_escribiendo). No es un
+    mensaje: no se cobra y no deja rastro en el chat.
+    """
+    if not message_id:
+        return
+    respuesta = requests.post(
+        f"{_API}/{settings.whatsapp_phone_number_id}/messages",
+        headers=_headers(),
+        json={
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+        },
+        timeout=15,
+    )
+    if respuesta.status_code not in (200, 201):
+        raise WhatsAppError(
+            f"WhatsApp devolvió {respuesta.status_code}: {respuesta.text[:300]}"
+        )
+
+
 def marcar_leido_y_escribiendo(message_id: str) -> None:
     """Marca un mensaje como leído (palomitas azules) Y muestra "escribiendo...".
 

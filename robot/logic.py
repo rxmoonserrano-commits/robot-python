@@ -29,7 +29,7 @@ from .config import settings
 from .estado import estado_cliente
 from .revision import revisar_respuesta
 from .registro import aviso as log_aviso
-from .ritmo import enviar_con_ritmo
+from .ritmo import enviar_con_ritmo, enviar_partes
 
 PAUSA = timedelta(hours=2)
 
@@ -137,6 +137,41 @@ def cargar_propuestas(deps: Dependencias) -> int:
 # (48 h). Así un "sí" de otra conversación, meses después, no agenda
 # una cita vieja por error.
 _VIGENCIA_PROPUESTA = timedelta(hours=48)
+
+
+def _misma_fecha(a, b) -> bool:
+    """¿Dos fechas ISO son el mismo momento?
+
+    (v3.4.8) Para no mandar dos veces los botones de la misma cita:
+    si el agente vuelve a proponer la misma fecha que ya está
+    pendiente, se contesta solo con texto y la propuesta sigue viva.
+    Si algo no se puede leer, devuelve False (mejor mandar botones
+    de más que dejar al cliente sin propuesta).
+    """
+    try:
+        fa = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+        fb = datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+        if fa.tzinfo is None:
+            fa = fa.replace(tzinfo=timezone.utc)
+        if fb.tzinfo is None:
+            fb = fb.replace(tzinfo=timezone.utc)
+        return fa == fb
+    except (ValueError, TypeError):
+        return False
+
+
+def _propuesta_vigente(propuesta: dict, ahora: datetime) -> bool:
+    """¿La propuesta sigue vigente (menos de 48 h)?"""
+    creado_en = (propuesta or {}).get("creado_en")
+    if not creado_en:
+        return True
+    try:
+        creado = datetime.fromisoformat(str(creado_en).replace("Z", "+00:00"))
+        if creado.tzinfo is None:
+            creado = creado.replace(tzinfo=timezone.utc)
+        return ahora - creado < _VIGENCIA_PROPUESTA
+    except (ValueError, TypeError):
+        return True
 
 
 def _sin_acentos(texto: str) -> str:
@@ -1044,6 +1079,27 @@ def atender_mensaje(
             )
             respuesta.respuesta_texto = texto_revisado
 
+    # (v3.4.8) Las partes también pasan por el revisor, una por una:
+    # cada mensaje que el cliente va a ver merece la segunda mirada.
+    if respuesta.partes and not respuesta.falla_tecnica:
+        partes_revisadas: list[str] = []
+        violaciones_partes: list[str] = []
+        for parte in respuesta.partes:
+            texto_p, viol_p = revisar_respuesta(
+                parte, estado, nombre, ahora=local_ahora, telefono=telefono,
+            )
+            partes_revisadas.append(texto_p)
+            violaciones_partes.extend(viol_p)
+        respuesta.partes = partes_revisadas
+        if violaciones_partes:
+            _diagnostico(
+                deps, fecha, "revision", "CORREGIDO",
+                "Reglas corregidas en las partes: "
+                + ", ".join(sorted(set(violaciones_partes)))
+                + f" (modelo: {getattr(respuesta, 'modelo', '') or 'sin dato'})",
+                telefono, texto,
+            )
+
     # (v3.2) Memoria de apartados: si la respuesta le aparta el lugar
     # y hay una propuesta activa, el apartado queda guardado en la
     # propuesta (memoria Y hoja), hasta mañana. Si el cliente vuelve,
@@ -1144,6 +1200,42 @@ def atender_mensaje(
             else:
                 respuesta.quiere_agendar = "no"
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
+        # (v3.4.8) Al agendar SIEMPRE se pide nombre completo y número
+        # de registro, aunque el agente no lo haya puesto en su texto.
+        # En vivo (2026-11-18) la propuesta salió con botones pero sin
+        # pedir los datos: el paso que vende no se deja al azar.
+        if "nombre completo" not in respuesta.respuesta_texto.lower():
+            respuesta.respuesta_texto = (
+                respuesta.respuesta_texto.rstrip()
+                + " ¿Me das tu nombre completo y a qué número registrarlo?"
+            )
+        # (v3.4.8) Si ya hay una propuesta con botones pendiente para
+        # ESA MISMA cita, no se mandan botones otra vez: el cliente
+        # recibe el texto (su pregunta contestada) y la propuesta
+        # sigue viva. En vivo, dos mensajes seguidos generaron dos
+        # "¿Confirmo tu cita...?" para la misma cita.
+        previa = _CITAS_PENDIENTES.get(telefono)
+        if (
+            previa
+            and _misma_fecha(previa.get("fecha_cita"), respuesta.fecha_cita)
+            and _propuesta_vigente(previa, ahora)
+        ):
+            enviar_con_ritmo(
+                deps.enviar_texto, telefono, respuesta.respuesta_texto,
+                dormir=con_ritmo,
+            )
+            deps.registrar_conversacion(
+                fecha, telefono, "robot", respuesta.respuesta_texto,
+                "si", respuesta.motivo,
+            )
+            deps.registrar_cliente(
+                fecha, respuesta.nombre or nombre, telefono,
+                respuesta.motivo or texto, respuesta.fecha_cita,
+                "whatsapp", "en conversacion", "no",
+            )
+            _guardar_memoria(deps, telefono, respuesta)
+            return {"respondio": True, "handoff": False,
+                    "cita_propuesta": True, "fecha_cita": respuesta.fecha_cita}
         try:
             fecha_bonita = formatear_cita_bonita(respuesta.fecha_cita)
         except (ValueError, TypeError):
@@ -1186,14 +1278,20 @@ def atender_mensaje(
                 "fecha_cita": respuesta.fecha_cita}
 
     # 10. Responder por WhatsApp, con ritmo humano: foto oficial primero
-    # (si la hay), luego el texto, partido si es largo.
+    # (si la hay), luego el texto. Si el agente decidió partes, cada
+    # parte va como su propio mensaje, en orden (v3.4.8).
     if foto:
         deps.enviar_foto(telefono, foto)
-    enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
+    if respuesta.partes:
+        enviar_partes(deps.enviar_texto, telefono, respuesta.partes, dormir=con_ritmo)
+        texto_registro = "\n\n".join(respuesta.partes)
+    else:
+        enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
+        texto_registro = respuesta.respuesta_texto
 
     # 11. Registrar la respuesta del robot y al cliente (las DOS hojas).
     deps.registrar_conversacion(
-        fecha, telefono, "robot", respuesta.respuesta_texto, "si",
+        fecha, telefono, "robot", texto_registro, "si",
         respuesta.motivo,
     )
     # (v2.5) De noche, TODO el que escribe es un lead: si el agente no

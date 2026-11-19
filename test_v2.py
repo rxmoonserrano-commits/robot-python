@@ -10,6 +10,8 @@ Cubre solo lo nuevo de la v2 (lo de la v1 sigue en test_simulado.py):
 (g) NO existe ningún código que mande recordatorios por WhatsApp,
 (h) fuera de horario no se agenda nada imposible,
 (i) confirmar la cita con el botón crea la cita y manda la confirmación bonita,
+(i4)-(i6) y (k): propuesta que pide nombre y número, sin botones duplicados,
+partes del agente y visto instantáneo (v3.4.8),
 (j) v2.1: con Gmail ausente, un handoff o una falla técnica no rompen
     la respuesta de WhatsApp (el correo es best-effort).
 
@@ -20,8 +22,11 @@ import pathlib
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-from robot.agent import RespuestaAgente, preguntar_agente
+import robot.logic as logic_mod
+import robot.whatsapp as whatsapp_mod
+from robot.agent import RespuestaAgente, _normalizar, preguntar_agente
 from robot.agrupar import Agrupador
 from robot.logic import atender_boton, atender_mensaje, formatear_cita_bonita
 from robot.ritmo import dividir_mensaje
@@ -258,6 +263,94 @@ def main():
          and len(d4.botones_enviados) == 1
          and "nombre completo" in d4.botones_enviados[0][1],
          f"r={r5} botones={d4.botones_enviados}")
+
+    # (i4) Propuesta sin pedir nombre: el programa agrega la pregunta
+    # de nombre completo y número (v3.4.8). En vivo la propuesta salió
+    # con botones pero sin pedir los datos.
+    agente_prop = RespuestaAgente(
+        respuesta_texto="Claro que sí, te propongo mañana a las 10:00.",
+        quiere_agendar="si", fecha_cita="2026-11-14T10:00:00-07:00",
+        nombre="Ana", motivo="Quiere agendar")
+    d5 = DepsV2(agente=agente_prop, conocimiento=CONOCIMIENTO_CON_HORARIO)
+    r6 = atender_mensaje(d5, "6679999998", "Ana", "quiero agendar",
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
+    caso("(i4) Propuesta sin nombre: el código pide nombre completo y número",
+         r6.get("cita_propuesta") is True and len(d5.botones_enviados) == 1
+         and "nombre completo" in d5.botones_enviados[0][1]
+         and "a qué número registrarlo" in d5.botones_enviados[0][1],
+         f"r={r6} botones={d5.botones_enviados}")
+
+    # (i5) Propuesta duplicada: ya hay una propuesta pendiente para la
+    # MISMA cita → no se mandan botones otra vez; se manda el texto y
+    # la propuesta sigue viva (v3.4.8). En vivo, dos mensajes seguidos
+    # generaron dos "¿Confirmo tu cita...?" para la misma cita.
+    logic_mod._CITAS_PENDIENTES.clear()
+    logic_mod._CITAS_PENDIENTES["6679999997"] = {
+        "nombre": "Ana", "motivo": "Quiere agendar",
+        "fecha_cita": "2026-11-14T10:00:00-07:00",
+        "fecha_bonita": "sábado 14 de noviembre a las 10:00",
+        "creado_en": "2026-11-13T16:00:00+00:00",
+    }
+    agente_dup = RespuestaAgente(
+        respuesta_texto="Estamos en Av. del Mar 123, Mazatlán.",
+        quiere_agendar="si", fecha_cita="2026-11-14T10:00:00-07:00",
+        nombre="Ana", motivo="Quiere agendar")
+    d6 = DepsV2(agente=agente_dup, conocimiento=CONOCIMIENTO_CON_HORARIO)
+    r7 = atender_mensaje(d6, "6679999997", "Ana", "en donde están ubicados perdón?",
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 30, tzinfo=timezone.utc))
+    caso("(i5) Misma cita ya propuesta: sin botones nuevos, texto sí, propuesta viva",
+         r7.get("cita_propuesta") is True
+         and len(d6.botones_enviados) == 0
+         and len(d6.textos_enviados) == 1
+         and "6679999997" in logic_mod._CITAS_PENDIENTES,
+         f"r={r7} botones={d6.botones_enviados} textos={d6.textos_enviados}")
+    logic_mod._CITAS_PENDIENTES.clear()
+
+    # (i6) Partes: el agente decide responder en varios mensajes; cada
+    # parte va como su propio mensaje, en orden (v3.4.8).
+    agente_partes = RespuestaAgente(
+        respuesta_texto="La limpieza cuesta $600 y dura 60 minutos.",
+        partes=["La limpieza cuesta $600 y dura 60 minutos.",
+                "No duele y se usan instrumentos esterilizados."])
+    d7 = DepsV2(agente=agente_partes)
+    r8 = atender_mensaje(d7, "6679999996", "Ana", "cuánto cuesta y duele?",
+                         con_ritmo=False,
+                         ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
+    textos7 = [t for _, t in d7.textos_enviados]
+    caso("(i6) Partes: se mandan como mensajes separados, en orden",
+         textos7 == ["La limpieza cuesta $600 y dura 60 minutos.",
+                     "No duele y se usan instrumentos esterilizados."],
+         f"textos={textos7}")
+
+    # (k) _normalizar lee "partes": limpia vacías, tope 4, y si
+    # respuesta_texto viene vacío, las partes son la respuesta.
+    r9 = _normalizar({"respuesta_texto": "",
+                      "partes": [" uno ", "", "dos", "tres", "cuatro", "cinco"]})
+    caso("(k) _normalizar: partes limpias, tope 4, texto desde partes",
+         r9.partes == ["uno", "dos", "tres", "cuatro"]
+         and r9.respuesta_texto == "uno\n\ndos\n\ntres\n\ncuatro",
+         f"partes={r9.partes} texto={r9.respuesta_texto!r}")
+
+    # (k2) Visto instantáneo: marcar_leido manda status read SIN
+    # typing_indicator (el "escribiendo" sale después, al redactar).
+    llamadas_visto = []
+
+    class _RespVisto:
+        status_code = 200
+        text = "ok"
+
+    def _post_fake(url, headers=None, json=None, timeout=None):
+        llamadas_visto.append(json)
+        return _RespVisto()
+
+    with patch.object(whatsapp_mod.requests, "post", _post_fake):
+        whatsapp_mod.marcar_leido("wamid-prueba")
+    caso("(k2) Visto instantáneo: read sin typing_indicator",
+         len(llamadas_visto) == 1 and llamadas_visto[0].get("status") == "read"
+         and "typing_indicator" not in llamadas_visto[0],
+         f"llamadas={llamadas_visto}")
 
     # (f) Si Gemini falla: el cliente recibe "dame un momento" y el dueño un correo.
     agente_falla = RespuestaAgente.segura(

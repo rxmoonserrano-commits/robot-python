@@ -75,6 +75,26 @@ def dividir_mensaje(texto: str, max_chars: int = MAX_POR_MENSAJE) -> list[str]:
     return partes
 
 
+def enviar_partes(enviar_texto, telefono: str, partes: list[str], dormir: bool = True) -> list[str]:
+    """Manda varias partes como mensajes separados, con pausita entre cada una.
+
+    (v3.4.8) El agente decide cuándo su respuesta va en 1 solo mensaje
+    y cuándo en varios (por ejemplo, contestar dos temas distintos):
+    cada parte es su propio mensaje, en orden. Si una parte es muy
+    larga, se parte como siempre. Devuelve todos los pedazos mandados.
+    """
+    enviados: list[str] = []
+    for parte in partes:
+        for trozo in dividir_mensaje(parte):
+            if dormir and enviados:
+                time.sleep(1.5)
+            elif dormir and not enviados:
+                time.sleep(demora_humana(parte))
+            enviar_texto(telefono, trozo)
+            enviados.append(trozo)
+    return enviados
+
+
 def enviar_con_ritmo(enviar_texto, telefono: str, texto: str, dormir: bool = True) -> list[str]:
     """Manda un texto con ritmo humano. Devuelve los pedazos que mandó.
 

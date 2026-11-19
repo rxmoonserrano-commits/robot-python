@@ -540,6 +540,22 @@ def main():
     caso("Guion: si es urgente o le duele, pasa a una persona",
          "es urgente o que le duele mucho, pasa a una persona" in guion_normal,
          "falta la regla de urgencia")
+    caso("Guion: al proponer no pregunta '¿Te agendo?' ni '¿Confirmo?'",
+         "¿Te agendo?" in guion_normal
+         and "el sistema agrega la confirmación" in guion_normal,
+         "falta la regla de no doble pregunta")
+    caso("Guion: con propuesta pendiente no manda botones nuevos",
+         "sin proponer otra cita ni" in guion_normal
+         and "mandar botones nuevos" in guion_normal,
+         "falta la regla de propuesta pendiente")
+    caso("Guion: playbook de situaciones frecuentes",
+         "Playbook: situaciones frecuentes" in guion_normal
+         and "hacia dónde llevar la conversación" in guion_normal,
+         "falta el playbook")
+    caso("Guion: el agente decide partes (1 o varios mensajes)",
+         '"partes"' in guion_normal
+         and "cada parte es su propio mensaje" in guion_normal,
+         "falta la regla de partes")
 
     fallos = [n for n, ok in RESULTADOS if not ok]
     print(f"\n{len(RESULTADOS) - len(fallos)}/{len(RESULTADOS)} casos PASS (test_v3_3)")
