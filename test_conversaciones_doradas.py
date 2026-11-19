@@ -433,17 +433,19 @@ def main():
               and tiene(txt, "persona", "inmediato", "urgente"),
               f"no pasó a una persona (resultado={r})", txt)
 
-    # G15 (v3.3, rediseñado en v3.4.7). Nombre al agendar: el cliente
-    # escribe sin que el robot sepa quién es (sin nombre de perfil) y
-    # quiere agendar. El robot pide el nombre completo y a qué número
-    # registrarlo, una sola vez. (Antes pedía el nombre ante cualquier
-    # pregunta; el guion nuevo responde primero y pide el nombre al
-    # agendar.)
+    # G15 (v3.3, rediseñado en v3.4.7; flujo nuevo en v3.4.11). Nombre
+    # al agendar SIN fricción: el cliente escribe sin que el robot sepa
+    # quién es y quiere agendar. La propuesta sale con botones SIN
+    # pedir datos; al confirmar se crea la cita y DESPUÉS el robot
+    # pide el nombre completo y a qué número registrarlo.
     d, r, txt = correr("G15", [], "quiero agendar una limpieza", DIA, nombre_cliente="")
-    escenario("G15 nombre al agendar: pide nombre completo y número de registro",
-              r.get("cita_propuesta") is True
-              and tiene(txt, "nombre completo", "número", "numero", "registrar"),
-              f"no pidió nombre/número al agendar (resultado={r})", txt)
+    r2 = atender_boton(d, "5216694608263", "", "confirmar_cita", con_ritmo=False)
+    txt2 = "\n".join(t for _, t in d.textos_enviados)
+    escenario("G15 sin fricción: propone con botones y pide nombre y número al confirmar",
+              r.get("cita_propuesta") is True and len(d.botones_enviados) == 1
+              and len(d.citas) == 1
+              and tiene(txt2, "nombre completo", "número", "numero", "registrar"),
+              f"no propuso, no confirmó o no pidió datos (resultado={r})", txt)
 
     # G16 (v3.4.7). Identidad: "a quien hablo?" → dice quién es (la
     # recepcionista de la clínica), sin soltar nada interno. El nombre
@@ -461,16 +463,20 @@ def main():
               "Av. del Mar 123" in txt and "maps" in txt.lower(),
               "no dio la dirección o el mapa", txt)
 
-    # G18 (v3.4.7). Aceptación vaga ("en un mes"): NO deja pasar la
-    # cita. Propone con botones y pide nombre completo y número de
-    # registro. En vivo dejó pasar la cita con un "quedamos a tus órdenes".
+    # G18 (v3.4.7; flujo nuevo en v3.4.11). Aceptación vaga ("en un
+    # mes"): NO deja pasar la cita. Propone con botones sin pedir
+    # datos; al confirmar crea la cita y pide nombre y número.
+    # En vivo dejó pasar la cita con un "quedamos a tus órdenes".
     d, r, txt = correr(
         "G18", [fila("cliente", "¿cuánto cuesta el blanqueamiento?"),
                 fila("robot", "El blanqueamiento dental cuesta $1,800, dura 60 minutos y es en una sola cita. ¿Quieres que te agende una?")],
         "sí, en un mes podría", DIA)
-    escenario("G18 'en un mes': propone la cita con botones y pide nombre y número",
+    r2 = atender_boton(d, "5216694608263", "Jose Ramon", "confirmar_cita", con_ritmo=False)
+    txt2 = "\n".join(t for _, t in d.textos_enviados)
+    escenario("G18 'en un mes': propone con botones; al confirmar pide nombre y número",
               r.get("cita_propuesta") is True and len(d.botones_enviados) == 1
-              and tiene(txt, "nombre", "número", "numero", "registrar"),
+              and len(d.citas) == 1
+              and tiene(txt2, "nombre completo", "número", "numero", "registrar"),
               f"no propuso la cita o no pidió nombre/número (resultado={r})", txt)
 
     # G19 (v3.4.7). Cliente que vuelve y PREGUNTA algo concreto sobre
@@ -485,9 +491,10 @@ def main():
               and no_tiene(txt, "aviso del sistema", "aviso automático", "sticker anterior"),
               "no respondió qué recibió o inventó algo", txt)
 
-    # G20 (v3.4.7). Flujo completo de cliente nuevo: saludo → precio →
-    # "sí, quiero agendar" → propuesta con botones (pide nombre y
-    # número) → confirmar → cita creada con confirmación bonita.
+    # G20 (v3.4.7; flujo nuevo en v3.4.11). Flujo completo de cliente
+    # nuevo: saludo → precio → "sí, quiero agendar" → propuesta con
+    # botones (sin pedir datos) → confirmar → cita creada con
+    # confirmación bonita y pregunta de nombre y número después.
     # (v3.4.7) Si el primer turno cae por falla técnica de Gemini
     # (tropiezo de infraestructura), se reintenta el flujo UNA vez.
     def flujo_completo():
@@ -524,8 +531,8 @@ def main():
               "cita_propuesta" not in r1
               and "$1,800" in txt2
               and r3.get("cita_propuesta") is True and len(d.botones_enviados) == 1
-              and tiene(txt3, "nombre", "número", "numero", "registrar")
-              and len(d.citas) == 1 and "60 minutos" in txt4,
+              and len(d.citas) == 1 and "60 minutos" in txt4
+              and tiene(txt4, "nombre completo", "número", "numero", "registrar"),
               f"el flujo se rompió (r1={r1} / r3={r3} / citas={d.citas})", txt3)
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)

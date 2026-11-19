@@ -23,7 +23,7 @@ import robot.gemini as gemini_mod
 import robot.logic as logic_mod
 from robot.config import settings
 from robot.estado import estado_cliente
-from robot.logic import atender_mensaje
+from robot.logic import atender_mensaje, formatear_cita_bonita, _parse_fecha_iso
 from robot.revision import revisar_respuesta
 
 CONOCIMIENTO = [
@@ -311,6 +311,53 @@ def main():
     finally:
         agent_mod.generar_texto = generar_viejo
         logic_mod._CITAS_PENDIENTES.clear()
+
+    # (v3.4.11) R8: nunca afirmar una cita que no existe. En vivo el
+    # robot dijo "ya estás apuntado" sin ninguna cita creada.
+    estado_sin_cita = estado_cliente(
+        [{"quien": "cliente", "mensaje": "quiero hacer una reservación"}],
+        None, {}, "Ana")
+    texto_r8, viol_r8 = revisar_respuesta(
+        "Para tu blanqueamiento de mañana a las 09:00 ya estás apuntado. "
+        "¿De qué otro servicio te gustaría saber el precio?",
+        estado_sin_cita, "Ana", datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc))
+    caso("(R8) Afirmación de cita inexistente se quita",
+         "apuntado" not in texto_r8 and "R8" in viol_r8
+         and "¿De qué otro servicio" in texto_r8,
+         f"texto={texto_r8!r} violaciones={viol_r8}")
+    texto_r8b, viol_r8b = revisar_respuesta(
+        "Listo, ya estás apuntado para mañana a las 09:00.",
+        estado_sin_cita, "Ana", datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc))
+    caso("(R8b) Si era solo la afirmación, se ofrece confirmar con botones",
+         texto_r8b == "¿Te la confirmo con botones para dejarla lista?"
+         and "R8" in viol_r8b,
+         f"texto={texto_r8b!r} violaciones={viol_r8b}")
+    estado_con_cita = estado_cliente(
+        [{"quien": "cliente", "mensaje": "¿a qué hora es mi cita?"}],
+        None, {"estatus": "agendado", "fecha_cita": "2026-11-19T09:00:00-07:00"},
+        "Ana")
+    texto_ok, viol_ok = revisar_respuesta(
+        "Tu cita quedó para mañana a las 09:00.",
+        estado_con_cita, "Ana", datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc))
+    caso("(R8c) Con cita creada, la frase pasa sin corrección",
+         texto_ok == "Tu cita quedó para mañana a las 09:00." and "R8" not in viol_ok,
+         f"texto={texto_ok!r} violaciones={viol_ok}")
+
+    # (v3.4.11) Fechas con tolerancia: la hoja devolvía
+    # "2026-11-19 9:00:00" (hora de un dígito) y el robot mostraba
+    # el texto crudo al cliente. Ahora se lee y se dice bonito.
+    caso("(fecha) La fecha de la hoja se dice bonita",
+         formatear_cita_bonita("2026-11-19 9:00:00")
+         == "jueves 19 de noviembre a las 09:00",
+         f"bonita={formatear_cita_bonita('2026-11-19 9:00:00')!r}")
+    caso("(fecha) La fecha normal sigue funcionando",
+         formatear_cita_bonita("2026-11-19T09:00:00-07:00")
+         == "jueves 19 de noviembre a las 09:00",
+         "bonita cambió")
+    caso("(fecha) Basura devuelve None, no explota",
+         _parse_fecha_iso("no es una fecha") is None
+         and _parse_fecha_iso("") is None,
+         "el parser aceptó basura")
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} casos pasaron.")

@@ -42,6 +42,11 @@ R7. NO REPETIRSE (v3.2): si la respuesta cierra con la misma frase
     que el último mensaje del robot ("Quedamos a tus órdenes" tres
     veces seguidas en vivo), esa frase se quita. Si la respuesta ERA
     solo esa frase, se cambia por "¿Te ayudo con algo más?".
+R8. NUNCA AFIRMAR UNA CITA QUE NO EXISTE (v3.4.11): si el cliente no
+    tiene cita creada, frases como "ya estás apuntado" o "tu cita
+    quedó" se quitan; si la respuesta era solo eso, se cambia por
+    "¿Te la confirmo con botones para dejarla lista?". En vivo dijo
+    "ya estás apuntado" sin que existiera ninguna cita.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -242,6 +247,17 @@ def _es_oferta(oracion: str) -> bool:
     return False
 
 
+# (v3.4.11) Frases que afirman una cita confirmada. Si el cliente NO
+# tiene cita creada, el robot no puede decirlas: sería mentirle. En
+# vivo dijo "ya estás apuntado" sin que existiera ninguna cita.
+_AFIRMACION_CITA_RE = re.compile(
+    r"ya estás apuntado|ya quedó apuntado|quedaste apuntado|tu cita quedó"
+    r"|cita confirmada|ya te agendé|ya quedó agendada|ya está agendada"
+    r"|ya está apartado|ya quedó apartado",
+    re.IGNORECASE,
+)
+
+
 def _partir_oraciones(texto: str) -> list[str]:
     """Parte un texto en oraciones, sin perder los signos.
 
@@ -320,5 +336,17 @@ def revisar_respuesta(
         texto, str(estado.get("ultimo_mensaje_robot", "") or ""))
     if cierre_repetido:
         violaciones.append("R7")
+
+    # R8 (v3.4.11): nunca afirmar una cita confirmada si el cliente
+    # NO tiene cita creada. Si la respuesta solo afirma eso, se
+    # reemplaza por la oferta real (confirmar con botones).
+    if not estado.get("tiene_cita") and _AFIRMACION_CITA_RE.search(texto):
+        quedan = [o for o in _partir_oraciones(texto)
+                  if not _AFIRMACION_CITA_RE.search(o)]
+        if quedan:
+            texto = " ".join(quedan).strip()
+        else:
+            texto = "¿Te la confirmo con botones para dejarla lista?"
+        violaciones.append("R8")
 
     return texto, violaciones

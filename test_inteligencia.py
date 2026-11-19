@@ -242,13 +242,17 @@ def main():
     atender_mensaje(d, TEL, "Ana", "👍", con_ritmo=False, ahora=AHORA)
     caso("A6 '👍' con propuesta confirma la cita", len(d.citas) == 1, f"citas={d.citas}")
 
-    # A7. La propuesta pide nombre completo y número de registro.
+    # A7 (v3.4.11). La propuesta NO pide datos; al confirmar, se
+    # piden nombre completo y número en mensaje aparte.
     logic_mod._CITAS_PENDIENTES.clear()
     d = DepsI(agente=agente_propone())
     atender_mensaje(d, TEL, "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
-    caso("A7 La propuesta pide nombre completo y número de registro",
-         d.botones and "nombre completo" in d.botones[0][1] and "número registrarlo" in d.botones[0][1],
-         f"botones={d.botones}")
+    atender_mensaje(d, TEL, "Ana", "sí", con_ritmo=False, ahora=AHORA)
+    textos_a7 = " ".join(t for _, t in d.textos)
+    caso("A7 Al confirmar se pide nombre completo y número de registro",
+         len(d.citas) == 1 and "nombre completo" in textos_a7
+         and "a qué número lo registro" in textos_a7,
+         f"textos={d.textos}")
 
     # A8. Sin doble pregunta: "¿Te agendo?" del agente se quita.
     logic_mod._CITAS_PENDIENTES.clear()
@@ -259,6 +263,17 @@ def main():
          f"botones={d.botones}")
 
     print("=" * 60)
+    # A9 (v3.4.11). Propuesta sin fricción: NO pide nombre ni número;
+    # solo la confirmación con botones. Pedir datos se hace después
+    # de confirmar, para no frenar la reserva.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsI(agente=agente_propone())
+    atender_mensaje(d, TEL, "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    caso("A9 La propuesta no pide datos: solo confirmación con botones",
+         len(d.botones) == 1 and "¿Confirmo tu cita" in d.botones[0][1]
+         and "nombre completo" not in d.botones[0][1],
+         f"botones={d.botones}")
+
     print("B. AGENDA")
     print("=" * 60)
 
@@ -354,6 +369,33 @@ def main():
     # B9. Alerta de cita confirmada al dueño.
     caso("B9 Al confirmar, el dueño recibe la alerta de cita",
          len(d.alertas_cita) == 1, f"alertas={d.alertas_cita}")
+
+    # B10 (v3.4.11). Confirmación cálida y limpia: "¡Perfecto", la
+    # duración en su línea, y DESPUÉS la pregunta de datos.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsI(agente=agente_propone())
+    atender_mensaje(d, TEL, "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    atender_mensaje(d, TEL, "Ana", "sí", con_ritmo=False, ahora=AHORA)
+    textos_b10 = " ".join(t for _, t in d.textos)
+    caso("B10 Confirmación cálida, limpia y con datos después",
+         len(d.citas) == 1 and "¡Perfecto" in textos_b10
+         and "Dura 60 minutos" in textos_b10
+         and "Para dejarte bien registrado" in textos_b10,
+         f"textos={d.textos}")
+
+    # B11 (v3.4.11). Cancelar con la fecha tal como la devolvía la
+    # hoja ("2026-11-19 9:00:00"): el mensaje sale con fecha bonita,
+    # nunca cruda, y la cancelación sí se registra.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsI(agente=agente_propone())
+    d.cliente = {"estatus": "agendado", "fecha_cita": "2026-11-19 9:00:00",
+                 "nombre": "Ana"}
+    atender_mensaje(d, TEL, "Ana", "cancela", con_ritmo=False, ahora=AHORA)
+    textos_b11 = " ".join(t for _, t in d.textos)
+    caso("B11 Cancelar con fecha de la hoja: bonita, sin crudo",
+         "19 de noviembre" in textos_b11 and "2026-11-19 9:00:00" not in textos_b11
+         and len(d.clientes_cancelados) == 1,
+         f"textos={d.textos} cancelados={d.clientes_cancelados}")
 
     print("=" * 60)
     print("C. HANDOFF")
@@ -567,6 +609,33 @@ def main():
     caso("E10 'Hola, quiero agendar': propone con botones",
          r.get("cita_propuesta") is True and len(d.botones) == 1,
          f"r={r} botones={d.botones}")
+
+    # E11 (v3.4.11). El agente afirma una cita que NO existe ("ya
+    # estás apuntado"): el revisor R8 lo quita y ofrece confirmar
+    # con botones. En vivo dijo eso sin ninguna cita creada.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsI(agente=RespuestaAgente(
+        respuesta_texto="Para tu blanqueamiento dental de mañana a las 09:00 ya estás apuntado. ¿De qué otro servicio te gustaría saber el precio?",
+        nombre="Ana", motivo="Blanqueamiento dental"))
+    atender_mensaje(d, TEL, "Ana", "quiero hacer una reservación",
+                    con_ritmo=False, ahora=AHORA)
+    textos_e11 = " ".join(t for _, t in d.textos)
+    caso("E11 Sin cita creada, nunca se afirma 'ya estás apuntado'",
+         "apuntado" not in textos_e11 and len(d.citas) == 0,
+         f"textos={d.textos}")
+
+    # E11b. Si la respuesta era SOLO la afirmación falsa, se reemplaza
+    # por la oferta real (confirmar con botones).
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsI(agente=RespuestaAgente(
+        respuesta_texto="Listo, ya estás apuntado para mañana a las 09:00.",
+        nombre="Ana", motivo="Blanqueamiento dental"))
+    atender_mensaje(d, TEL, "Ana", "quiero hacer una reservación",
+                    con_ritmo=False, ahora=AHORA)
+    textos_e11b = " ".join(t for _, t in d.textos)
+    caso("E11b Afirmación falsa sola → oferta de confirmar con botones",
+         "apuntado" not in textos_e11b and "confirmo con botones" in textos_e11b,
+         f"textos={d.textos}")
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print("=" * 60)

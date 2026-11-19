@@ -115,7 +115,7 @@ def agregar_fila(pestana: str, fila: list[str]) -> None:
     servicio.values().append(
         spreadsheetId=settings.sheet_id,
         range=f"{pestana}!A:Z",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body={"values": [fila]},
     ).execute()
     _invalidar_cache(pestana)
@@ -142,7 +142,7 @@ def actualizar_ultima_respuesta_humana(fecha_iso: str) -> None:
     servicio.values().update(
         spreadsheetId=settings.sheet_id,
         range="Control!B2",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body={"values": [[fecha_iso]]},
     ).execute()
     _invalidar_cache("Control")
@@ -194,7 +194,7 @@ def cancelar_cita_cliente(telefono: str) -> None:
     servicio.values().update(
         spreadsheetId=settings.sheet_id,
         range=f"Clientes!E{numero_fila}:G{numero_fila}",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body={"values": [[ "", existente.get("origen", "whatsapp"), "en conversacion" ]]},
     ).execute()
     _invalidar_cache("Clientes")
@@ -315,7 +315,7 @@ def registrar_cliente(
     servicio.values().update(
         spreadsheetId=settings.sheet_id,
         range=f"Clientes!A{numero_fila}:H{numero_fila}",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body={"values": [fusionada]},
     ).execute()
     _invalidar_cache("Clientes")
@@ -371,7 +371,7 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
     servicio.values().update(
         spreadsheetId=settings.sheet_id,
         range=f"Clientes!K{numero_fila}:O{numero_fila}",
-        valueInputOption="USER_ENTERED",
+        valueInputOption="RAW",
         body={"values": [valores]},
     ).execute()
     _invalidar_cache("Clientes")
@@ -431,7 +431,7 @@ def guardar_propuesta(telefono: str, propuesta: dict) -> None:
             servicio.values().update(
                 spreadsheetId=settings.sheet_id,
                 range=f"Propuestas!A{i + 2}:H{i + 2}",
-                valueInputOption="USER_ENTERED",
+                valueInputOption="RAW",
                 body={"values": [fila_dato]},
             ).execute()
             _invalidar_cache("Propuestas")

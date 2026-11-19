@@ -552,6 +552,19 @@ def main():
          "Playbook: situaciones frecuentes" in guion_normal
          and "hacia dónde llevar la conversación" in guion_normal,
          "falta el playbook")
+    caso("Guion: sección de calidez con marketing (v3.4.11)",
+         "Calidez: cómo se siente hablar contigo" in guion_normal
+         and "recepcionista buena onda" in guion_normal
+         and "La calidez vende" in guion_normal,
+         "falta la sección de calidez")
+    caso("Guion: propuesta no es cita (v3.4.11)",
+         "Propuesta no es cita" in guion_normal
+         and "ya está agendada" in guion_normal,
+         "falta la regla propuesta ≠ cita")
+    caso("Guion: la propuesta ya no pide datos (v3.4.11)",
+         "NO pidas el nombre ni el número en la propuesta" in guion_normal
+         and "los pide el sistema después de confirmar" in guion_normal,
+         "la propuesta sigue pidiendo datos")
     caso("Guion: el agente decide partes (1 o varios mensajes)",
          '"partes"' in guion_normal
          and "cada parte es su propio mensaje" in guion_normal,

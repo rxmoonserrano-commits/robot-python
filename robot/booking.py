@@ -11,6 +11,7 @@ Reglas:
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -42,13 +43,32 @@ def _servicio_calendar():
     return build("calendar", "v3", http=http)
 
 
+def _parse_fecha_iso(texto: str) -> datetime | None:
+    """Parsea una fecha ISO con tolerancia (v3.4.11).
+
+    Acepta lo normal y también lo que la hoja devolvía tras
+    reinterpretar fechas ('2026-11-19 9:00:00', hora de un dígito):
+    rellena la hora a dos dígitos. None si no se puede leer.
+    """
+    t = str(texto or "").strip().replace("Z", "+00:00")
+    if not t:
+        return None
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?(.*)$", t)
+    if m:
+        fecha, hora, minuto, segundo, resto = m.groups()
+        t = f"{fecha}T{int(hora):02d}:{minuto}:{segundo or '00'}{resto}"
+    try:
+        return datetime.fromisoformat(t)
+    except ValueError:
+        return None
+
+
 def _a_datetime(fecha_iso: str) -> datetime:
     """Acepta '2026-11-14T10:00:00' y lo convierte a fecha con zona horaria."""
-    texto = fecha_iso.strip().replace("Z", "+00:00")
-    fecha = datetime.fromisoformat(texto)
+    fecha = _parse_fecha_iso(fecha_iso)
+    if fecha is None:
+        raise ValueError(f"Fecha no legible: {fecha_iso!r}")
     if fecha.tzinfo is None:
-        from zoneinfo import ZoneInfo
-
         fecha = fecha.replace(tzinfo=ZoneInfo(settings.timezone))
     return fecha
 

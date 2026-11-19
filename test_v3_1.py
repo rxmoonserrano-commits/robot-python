@@ -251,7 +251,7 @@ def main():
     texto, v = revisar_respuesta(
         "Listo, Jose Ramon. Tu cita quedó para el viernes 13 de noviembre a las 09:00. "
         "Te avisaremos al 5216694608263 si algo cambia.",
-        {"etapa": "agendado"}, telefono=TELEFONO)
+        {"etapa": "agendado", "tiene_cita": True}, telefono=TELEFONO)
     caso("(d) R6: el teléfono del propio cliente NO se bloquea",
          "5216694608263" in texto and v == [], f"salió: {texto!r} {v}")
     texto, v = revisar_respuesta(

@@ -10,8 +10,8 @@ Cubre solo lo nuevo de la v2 (lo de la v1 sigue en test_simulado.py):
 (g) NO existe ningún código que mande recordatorios por WhatsApp,
 (h) fuera de horario no se agenda nada imposible,
 (i) confirmar la cita con el botón crea la cita y manda la confirmación bonita,
-(i4)-(i6) y (k): propuesta que pide nombre y número, sin botones duplicados,
-partes del agente y visto instantáneo (v3.4.8),
+(i4)-(i6) y (k): propuesta sin fricción (datos después de confirmar),
+sin botones duplicados, partes del agente y visto instantáneo (v3.4.8/v3.4.11),
 (j) v2.1: con Gmail ausente, un handoff o una falla técnica no rompen
     la respuesta de WhatsApp (el correo es best-effort).
 
@@ -266,15 +266,27 @@ def main():
     r5 = atender_mensaje(d4, "6679999999", "Ana", "sí, quiero agendar una",
                          con_ritmo=False,
                          ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
-    caso("(i3) Red de seguridad: 'quiero agendar' sin propuesta → botones + nombre",
+    caso("(i3) Red de seguridad: 'quiero agendar' sin propuesta → botones",
          r5.get("cita_propuesta") is True and len(d4.citas) == 0
          and len(d4.botones_enviados) == 1
-         and "nombre completo" in d4.botones_enviados[0][1],
+         and "nombre completo" not in d4.botones_enviados[0][1],
          f"r={r5} botones={d4.botones_enviados}")
+    # (v3.4.11) Al confirmar, la cita se crea y DESPUÉS se pide el
+    # nombre completo y el número (la propuesta no los pide: sin
+    # fricción al agendar).
+    atender_mensaje(d4, "6679999999", "Ana", "sí", con_ritmo=False,
+                    ahora=datetime(2026, 11, 13, 16, 5, tzinfo=timezone.utc))
+    textos_i3 = " ".join(t for _, t in d4.textos_enviados)
+    caso("(i3b) Al confirmar se crea la cita y se pide nombre y número",
+         len(d4.citas) == 1 and "¡Perfecto" in textos_i3
+         and "nombre completo" in textos_i3
+         and "a qué número lo registro" in textos_i3,
+         f"citas={d4.citas} textos={d4.textos_enviados}")
 
-    # (i4) Propuesta sin pedir nombre: el programa agrega la pregunta
-    # de nombre completo y número (v3.4.8). En vivo la propuesta salió
-    # con botones pero sin pedir los datos.
+    # (i4) Propuesta sin fricción (v3.4.11): la propuesta NO pide
+    # nombre ni número; se piden después de confirmar. En vivo la
+    # propuesta mezclaba la pregunta de datos con la confirmación y
+    # se sentía a formulario.
     agente_prop = RespuestaAgente(
         respuesta_texto="Claro que sí, te propongo mañana a las 10:00.",
         quiere_agendar="si", fecha_cita="2026-11-14T10:00:00-07:00",
@@ -283,10 +295,10 @@ def main():
     r6 = atender_mensaje(d5, "6679999998", "Ana", "quiero agendar",
                          con_ritmo=False,
                          ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
-    caso("(i4) Propuesta sin nombre: el código pide nombre completo y número",
+    caso("(i4) Propuesta sin fricción: botones sin pedir nombre ni número",
          r6.get("cita_propuesta") is True and len(d5.botones_enviados) == 1
-         and "nombre completo" in d5.botones_enviados[0][1]
-         and "a qué número registrarlo" in d5.botones_enviados[0][1],
+         and "nombre completo" not in d5.botones_enviados[0][1]
+         and "¿Confirmo tu cita" in d5.botones_enviados[0][1],
          f"r={r6} botones={d5.botones_enviados}")
 
     # (i5) Propuesta duplicada: ya hay una propuesta pendiente para la

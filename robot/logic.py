@@ -149,8 +149,10 @@ def _misma_fecha(a, b) -> bool:
     de más que dejar al cliente sin propuesta).
     """
     try:
-        fa = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
-        fb = datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+        fa = _parse_fecha_iso(a)
+        fb = _parse_fecha_iso(b)
+        if fa is None or fb is None:
+            return False
         if fa.tzinfo is None:
             fa = fa.replace(tzinfo=timezone.utc)
         if fb.tzinfo is None:
@@ -166,7 +168,9 @@ def _propuesta_vigente(propuesta: dict, ahora: datetime) -> bool:
     if not creado_en:
         return True
     try:
-        creado = datetime.fromisoformat(str(creado_en).replace("Z", "+00:00"))
+        creado = _parse_fecha_iso(creado_en)
+        if creado is None:
+            return True
         if creado.tzinfo is None:
             creado = creado.replace(tzinfo=timezone.utc)
         return ahora - creado < _VIGENCIA_PROPUESTA
@@ -213,7 +217,9 @@ def _dias_desde_ultimo_mensaje(
         fecha_txt = str(filas[-1].get("fecha", "") or "").strip()
         if not fecha_txt:
             return None
-        fecha = datetime.fromisoformat(fecha_txt.replace("Z", "+00:00"))
+        fecha = _parse_fecha_iso(fecha_txt)
+        if fecha is None:
+            return None
         if fecha.tzinfo is None:
             fecha = fecha.replace(tzinfo=timezone.utc)
         return max(0, (ahora - fecha).days)
@@ -348,30 +354,49 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     except Exception:
         _borrar_propuesta(deps, telefono)
         mensaje = (
-            "Esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
+            "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
             "te vienen mejor? Te la agendo enseguida."
         )
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
         return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
     _borrar_propuesta(deps, telefono)
-    # (v3.4.9) Sin nombre no se deja un "Listo, .": se dice "Listo."
-    # y ya. Y si el cliente dio otro número para el registro, se le
-    # confirma aquí mismo, para que sepa a qué número quedó.
-    saludo = f"Listo, {nombre_cita}." if nombre_cita else "Listo."
+    # (v3.4.11) Confirmación cálida, limpia y sin fricción: corta,
+    # con la fecha en claro y una sola idea por línea. Es el momento
+    # que el cliente recuerda (el final de la experiencia): debe
+    # sentirse bien y dar certeza total.
+    saludo = f"¡Perfecto, {nombre_cita}!" if nombre_cita else "¡Perfecto!"
     mensaje = (
-        f"{saludo} Tu cita quedó para el "
-        f"{propuesta['fecha_bonita']}. Dura {settings.duracion_cita_minutos} minutos."
+        f"{saludo} Tu cita quedó para el {propuesta['fecha_bonita']}."
+        f"\n\nDura {settings.duracion_cita_minutos} minutos."
     )
     if telefono_registro:
         mensaje += f"\n\nQuedó registrada al {telefono_registro}."
-    mensaje += "\n\nSi necesitas cambiarla, escríbeme el nuevo día y hora y la reacomodamos."
+    mensaje += "\n\nSi necesitas cambiarla, escríbeme y la reacomodamos con gusto."
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
     deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", propuesta["motivo"])
     deps.registrar_cliente(
         fecha, propuesta["nombre"], telefono, propuesta["motivo"],
         propuesta["fecha_cita"], "whatsapp", "agendado", "no",
     )
+    # (v3.4.11) Después de confirmar (la cita YA quedó: pedir los
+    # datos no bloquea nada), si falta el nombre completo o el número
+    # de registro, se piden en un mensaje aparte y cálido. Primero el
+    # compromiso, luego los datos: cero fricción al agendar. Se dice
+    # para qué ("para dejarte bien registrado"): la gente da sus
+    # datos cuando entiende por qué.
+    _falta_nombre = not nombre_cita or nombre_cita == str(nombre or "").strip()
+    if _falta_nombre or not telefono_registro:
+        if _falta_nombre and not telefono_registro:
+            pregunta = ("Para dejarte bien registrado, ¿me das tu nombre "
+                        "completo y a qué número lo registro?")
+        elif _falta_nombre:
+            pregunta = "Para dejarte bien registrado, ¿me das tu nombre completo?"
+        else:
+            pregunta = "¿A qué número lo registro?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, pregunta, dormir=con_ritmo)
+        deps.registrar_conversacion(
+            fecha, telefono, "robot", pregunta, "si", "pedir datos de registro")
     # (v3.3) Alerta de cita confirmada: el dueño no ve las citas en su
     # calendario (el robot agenda en el suyo propio). Sin este correo,
     # se entera hasta el lunes. Best-effort: si el correo falla, la
@@ -454,12 +479,13 @@ def _atender_cambio_cancelacion(deps: Dependencias, telefono: str, nombre: str,
             pass
         if intencion == "cancelar":
             mensaje = (
-                f"Listo, tu cita del {fecha_bonita} quedó cancelada. "
-                f"Si quieres agendar otra, dime qué día te viene bien."
+                f"Sin problema, tu cita del {fecha_bonita} quedó cancelada. "
+                f"Cuando quieras agendar otra, dime qué día te viene bien "
+                f"y te la dejo lista."
             )
         else:
             mensaje = (
-                f"Listo, cancelé tu cita del {fecha_bonita}. "
+                f"Sin problema, cancelé tu cita del {fecha_bonita}. "
                 f"¿Qué día y hora te vienen mejor para la nueva?"
             )
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
@@ -499,9 +525,9 @@ def puede_responder(
         return False, "boton apagado"
     if ultima_respuesta_humana:
         try:
-            ultima = datetime.fromisoformat(
-                str(ultima_respuesta_humana).strip().replace("Z", "+00:00")
-            )
+            ultima = _parse_fecha_iso(ultima_respuesta_humana)
+            if ultima is None:
+                return True, ""
             if ultima.tzinfo is None:
                 ultima = ultima.replace(tzinfo=timezone.utc)
             if ahora - ultima < PAUSA:
@@ -654,14 +680,36 @@ def proxima_apertura(
     return None
 
 
+def _parse_fecha_iso(texto: str) -> datetime | None:
+    """Parsea una fecha ISO con tolerancia (v3.4.11).
+
+    Acepta lo normal ('2026-11-19T09:00:00-07:00') y también lo que
+    la hoja devolvía tras reinterpretar fechas guardadas con
+    USER_ENTERED ('2026-11-19 9:00:00', hora de un dígito, sin zona):
+    rellena la hora a dos dígitos. Devuelve None si no se puede leer.
+    """
+    t = str(texto or "").strip().replace("Z", "+00:00")
+    if not t:
+        return None
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?(.*)$", t)
+    if m:
+        fecha, hora, minuto, segundo, resto = m.groups()
+        t = f"{fecha}T{int(hora):02d}:{minuto}:{segundo or '00'}{resto}"
+    try:
+        return datetime.fromisoformat(t)
+    except ValueError:
+        return None
+
+
 def formatear_cita_bonita(fecha_iso: str) -> str:
     """'2026-11-14T10:00:00' → 'sábado 14 de noviembre a las 10:00'.
 
     Sin depender del idioma del servidor: los nombres están escritos
     a mano, en español.
     """
-    texto = str(fecha_iso).strip().replace("Z", "+00:00")
-    fecha = datetime.fromisoformat(texto)
+    fecha = _parse_fecha_iso(fecha_iso)
+    if fecha is None:
+        raise ValueError(f"Fecha no legible: {fecha_iso!r}")
     local = _a_hora_local(fecha)
     return (
         f"{_DIAS_NOMBRE[local.weekday()]} {local.day} de "
@@ -679,9 +727,9 @@ def contar_semana(
     """
     def en_semana(fila: dict) -> bool:
         try:
-            fecha = datetime.fromisoformat(
-                str(fila.get("fecha", "")).replace("Z", "+00:00")
-            )
+            fecha = _parse_fecha_iso(fila.get("fecha", ""))
+            if fecha is None:
+                return False
             if fecha.tzinfo is None:
                 fecha = fecha.replace(tzinfo=timezone.utc)
             return desde <= fecha < hasta
@@ -927,10 +975,13 @@ def atender_mensaje(
         vigente = True
         if creado_en:
             try:
-                creado = datetime.fromisoformat(str(creado_en).replace("Z", "+00:00"))
-                if creado.tzinfo is None:
-                    creado = creado.replace(tzinfo=timezone.utc)
-                vigente = ahora - creado < _VIGENCIA_PROPUESTA
+                creado = _parse_fecha_iso(creado_en)
+                if creado is None:
+                    vigente = True
+                else:
+                    if creado.tzinfo is None:
+                        creado = creado.replace(tzinfo=timezone.utc)
+                    vigente = ahora - creado < _VIGENCIA_PROPUESTA
             except ValueError:
                 vigente = True
         if vigente:
@@ -1024,8 +1075,10 @@ def atender_mensaje(
     if propuesta_activa:
         contexto.append(
             "Ya le propusiste una cita para el "
-            f"{propuesta_activa.get('fecha_bonita', '')}: si te pregunta por ella, "
-            "recuérdale esa fecha; si dice que le va, confirma; si prefiere otra, pregunta cuál."
+            f"{propuesta_activa.get('fecha_bonita', '')} (AÚN NO está confirmada: "
+            "falta que él confirme con los botones). Si te pregunta por ella, "
+            "recuérdale la fecha SIN decir que ya está agendada ni apuntada; "
+            "si dice que le va, confirma; si prefiere otra, pregunta cuál."
         )
         # (v3.2) Memoria de apartados: si le apartaron el lugar, el
         # robot tiene que recordarlo cuando el cliente vuelva, no
@@ -1287,18 +1340,14 @@ def atender_mensaje(
     # agendar con sus propias palabras ("quiero agendar", "agéndame")
     # pero el agente no disparó la propuesta (listó los huecos en
     # texto en vez de marcar quiere_agendar), el programa propone
-    # con el primer hueco libre y pide nombre completo y número.
-    # El paso que vende no se deja al azar del modelo.
+    # con el primer hueco libre. El paso que vende no se deja al azar
+    # del modelo. (v3.4.11) La propuesta NO pide nombre ni número:
+    # se piden después de confirmar, para no frenar la reserva.
     if respuesta.quiere_agendar != "si" and _quiere_agendar_ya(texto):
         _huecos = locals().get("huecos")
         if _huecos:
             respuesta.quiere_agendar = "si"
             respuesta.fecha_cita = _huecos[0]
-            if "nombre completo" not in respuesta.respuesta_texto.lower():
-                respuesta.respuesta_texto = (
-                    respuesta.respuesta_texto.rstrip()
-                    + " ¿Me das tu nombre completo y a qué número registrarlo?"
-                )
 
     # 9. Agendar: NO se crea la cita todavía. Se propone con botones y
     # el cliente confirma. Así no se agenda nada por un malentendido.
@@ -1309,7 +1358,9 @@ def atender_mensaje(
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
         fecha_dt = None
         try:
-            fecha_dt = datetime.fromisoformat(str(respuesta.fecha_cita).replace("Z", "+00:00"))
+            fecha_dt = _parse_fecha_iso(respuesta.fecha_cita)
+            if fecha_dt is None:
+                raise ValueError(f"Fecha no legible: {respuesta.fecha_cita!r}")
             local_dt = _a_hora_local(fecha_dt)
             horarios = horarios_por_dia(conocimiento)
             if not horarios:
@@ -1348,15 +1399,11 @@ def atender_mensaje(
             except Exception:
                 pass  # sin calendario no se bloquea la propuesta
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
-        # (v3.4.8) Al agendar SIEMPRE se pide nombre completo y número
-        # de registro, aunque el agente no lo haya puesto en su texto.
-        # En vivo (2026-11-18) la propuesta salió con botones pero sin
-        # pedir los datos: el paso que vende no se deja al azar.
-        if "nombre completo" not in respuesta.respuesta_texto.lower():
-            respuesta.respuesta_texto = (
-                respuesta.respuesta_texto.rstrip()
-                + " ¿Me das tu nombre completo y a qué número registrarlo?"
-            )
+        # (v3.4.11) La propuesta NO pide nombre ni número: pedirlos
+        # en el mismo mensaje que la confirmación crea fricción
+        # (el cliente no sabe si contestar en texto o tocar el botón).
+        # Se piden DESPUÉS de confirmar, en _confirmar_cita_propuesta:
+        # primero el compromiso, luego los datos. La cita ya quedó.
         # (v3.4.8) Si ya hay una propuesta con botones pendiente para
         # ESA MISMA cita, no se mandan botones otra vez: el cliente
         # recibe el texto (su pregunta contestada) y la propuesta

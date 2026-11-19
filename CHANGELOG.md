@@ -5,6 +5,43 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4.11 — Calidez con marketing, confirmación sin fricción y fechas a prueba de hoja (2026-11-18)
+
+Calidad de comunicación aplicada con principios de marketing:
+calidez que vende (la gente agenda porque se siente bien atendida),
+fricción cero en el momento de la decisión, y datos pedidos después
+del compromiso (primero el sí, luego los datos).
+
+1. **Guion con calidez y marketing.** Nueva sección "Calidez: cómo
+   se siente hablar contigo": persona de recepcionista buena onda,
+   usar el nombre con naturalidad, validar emociones, celebrar los
+   sí, tranquilizar ante miedos, vender el resultado al proponer
+   ("sin dolor y en una sola cita"), explicar para qué se pide un
+   dato ("para dejarte bien registrado"). Regla dura nueva:
+   "Propuesta no es cita" — nunca afirmar una cita solo propuesta.
+2. **Confirmación sin fricción.** La propuesta ya NO pide nombre ni
+   número (antes mezclaba datos + confirmación + botones en un
+   mensaje: el cliente no sabía si contestar o tocar). Se piden
+   DESPUÉS de confirmar, en mensaje aparte y cálido, solo lo que
+   falte. La confirmación quedó corta y limpia: "¡Perfecto, Juan!
+   Tu cita quedó para el... / Dura 60 minutos. / Si necesitas
+   cambiarla, escríbeme y la reacomodamos con gusto." Cancelar y
+   cambiar también se calentaron ("Sin problema...").
+3. **Revisor R8:** si el cliente no tiene cita creada, frases como
+   "ya estás apuntado" o "tu cita quedó" se quitan; si la respuesta
+   era solo eso, se ofrece confirmar con botones. (En vivo dijo
+   "ya estás apuntado" sin que existiera ninguna cita.)
+4. **Fechas a prueba de la hoja.** La hoja reinterpretaba las
+   fechas escritas con USER_ENTERED ("2026-11-19T09:00:00-07:00" se
+   leía como "2026-11-19 9:00:00"): el cliente veía la fecha cruda
+   al cancelar y el borrado en Calendar fallaba en silencio. Ahora
+   la hoja escribe con RAW y el parseo es tolerante (rellena la
+   hora de un dígito) en logic.py y booking.py.
+5. **Tests:** test_v2 (i3/i3b/i4) al flujo nuevo, test_inteligencia
+   +5 escenarios (A9, B10, B11, E11, E11b), test_v2_13 +6 (R8,
+   fechas), test_v3_3 +3 aserciones de guion, doradas G15/G18/G20
+   al flujo nuevo.
+
 ## v3.4.10 — Corrección de fecha con sentido y batería de inteligencia (2026-11-18)
 
 1. **La corrección de fecha respeta lo pedido.** Si el cliente pide
