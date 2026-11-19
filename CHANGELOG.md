@@ -5,6 +5,19 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4.10 — Corrección de fecha con sentido y batería de inteligencia (2026-11-18)
+
+1. **La corrección de fecha respeta lo pedido.** Si el cliente pide
+   un día cerrado (domingo) o una hora fuera de horario, el robot ya
+   no corrige a "mañana" (que puede ser antes de lo pedido): busca
+   la próxima apertura EN la fecha pedida o después. `proxima_apertura`
+   acepta `desde` y nunca devuelve una fecha pasada. Pedir domingo
+   ahora da lunes 09:00, no jueves.
+2. **Batería de pruebas de inteligencia** (`test_inteligencia.py`):
+   36 escenarios en 5 categorías (botones, agenda, handoff,
+   documento de info, calidez y entendimiento), sin internet ni
+   clave de API. Corre en cualquier lado: `python test_inteligencia.py`.
+
 ## v3.4.9 — Inteligencia para manejar las situaciones (2026-11-18)
 
 Auditoría completa del código contra las ~28 situaciones del

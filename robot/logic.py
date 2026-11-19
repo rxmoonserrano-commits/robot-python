@@ -622,20 +622,34 @@ def _resumen_horarios(conocimiento: list[dict]) -> str:
     return ", ".join(partes) or "en su horario habitual"
 
 
-def proxima_apertura(conocimiento: list[dict], ahora: datetime | None = None) -> datetime | None:
-    """La próxima fecha en que el negocio abre (fecha con hora de apertura)."""
+def proxima_apertura(
+    conocimiento: list[dict],
+    ahora: datetime | None = None,
+    desde: datetime | None = None,
+) -> datetime | None:
+    """La próxima fecha en que el negocio abre (fecha con hora de apertura).
+
+    `desde` (v3.4.10): si el cliente pidió una fecha concreta que cayó
+    cerrada, la corrección busca la apertura en esa fecha o después,
+    no desde ahora. Pedir domingo y recibir "mañana jueves" no tiene
+    sentido; recibir el lunes sí. El resultado siempre es futuro
+    respecto a `ahora` (nunca se agenda en el pasado).
+    """
     horarios = horarios_por_dia(conocimiento)
     if not horarios:
         return None
-    local = _a_hora_local(ahora or datetime.now(timezone.utc))
-    for adelanto in range(0, 8):
-        dia = local + timedelta(days=adelanto)
+    ahora_local = _a_hora_local(ahora or datetime.now(timezone.utc))
+    base = _a_hora_local(desde) if desde is not None else ahora_local
+    for adelanto in range(0, 9):
+        dia = base + timedelta(days=adelanto)
         horas = horarios.get(dia.weekday())
         if horas is None:
             continue
         apertura = dia.replace(hour=horas[0] // 60, minute=horas[0] % 60, second=0, microsecond=0)
-        if adelanto == 0 and local.hour * 60 + local.minute >= horas[0]:
-            continue  # hoy ya cerró: buscar el siguiente día
+        if apertura <= ahora_local:
+            continue  # ya pasó: buscar el siguiente día
+        if apertura < base:
+            continue  # antes de la fecha pedida: no sirve
         return apertura
     return None
 
@@ -1293,6 +1307,7 @@ def atender_mensaje(
     # corrige sola a la próxima apertura. Si no hay próxima apertura,
     # no se propone nada: se contesta el texto del agente, sin botones.
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
+        fecha_dt = None
         try:
             fecha_dt = datetime.fromisoformat(str(respuesta.fecha_cita).replace("Z", "+00:00"))
             local_dt = _a_hora_local(fecha_dt)
@@ -1311,7 +1326,10 @@ def atender_mensaje(
         except (ValueError, TypeError):
             valida = False
         if not valida:
-            proxima_valida = proxima_apertura(conocimiento, ahora)
+            # (v3.4.10) La corrección busca la apertura en la fecha
+            # pedida o después, no desde ahora: pedir domingo y recibir
+            # "mañana jueves" no tiene sentido.
+            proxima_valida = proxima_apertura(conocimiento, ahora, desde=fecha_dt)
             if proxima_valida is not None:
                 respuesta.fecha_cita = proxima_valida.isoformat()
             else:
