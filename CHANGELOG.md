@@ -5,6 +5,50 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4.9 — Inteligencia para manejar las situaciones (2026-11-18)
+
+Auditoría completa del código contra las ~28 situaciones del
+playbook: dónde se decidía con palabras y dónde con código. Se
+cerraron los huecos donde el robot decidía mal o de más:
+
+1. **El nombre que el cliente da después de la propuesta se guarda
+   en ella.** El robot pide nombre completo y número al agendar; si
+   el cliente los da en el mensaje siguiente, la propuesta pendiente
+   se actualiza. La confirmación ya no sale con nombre vacío
+   ("Listo, ."): sin nombre dice "Listo." y el evento del calendario
+   usa "Cliente" en vez de dejar el título en blanco.
+2. **Número de registro.** Si el cliente dice "regístralo al
+   6671234567", ese número se extrae (`_extraer_telefono`), se
+   guarda en la propuesta y la cita queda registrada a ese número:
+   va en la descripción del evento de Calendar y se le confirma al
+   cliente en el mensaje ("Quedó registrada al ...").
+3. **Cambiar con fecha nueva → propuesta nueva.** "Mejor el viernes
+   a las 10" ya no recibe "¿Qué día y hora te vienen mejor?" (que
+   ignora lo que el cliente ya dijo): se borra la propuesta vieja y
+   el agente propone la nueva con botones. Los cambios vagos
+   ("prefiero otra") siguen con la pregunta de siempre. El playbook
+   ahora lo dice: "si dice el nuevo día y hora, propónlo con
+   botones".
+4. **"No" a la propuesta.** Un "no" pelón con propuesta pendiente
+   es "esa hora no": se pregunta por otro día, sin pasar por la IA.
+5. **Emoji que confirma.** "👍" (o ✅/🆗/👌) con propuesta pendiente
+   confirma la cita, como la gente confirma todo el tiempo. Y un
+   mensaje sin letras ni números (solo emojis) recibe respuesta
+   cálida directa, sin gastar una llamada a la IA.
+6. **La fecha propuesta se revisa contra el calendario.** Si la hora
+   que el agente calculó ya está ocupada, se usa el primer hueco
+   libre real (`hora_libre` en Dependencias). Así la confirmación no
+   falla con "esa hora ya se ocupó".
+7. **Saludo con intención.** "Hola, quiero agendar" ya no es etapa
+   "saludo": el estado detecta palabras de intención (agendar, cita,
+   precio...) y el revisor ya no quita la oferta que el cliente sí
+   pidió.
+8. **Sin doble pregunta de confirmación.** Si el agente escribió
+   "¿Te agendo...?" en su texto, el código la quita: el sistema
+   agrega la confirmación con botones. Nunca dos "¿Confirmo...?" en
+   el mismo mensaje. El revisor también reconoce "¿Te reservo...?"
+   como oferta.
+
 ## v3.4.8 — Visto instantáneo, propuesta sin duplicados y playbook (2026-11-18)
 
 Cuatro mejoras pedidas por Jose tras ver la conversación en vivo:

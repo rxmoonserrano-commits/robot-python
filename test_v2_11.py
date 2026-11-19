@@ -101,7 +101,7 @@ class DepsV211:
     def enviar_foto(self, telefono, url):
         pass
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         cita = {"inicio": fecha_cita}
         self.citas.append(cita)
         return cita
@@ -182,8 +182,8 @@ def main():
                         "¿cuánto cuesta la limpieza?",
                         con_ritmo=False,
                         ahora=datetime(2026, 11, 13, 4, 30, tzinfo=timezone.utc))
-        caso("(g) El cliente recibe la oferta con dos opciones (botones)",
-             any("mañana a las 9:00 o el sábado a las 10:00" in t
+        caso("(g) El cliente recibe la oferta con botones (sin doble pregunta)",
+             any("¿Confirmo tu cita" in t and "¿Te la agendo" not in t
                  for _, t, _ in d.botones_enviados),
              f"botones={d.botones_enviados}")
         caso("(g) La cita propuesta se guarda (lunes 09:00)",

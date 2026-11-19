@@ -235,7 +235,7 @@ def _es_oferta(oracion: str) -> bool:
         return True
     if re.search(r"te va el|te viene el", bajo):
         return True
-    if re.search(r"te (la )?agendo|agendarte", bajo):
+    if re.search(r"te (la )?(agendo|reservo)|agendarte|reservarte", bajo):
         return True
     if "agend" in bajo and "?" in texto:
         return True

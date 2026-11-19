@@ -138,7 +138,7 @@ class DepsV33:
     def enviar_foto(self, telefono, url):
         pass
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         return {"inicio": fecha_cita}
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
@@ -556,6 +556,9 @@ def main():
          '"partes"' in guion_normal
          and "cada parte es su propio mensaje" in guion_normal,
          "falta la regla de partes")
+    caso("Guion: cambiar con fecha nueva se propone con botones",
+         "si dice el nuevo día y hora, propónlo" in guion_normal,
+         "falta la regla de cambio con fecha nueva")
 
     fallos = [n for n, ok in RESULTADOS if not ok]
     print(f"\n{len(RESULTADOS) - len(fallos)}/{len(RESULTADOS)} casos PASS (test_v3_3)")

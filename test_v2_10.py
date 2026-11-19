@@ -96,7 +96,7 @@ class DepsV210:
     def enviar_foto(self, telefono, url):
         pass
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         cita = {"inicio": fecha_cita}
         self.citas.append(cita)
         return cita
@@ -177,7 +177,8 @@ def main():
                               con_ritmo=False,
                               ahora=datetime(2026, 11, 13, 4, 30, tzinfo=timezone.utc))
         caso("(e) El cliente recibe la respuesta comercial del agente (con botones)",
-             any("¿Te la agendo" in t for _, t, _ in d.botones_enviados),
+             any("¿Confirmo tu cita" in t and "¿Te la agendo" not in t
+                 for _, t, _ in d.botones_enviados),
              f"botones={d.botones_enviados}")
         caso("(e) La cita propuesta se guarda (lunes 09:00)",
              "5216694608263" in logic_mod._CITAS_PENDIENTES

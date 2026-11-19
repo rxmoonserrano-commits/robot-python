@@ -64,6 +64,17 @@ def _es_solo_saludo(texto: str) -> bool:
     normal = re.sub(r"\s+", " ", normal).strip()
     if not normal:
         return False
+    # (v3.4.9) Un saludo con intención no es solo un saludo: "hola
+    # quiero agendar" pide algo, no solo saluda. Sin esto, la etapa
+    # salía "saludo" y el revisor quitaba la oferta que el cliente sí
+    # pidió.
+    _INTENCION = (
+        "agendar", "cita", "precio", "cuesta", "quiero", "necesito",
+        "horario", "donde", "informacion", "info", "reserva", "reservar",
+        "servicio", "costo",
+    )
+    if any(p in normal for p in _INTENCION):
+        return False
     palabras = normal.split()
     if len(palabras) > 4:
         return False

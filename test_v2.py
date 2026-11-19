@@ -49,11 +49,15 @@ class DepsV2:
     """Servicios de mentira para la v2: guardan todo en memoria."""
 
     def __init__(self, bot_activo="SI", ultima_humana="", agente=None,
-                 conocimiento=None, alertas_fallan=False, huecos=None):
+                 conocimiento=None, alertas_fallan=False, huecos=None,
+                 hora_libre_resultado=True):
         # alertas_fallan=True simula Gmail sin configurar: las alertas
         # por correo lanzan el mismo error que mail.CorreoError en real.
         self.alertas_fallan = alertas_fallan
         self.huecos = huecos or []
+        # (v3.4.9) False simula una hora ocupada en el calendario.
+        self.hora_libre_resultado = hora_libre_resultado
+        self.citas_notas = []
         self.bot_activo = bot_activo
         self.ultima_humana = ultima_humana
         self.agente = agente or RespuestaAgente(
@@ -101,17 +105,21 @@ class DepsV2:
     def proximos_huecos_libres(self, conocimiento, ahora):
         return self.huecos
 
+    def hora_libre(self, fecha_iso):
+        return self.hora_libre_resultado
+
     def enviar_texto(self, telefono, texto):
         self.textos_enviados.append((telefono, texto))
 
     def enviar_foto(self, telefono, url):
         self.fotos_enviadas.append((telefono, url))
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         inicio = datetime.fromisoformat(fecha_cita)
         fin = inicio + timedelta(minutes=60)
         cita = {"inicio": inicio.isoformat(), "fin": fin.isoformat()}
         self.citas.append(cita)
+        self.citas_notas.append(nota)
         return cita
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
@@ -474,6 +482,128 @@ def main():
          textos_py.count("add_job") == 2
          and 'id="reporte-semanal"' in textos_py
          and 'id="resumen-manana"' in textos_py)
+
+    # (v3.4.9) Inteligencia para manejar las situaciones.
+    AHORA = datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc)
+
+    # (i7) El nombre que el cliente da DESPUÉS de la propuesta se
+    # guarda en ella: la confirmación sale con su nombre.
+    logic_mod._CITAS_PENDIENTES.clear()
+    agente_propone = RespuestaAgente(
+        respuesta_texto="Claro, te agendo la limpieza.",
+        nombre="", motivo="Limpieza", fecha_cita="2026-11-20T10:00:00",
+        quiere_agendar="si")
+    d = DepsV2(agente=agente_propone)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    caso("(i7) Propuesta creada (con nombre de perfil por defecto)",
+         "6671234567" in logic_mod._CITAS_PENDIENTES)
+    d.agente = RespuestaAgente(
+        respuesta_texto="Perfecto, gracias.", nombre="Juan Pérez García",
+        motivo="Limpieza")
+    atender_mensaje(d, "6671234567", "Ana", "me llamo Juan Pérez García", con_ritmo=False, ahora=AHORA)
+    caso("(i7) El nombre dado después actualiza la propuesta",
+         logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("nombre") == "Juan Pérez García",
+         f"propuestas={logic_mod._CITAS_PENDIENTES}")
+    atender_mensaje(d, "6671234567", "Ana", "sí", con_ritmo=False, ahora=AHORA)
+    caso("(i7) La confirmación sale con el nombre del cliente",
+         any("Juan Pérez García" in t for _, t in d.textos_enviados) and len(d.citas) == 1,
+         f"textos={d.textos_enviados}")
+
+    # (i8) Número de registro: "regístralo al 667..." se guarda y la
+    # cita queda registrada a ese número.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV2(agente=agente_propone)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    d.agente = RespuestaAgente(
+        respuesta_texto="Perfecto.", nombre="Juan Pérez",
+        motivo="Limpieza")
+    atender_mensaje(d, "6671234567", "Ana", "regístralo al 6679876543", con_ritmo=False, ahora=AHORA)
+    caso("(i8) El número de registro se guarda en la propuesta",
+         "6679876543" in str(logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("telefono_registro", "")),
+         f"propuestas={logic_mod._CITAS_PENDIENTES}")
+    atender_mensaje(d, "6671234567", "Ana", "sí", con_ritmo=False, ahora=AHORA)
+    caso("(i8) La confirmación menciona el número y la cita lleva la nota",
+         any("Quedó registrada al" in t and "6679876543" in t for _, t in d.textos_enviados)
+         and any("6679876543" in n for n in d.citas_notas),
+         f"textos={d.textos_enviados} notas={d.citas_notas}")
+
+    # (i9) Cambiar con fecha específica ("mejor el viernes a las 10")
+    # no pregunta otra vez: borra la propuesta vieja y el agente
+    # propone la nueva con botones.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV2(agente=agente_propone)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    agente_nueva = RespuestaAgente(
+        respuesta_texto="Claro, te la muevo al viernes a las 10.",
+        nombre="Ana", motivo="Limpieza", fecha_cita="2026-11-20T10:00:00",
+        quiere_agendar="si")
+    d.agente = agente_nueva
+    n_llamadas = len(d.llamadas_agente)
+    r = atender_mensaje(d, "6671234567", "Ana", "mejor el viernes a las 10", con_ritmo=False, ahora=AHORA)
+    caso("(i9) Cambiar con fecha específica: va al agente (no pregunta otra vez)",
+         len(d.llamadas_agente) == n_llamadas + 1
+         and r.get("cita_propuesta") is True
+         and logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("fecha_cita") == "2026-11-20T10:00:00",
+         f"r={r} llamadas={len(d.llamadas_agente)}")
+
+    # (i10) Un "no" pelón con propuesta pendiente es "esa hora no".
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV2(agente=agente_propone)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    n_textos = len(d.textos_enviados)
+    atender_mensaje(d, "6671234567", "Ana", "no", con_ritmo=False, ahora=AHORA)
+    caso("(i10) 'no' con propuesta: borra la propuesta y pregunta por otro día",
+         "6671234567" not in logic_mod._CITAS_PENDIENTES
+         and any("Qué día y hora" in t for _, t in d.textos_enviados[n_textos:]),
+         f"textos={d.textos_enviados}")
+
+    # (i11) Un emoji de aprobación con propuesta pendiente confirma.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV2(agente=agente_propone)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    atender_mensaje(d, "6671234567", "Ana", "👍", con_ritmo=False, ahora=AHORA)
+    caso("(i11) '👍' con propuesta: confirma la cita",
+         len(d.citas) == 1
+         and any("Tu cita quedó" in t for _, t in d.textos_enviados),
+         f"citas={d.citas} textos={d.textos_enviados}")
+
+    # (i12) Un mensaje sin letras ni números recibe respuesta cálida
+    # directa, sin llamar a la IA.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV2()
+    r = atender_mensaje(d, "6671234567", "Ana", "❤️", con_ritmo=False, ahora=AHORA)
+    caso("(i12) Emoji solo sin propuesta: respuesta cálida sin agente",
+         r.get("respondio") is True and len(d.llamadas_agente) == 0
+         and any("¿En qué te ayudo hoy?" in t for _, t in d.textos_enviados),
+         f"r={r} textos={d.textos_enviados}")
+
+    # (i13) Si la hora propuesta ya está ocupada, se usa el primer
+    # hueco libre real.
+    logic_mod._CITAS_PENDIENTES.clear()
+    agente_ocupada = RespuestaAgente(
+        respuesta_texto="Claro, te agendo la limpieza.",
+        nombre="Ana", motivo="Limpieza", fecha_cita="2026-11-20T10:00:00",
+        quiere_agendar="si")
+    d = DepsV2(agente=agente_ocupada, huecos=["2026-11-21T09:00:00"],
+               hora_libre_resultado=False)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    caso("(i13) Hora ocupada: la propuesta usa el primer hueco libre",
+         logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("fecha_cita") == "2026-11-21T09:00:00",
+         f"propuestas={logic_mod._CITAS_PENDIENTES}")
+
+    # (i14) Si el agente preguntó "¿Te agendo...?" en su texto, el
+    # código la quita: nunca dos preguntas de confirmación.
+    logic_mod._CITAS_PENDIENTES.clear()
+    agente_doble = RespuestaAgente(
+        respuesta_texto="Perfecto. ¿Te agendo para el viernes a las 10?",
+        nombre="Ana", motivo="Limpieza", fecha_cita="2026-11-20T10:00:00",
+        quiere_agendar="si")
+    d = DepsV2(agente=agente_doble)
+    atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
+    propuesta_txt = d.botones_enviados[0][1] if d.botones_enviados else ""
+    caso("(i14) Sin doble pregunta: '¿Te agendo?' se quita, queda '¿Confirmo...?'",
+         "¿Te agendo" not in propuesta_txt and "¿Confirmo tu cita" in propuesta_txt,
+         f"propuesta={propuesta_txt}")
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} casos pasaron.")

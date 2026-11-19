@@ -77,7 +77,7 @@ class DepsFalsas(Dependencias):
     def enviar_foto(self, telefono, url):
         self.fotos_enviadas.append((telefono, url))
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         inicio = datetime.fromisoformat(fecha_cita)
         fin = inicio + timedelta(minutes=60)  # igual que booking.py: 60 min, no inicio=fin
         cita = {"inicio": inicio.isoformat(), "fin": fin.isoformat()}

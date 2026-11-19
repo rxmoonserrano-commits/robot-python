@@ -51,7 +51,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.4.8"
+VERSION = "3.4.9"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
@@ -97,8 +97,16 @@ class DependenciasReales(Dependencias):
     def enviar_foto(self, telefono, url):
         whatsapp.enviar_foto(telefono, url)
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
-        return booking.crear_cita(nombre, telefono, motivo, fecha_cita)
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
+        return booking.crear_cita(nombre, telefono, motivo, fecha_cita, nota=nota)
+
+    def hora_libre(self, fecha_iso):
+        # (v3.4.9) Si el calendario falla, se asume libre: la
+        # confirmación vuelve a revisar la hora de todos modos.
+        try:
+            return booking.hora_libre(fecha_iso)
+        except Exception:
+            return True
 
     def cancelar_cita(self, telefono, fecha_cita):
         return booking.cancelar_cita(telefono, fecha_cita)

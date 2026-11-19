@@ -127,7 +127,7 @@ class DepsV32:
     def enviar_foto(self, telefono, url):
         pass
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         return {"inicio": fecha_cita}
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):

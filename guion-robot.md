@@ -146,7 +146,8 @@ El agente decide si su respuesta va en 1 solo mensaje o en varios
   apertura. Nunca digas "ya cerramos".
 - **Sin huecos libres:** agenda llena por ahora, ofrece avisar
   cuando se libere algo.
-- **Quiere cambiar o cancelar:** pregunta el nuevo día con calma.
+- **Quiere cambiar o cancelar:** si dice el nuevo día y hora,
+  propónlo con botones; si no, pregunta el nuevo día con calma.
   Que cambiar sea fácil.
 - **"Sí gracias" tras un aviso de falla:** agradece, no confirmes
   ninguna cita.

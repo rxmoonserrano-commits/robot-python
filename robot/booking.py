@@ -195,16 +195,22 @@ def crear_cita(
     motivo: str,
     inicio_iso: str,
     duracion_min: int | None = None,
+    nota: str = "",
 ) -> dict:
     """Crea la cita. Devuelve {'inicio': ..., 'fin': ..., 'link': ...}.
 
     Si la hora está ocupada, levanta ValueError y NO crea nada.
+    `nota` (v3.4.9) va en la descripción del evento (p. ej. el
+    teléfono de registro que dio el cliente).
     """
     duracion = duracion_min or settings.duracion_cita_minutos
     if not hora_libre(inicio_iso, duracion):
         raise ValueError(f"La hora {inicio_iso} ya está ocupada en el calendario.")
     inicio = _a_datetime(inicio_iso)
     fin = inicio + timedelta(minutes=duracion)
+    descripcion = f"Motivo: {motivo}\nOrigen: whatsapp (robot)"
+    if nota:
+        descripcion += f"\n{nota}"
     servicio = _servicio_calendar()
     evento = (
         servicio.events()
@@ -212,7 +218,7 @@ def crear_cita(
             calendarId=settings.calendar_id,
             body={
                 "summary": f"Cita {nombre} — {telefono}",
-                "description": f"Motivo: {motivo}\nOrigen: whatsapp (robot)",
+                "description": descripcion,
                 "start": {"dateTime": inicio.isoformat(), "timeZone": settings.timezone},
                 "end": {"dateTime": fin.isoformat(), "timeZone": settings.timezone},
             },

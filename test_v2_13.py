@@ -117,7 +117,7 @@ class DepsV213:
     def enviar_foto(self, telefono, url):
         pass
 
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita):
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         return {"inicio": fecha_cita}
 
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
@@ -170,6 +170,13 @@ def main():
          e["etapa"] == "saludo")
     e = estado_cliente([fila("cliente", "¿cuánto cuesta la limpieza?")], None, None)
     caso("(a) Pregunta de precio: etapa pregunto", e["etapa"] == "pregunto")
+    # (v3.4.9) Un saludo con intención no es solo un saludo.
+    e = estado_cliente([fila("cliente", "hola quiero agendar")], None, None)
+    caso("(a) 'hola quiero agendar': etapa pregunto, no saludo",
+         e["etapa"] == "pregunto", f"etapa={e['etapa']}")
+    e = estado_cliente([fila("cliente", "buenas, ¿cuánto cuesta?")], None, None)
+    caso("(a) 'buenas, ¿cuánto cuesta?': etapa pregunto",
+         e["etapa"] == "pregunto", f"etapa={e['etapa']}")
     e = estado_cliente([fila("cliente", "buenas noches"),
                         fila("robot", "¿Te la agendo para mañana a las 9:00?")],
                        PROPUESTA, None)
@@ -226,6 +233,13 @@ def main():
         {"etapa": "pregunto", "ya_ofrecio_cita": False})
     caso("(b) Respuesta limpia: no se toca",
          texto.startswith("La limpieza cuesta $600") and v == [],
+         f"salió: {texto!r} {v}")
+    # (v3.4.9) "¿Te reservo...?" también es una oferta: se quita.
+    texto, v = revisar_respuesta(
+        "La limpieza cuesta $600. ¿Te reservo para mañana a las 9:00?",
+        {"etapa": "oferta_pendiente", "ya_ofrecio_cita": True})
+    caso("(b) R1: '¿Te reservo...?' también se quita",
+         "¿Te reservo" not in texto and "$600" in texto and v == ["R1"],
          f"salió: {texto!r} {v}")
 
     # ---- (c) Frenos en la llamada a Gemini ----

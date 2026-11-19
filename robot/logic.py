@@ -232,6 +232,11 @@ def _es_afirmacion(texto: str) -> bool:
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
     normal = re.sub(r"\s+", " ", normal)
     if not normal:
+        # (v3.4.9) Un emoji de aprobación solo ("👍", "✅") con una
+        # propuesta pendiente ES un sí: la gente confirma así todo el
+        # tiempo. Solo se llega aquí con propuesta pendiente.
+        if any(e in (texto or "") for e in ("👍", "✅", "🆗", "👌")):
+            return True
         return False
     if any(p in normal for p in ("mejor", "otro dia", "otra hora", "cambiar", " no ")):
         return False
@@ -244,6 +249,38 @@ def _es_afirmacion(texto: str) -> bool:
         return True
     return normal in ("si me va", "si me va esa fecha", "si esta bien", "estoy de acuerdo",
                        "de acuerdo", "me va", "me parece bien", "esta bien")
+
+
+def _tiene_fecha_especifica(texto: str) -> bool:
+    """¿El mensaje trae un día o una hora concreta?
+
+    (v3.4.9) Para no preguntarle al cliente otra vez lo que ya dijo:
+    "mejor el viernes a las 10" trae día y hora; "prefiero otra" no.
+    """
+    normal = _sin_acentos(texto)
+    if re.search(r"\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b", normal):
+        return True
+    if re.search(r"\b(manana|hoy|pasado manana)\b", normal):
+        return True
+    if re.search(r"\b\d{1,2}(:\d{2})?\s*(am|pm|h|hrs)?\b", normal):
+        return True
+    return False
+
+
+def _extraer_telefono(texto: str, telefono_propio: str = "") -> str:
+    """Saca el primer número de teléfono que trae un mensaje.
+
+    (v3.4.9) Para el número de registro: si el cliente dice "regístralo
+    al 6671234567", ese número se guarda en la propuesta. Devuelve ""
+    si no hay ninguno, o si es el mismo número del chat (con o sin
+    código de país).
+    """
+    propio = re.sub(r"\D", "", str(telefono_propio or ""))
+    for numero in re.findall(r"\+?\d[\d\s\-()]{8,}\d", str(texto or "")):
+        digitos = re.sub(r"\D", "", numero)
+        if len(digitos) >= 10 and digitos != propio and not propio.endswith(digitos) and not digitos.endswith(propio):
+            return numero.strip()
+    return ""
 
 
 # (v3.3) Urgencia: si el cliente dice que es urgente o que le duele,
@@ -300,9 +337,13 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         mensaje = "Claro. ¿Qué necesitas? Cuéntame y te ayudo."
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
+    nombre_cita = str(propuesta.get("nombre") or "").strip()
+    telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
     try:
         cita = deps.crear_cita(
-            propuesta["nombre"], telefono, propuesta["motivo"], propuesta["fecha_cita"]
+            nombre_cita or "Cliente", telefono, propuesta["motivo"],
+            propuesta["fecha_cita"],
+            nota=(f"Teléfono de registro: {telefono_registro}" if telefono_registro else ""),
         )
     except Exception:
         _borrar_propuesta(deps, telefono)
@@ -314,11 +355,17 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
         return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
     _borrar_propuesta(deps, telefono)
+    # (v3.4.9) Sin nombre no se deja un "Listo, .": se dice "Listo."
+    # y ya. Y si el cliente dio otro número para el registro, se le
+    # confirma aquí mismo, para que sepa a qué número quedó.
+    saludo = f"Listo, {nombre_cita}." if nombre_cita else "Listo."
     mensaje = (
-        f"Listo, {propuesta['nombre']}. Tu cita quedó para el "
-        f"{propuesta['fecha_bonita']}. Dura {settings.duracion_cita_minutos} minutos.\n\n"
-        f"Si necesitas cambiarla, escríbeme el nuevo día y hora y la reacomodamos."
+        f"{saludo} Tu cita quedó para el "
+        f"{propuesta['fecha_bonita']}. Dura {settings.duracion_cita_minutos} minutos."
     )
+    if telefono_registro:
+        mensaje += f"\n\nQuedó registrada al {telefono_registro}."
+    mensaje += "\n\nSi necesitas cambiarla, escríbeme el nuevo día y hora y la reacomodamos."
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
     deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", propuesta["motivo"])
     deps.registrar_cliente(
@@ -364,6 +411,10 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
     if any(p in normal for p in _PALABRAS_CAMBIAR):
         return "cambiar"
     if hay_propuesta and normal in ("otra", "otro", "prefiero otra"):
+        return "cambiar"
+    # (v3.4.9) Un "no" pelón a la propuesta es "esa hora no": se
+    # pregunta por otro día, sin pasar por la IA.
+    if hay_propuesta and normal in ("no", "nop", "nel", "nope"):
         return "cambiar"
     return None
 
@@ -703,7 +754,10 @@ class Dependencias:
     # WhatsApp / Calendar / correo
     def enviar_texto(self, telefono, texto): ...
     def enviar_foto(self, telefono, url): ...
-    def crear_cita(self, nombre, telefono, motivo, fecha_cita) -> dict: ...
+    def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota="") -> dict:
+        """Crea la cita. `nota` (v3.4.9) es un dato extra para la
+        descripción del evento (p. ej. el teléfono de registro)."""
+        ...
     def cancelar_cita(self, telefono, fecha_cita) -> bool:
         """Borra del Calendar la cita de ese teléfono en esa fecha. True si la borró."""
         return False
@@ -713,6 +767,11 @@ class Dependencias:
     def proximos_huecos_libres(self, conocimiento: list[dict], ahora: datetime) -> list[str]:
         """Los próximos huecos libres (fechas ISO) para ofrecer. Por defecto: ninguno."""
         return []
+    def hora_libre(self, fecha_iso: str) -> bool:
+        """¿Está libre esa hora en el calendario? (v3.4.9) Por defecto
+        True: sin verificar, la propuesta sale igual y la confirmación
+        vuelve a revisar la hora."""
+        return True
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha): ...
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
 
@@ -868,8 +927,45 @@ def atender_mensaje(
     # día y de noche. Un "mejor no" o un "prefiero otra" no es una
     # pregunta nueva: es una decisión sobre la cita que ya tiene.
     intencion = _intencion_cambio(texto, hay_propuesta=telefono in _CITAS_PENDIENTES)
+    # (v3.4.9) Con propuesta pendiente, un mensaje que trae otro día u
+    # otra hora ("mejor el viernes a las 10") es cambiar la cita: el
+    # cliente ya dijo a qué hora la quiere. No se le pregunta otra vez.
+    # (Si es una pregunta, "¿tienen lugar el viernes?", va al agente
+    # con la propuesta intacta.)
+    if (intencion is None and telefono in _CITAS_PENDIENTES
+            and _tiene_fecha_especifica(texto)
+            and not texto.strip().endswith("?")):
+        intencion = "cambiar"
+    if intencion == "cambiar" and telefono in _CITAS_PENDIENTES and _tiene_fecha_especifica(texto):
+        # (v3.4.9) "Mejor el viernes a las 10": el cliente ya dijo el
+        # nuevo día y hora. No se le pregunta otra vez lo que ya dijo:
+        # se borra la propuesta vieja y el agente propone la nueva con
+        # botones. Si ya hay una cita creada (no solo una propuesta),
+        # se sigue por el camino seguro de abajo.
+        _cliente_tmp = (getattr(deps, "leer_cliente", lambda t: None)(telefono) or {})
+        _agendada = (str(_cliente_tmp.get("estatus", "")).strip().lower() == "agendado"
+                     and str(_cliente_tmp.get("fecha_cita", "") or "").strip())
+        if not _agendada:
+            _borrar_propuesta(deps, telefono)
+            intencion = None  # sigue al agente, que propone la nueva hora
     if intencion is not None:
         return _atender_cambio_cancelacion(deps, telefono, nombre, fecha, intencion, con_ritmo)
+
+    # 3d. Mensaje sin letras ni números (solo emojis o símbolos): no
+    # hay nada que preguntarle a la IA. Respuesta cálida directa.
+    # (Con propuesta pendiente, un "👍" ya confirmó arriba, en 3b.)
+    if not re.search(r"[a-z0-9]", _sin_acentos(texto)):
+        _pend = _CITAS_PENDIENTES.get(telefono)
+        if _pend:
+            mensaje = (
+                f"¡Gracias! Tu cita para el {_pend.get('fecha_bonita', '')} "
+                "sigue en pie. ¿Te la confirmo?"
+            )
+        else:
+            mensaje = "¡Gracias! ¿En qué te ayudo hoy?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "mensaje sin texto")
+        return {"respondio": True, "handoff": False}
 
     # 4. Cargar lo que el robot necesita saber.
     # (El historial ya se cargó arriba, en el paso 3b, para saber si
@@ -1100,6 +1196,27 @@ def atender_mensaje(
                 telefono, texto,
             )
 
+    # (v3.4.9) El nombre que el cliente dio DESPUÉS de la propuesta
+    # (el robot se lo pidió al agendar) se guarda en la propuesta
+    # pendiente: la confirmación sale con su nombre, no vacía. Y si
+    # dio otro número para el registro ("regístralo al 667..."), se
+    # guarda también: la cita queda registrada al número que él dio.
+    _pendiente = _CITAS_PENDIENTES.get(telefono)
+    if _pendiente:
+        # Solo se reemplaza si la propuesta trae el nombre de perfil
+        # (el que el robot puso por defecto) o ninguno: el nombre
+        # completo que dio el cliente vale más que el de WhatsApp.
+        _nombre_previo = str(_pendiente.get("nombre") or "").strip()
+        if respuesta.nombre and (
+            not _nombre_previo or _nombre_previo == str(nombre or "").strip()
+        ):
+            _pendiente["nombre"] = respuesta.nombre
+            _guardar_propuesta(deps, telefono, _pendiente)
+        _num_registro = _extraer_telefono(texto, telefono)
+        if _num_registro and _num_registro != str(_pendiente.get("telefono_registro") or "").strip():
+            _pendiente["telefono_registro"] = _num_registro
+            _guardar_propuesta(deps, telefono, _pendiente)
+
     # (v3.2) Memoria de apartados: si la respuesta le aparta el lugar
     # y hay una propuesta activa, el apartado queda guardado en la
     # propuesta (memoria Y hoja), hasta mañana. Si el cliente vuelve,
@@ -1199,6 +1316,19 @@ def atender_mensaje(
                 respuesta.fecha_cita = proxima_valida.isoformat()
             else:
                 respuesta.quiere_agendar = "no"
+        # (v3.4.9) La fecha propuesta también se revisa contra el
+        # calendario: si esa hora ya está ocupada, se usa el primer
+        # hueco libre real. Así la confirmación no falla con "esa hora
+        # ya se ocupó" por una fecha que el agente calculó.
+        if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
+            try:
+                _verificar_libre = getattr(deps, "hora_libre", lambda f: True)
+                if not _verificar_libre(respuesta.fecha_cita):
+                    _huecos = locals().get("huecos")
+                    if _huecos:
+                        respuesta.fecha_cita = _huecos[0]
+            except Exception:
+                pass  # sin calendario no se bloquea la propuesta
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
         # (v3.4.8) Al agendar SIEMPRE se pide nombre completo y número
         # de registro, aunque el agente no lo haya puesto en su texto.
@@ -1240,10 +1370,18 @@ def atender_mensaje(
             fecha_bonita = formatear_cita_bonita(respuesta.fecha_cita)
         except (ValueError, TypeError):
             fecha_bonita = respuesta.fecha_cita
-        propuesta = (
-            f"{respuesta.respuesta_texto}\n\n"
-            f"¿Confirmo tu cita para el {fecha_bonita}?"
-        )
+        # (v3.4.9) Si el agente preguntó "¿Te agendo...?" o
+        # "¿Confirmo...?" en su texto, esa pregunta se quita: el
+        # sistema agrega la confirmación con botones. Nunca dos
+        # preguntas de confirmación en el mismo mensaje.
+        texto_propuesta = re.sub(
+            r"¿(te (la )?agendo|confirmo|te reservo)[^?]*\?\s*",
+            "", respuesta.respuesta_texto, flags=re.IGNORECASE,
+        ).strip()
+        if texto_propuesta:
+            propuesta = f"{texto_propuesta}\n\n¿Confirmo tu cita para el {fecha_bonita}?"
+        else:
+            propuesta = f"¿Confirmo tu cita para el {fecha_bonita}?"
         _guardar_propuesta(deps, telefono, {
             "nombre": respuesta.nombre or nombre,
             "motivo": respuesta.motivo or texto,
