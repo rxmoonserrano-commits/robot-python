@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -51,8 +52,23 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.4.11"
-app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
+VERSION = "3.4.12"
+
+
+# El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
+# (deprecated); se usa el contexto `lifespan`: arrancar() antes de
+# recibir tráfico y apagar() al cerrar (lo definen más abajo, se
+# resuelven al ejecutar el ciclo de vida, cuando el módulo ya está
+# completo).
+@asynccontextmanager
+async def _ciclo_vida(app):
+    arrancar()
+    yield
+    apagar()
+
+
+app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION,
+              lifespan=_ciclo_vida)
 
 
 # --- Las dependencias reales: conectan la lógica con Google, Gemini y WhatsApp ---
@@ -607,7 +623,6 @@ scheduler.add_job(
 )
 
 
-@app.on_event("startup")
 def arrancar():
     """Al arrancar: avisa si faltan claves, recupera lo pendiente y
     revisa la salud de cada pieza (ver robot/salud.py). Nada de esto
@@ -655,6 +670,5 @@ def arrancar():
     info(f"Resumen de la mañana programado: todos los días {settings.reporte_hora:02d}:{settings.reporte_minuto:02d} ({settings.timezone}).")
 
 
-@app.on_event("shutdown")
 def apagar():
     scheduler.shutdown()

@@ -8,5 +8,6 @@ buzon.json
 buzon.json.tmp
 __pycache__/
 *.pyc
+.DS_Store
 .venv/
 venv/

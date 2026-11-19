@@ -7,16 +7,16 @@ y se calla. Todo lo que sabe del negocio vive en una hoja de Google
 Sheets. Nada de audio de respuesta, nada de mensajes automáticos por
 WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa 284 pruebas simuladas
-> sin internet (23 de la v1 en `test_simulado.py` + 28 de la v2 en
+> **Honestidad, como siempre:** la lógica pasa 334 pruebas simuladas
+> sin internet (23 de la v1 en `test_simulado.py` + 47 de la v2 en
 > `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
 > `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
 > `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
 > `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
 > `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
-> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 18 de la v2.13
+> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 27 de la v2.13
 > en `test_v2_13.py` + 29 de la v3.0 en `test_v3.py` + 27 de la v3.1
-> en `test_v3_1.py` + 17 de la v3.2 en `test_v3_2.py` + 33 de la v3.3
+> en `test_v3_1.py` + 20 de la v3.2 en `test_v3_2.py` + 50 de la v3.3
 > en `test_v3_3.py` + 9 de la v3.4 en `test_v3_4.py`). Y hay 15 **conversaciones doradas** aparte
 > (`test_conversaciones_doradas.py`): conversaciones completas contra
 > la IA real, que se corren con la clave de Gemini antes de cada
@@ -85,7 +85,7 @@ El código de este flujo está en `robot/logic.py`, función
 | `requirements.txt` | Las librerías (todas gratuitas) |
 | `.env.example` | La plantilla de claves: cópiala como `.env` y llénala |
 | `test_simulado.py` | 23 pruebas de la v1: `python test_simulado.py` |
-| `test_v2.py` | 28 pruebas de la v2: `python test_v2.py` |
+| `test_v2.py` | 47 pruebas de la v2: `python test_v2.py` |
 | `test_v2_2.py` | 15 pruebas de la v2.2: `python test_v2_2.py` |
 | `test_v2_3.py` | 10 pruebas de la v2.3: `python test_v2_3.py` |
 | `test_v2_4.py` | 13 pruebas de la v2.4: `python test_v2_4.py` |
@@ -97,11 +97,11 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_v2_10.py` | 8 pruebas de la v2.10: `python test_v2_10.py` |
 | `test_v2_11.py` | 9 pruebas de la v2.11: `python test_v2_11.py` |
 | `test_v2_12.py` | 7 pruebas de la v2.12: `python test_v2_12.py` |
-| `test_v2_13.py` | 18 pruebas de la v2.13: `python test_v2_13.py` |
+| `test_v2_13.py` | 27 pruebas de la v2.13: `python test_v2_13.py` |
 | `test_v3.py` | 29 pruebas de la v3.0: `python test_v3.py` |
 | `test_v3_1.py` | 27 pruebas de la v3.1: `python test_v3_1.py` |
-| `test_v3_2.py` | 17 pruebas de la v3.2: `python test_v3_2.py` |
-| `test_v3_3.py` | 33 pruebas de la v3.3: `python test_v3_3.py` |
+| `test_v3_2.py` | 20 pruebas de la v3.2: `python test_v3_2.py` |
+| `test_v3_3.py` | 50 pruebas de la v3.3: `python test_v3_3.py` |
 | `test_v3_4.py` | 9 pruebas de la v3.4: `python test_v3_4.py` |
 | `robot/estado_servidor.py` | Estado en memoria para GET /estado: contadores de webhooks, lotes y último error, sin datos de clientes |
 | `robot/abuso.py` | Anti-abuso: más de 10 mensajes en 60 s por teléfono → se avisa una vez y se ignoran los demás |
@@ -339,7 +339,7 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 284 pruebas + el servidor arranca
+python instalar.py --check   # todo: 334 pruebas + el servidor arranca
 python test_v3_3.py          # 33 casos nuevos de la v3.3
 ```
 

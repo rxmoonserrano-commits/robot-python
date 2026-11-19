@@ -5,6 +5,25 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.4.12 — Bug de correos corregido + lifespan (2026-11-18)
+
+Incorpora los arreglos de higiene de Arena (revisados y probados):
+
+1. **Bug real corregido (mail.py):** los correos al dueño
+   (`alerta_cita_confirmada`, `alerta_lead_caliente`) traían
+   literales `\\n` en vez de saltos de línea: el texto llegaba con
+   "\n" escrito. Ahora son saltos de línea de verdad.
+2. **Lifespan de FastAPI:** `@app.on_event` (deprecado) →
+   contexto `lifespan` en app.py. Mismo comportamiento de arranque
+   y apagado, sin la advertencia de deprecación.
+3. **Docs:** README con los conteos reales de pruebas (334;
+   284 estaba desactualizado).
+4. **Higiene:** `.DS_Store` agregado al .gitignore.
+
+No se tomó `runtime.txt` 3.14 (el 3.12 de Render está probado; el
+cambio no aporta funcionalidad). Suite completa + batería de
+inteligencia en verde (41/41).
+
 ## v3.4.11 — Calidez con marketing, confirmación sin fricción y fechas a prueba de hoja (2026-11-18)
 
 Calidad de comunicación aplicada con principios de marketing:

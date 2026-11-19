@@ -77,12 +77,12 @@ def alerta_cita_confirmada(
     enviar_correo(
         settings.owner_email,
         f"¡Nueva cita! {nombre or telefono} — {fecha_bonita}",
-        "Se confirmó una cita por WhatsApp.\\n\\n"
-        f"Nombre: {nombre}\\n"
-        f"Teléfono: {telefono}\\n"
-        f"Motivo: {motivo}\\n"
-        f"Cita: {fecha_bonita}\\n"
-        f"Fecha: {fecha}\\n",
+        "Se confirmó una cita por WhatsApp.\n\n"
+        f"Nombre: {nombre}\n"
+        f"Teléfono: {telefono}\n"
+        f"Motivo: {motivo}\n"
+        f"Cita: {fecha_bonita}\n"
+        f"Fecha: {fecha}\n",
     )
 
 
@@ -95,13 +95,13 @@ def alerta_lead_caliente(
     enviar_correo(
         settings.owner_email,
         f"Lead caliente: {nombre or telefono} ({telefono}) quiere agendar",
-        "Este cliente pidió una cita en este momento.\\n\\n"
-        f"Nombre: {nombre}\\n"
-        f"Teléfono: {telefono}\\n"
-        f"Motivo: {motivo}\\n"
-        f"Fecha: {fecha}\\n\\n"
-        "Último mensaje del cliente:\\n"
-        f"{ultimo_mensaje}\\n",
+        "Este cliente pidió una cita en este momento.\n\n"
+        f"Nombre: {nombre}\n"
+        f"Teléfono: {telefono}\n"
+        f"Motivo: {motivo}\n"
+        f"Fecha: {fecha}\n\n"
+        "Último mensaje del cliente:\n"
+        f"{ultimo_mensaje}\n",
     )
 
 
