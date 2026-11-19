@@ -526,6 +526,10 @@ def main():
     caso("Guion: un agradecimiento no es un sí a agendar",
          "Un agradecimiento no es un sí a agendar" in guion_normal,
          "falta la regla de cortesía tras fallo")
+    caso("Guion: al agendar propone con botones, no lista huecos en texto",
+         "NO listes los huecos en texto" in guion_normal
+         and "marca quiere_agendar con esa fecha_cita" in guion_normal,
+         "falta la regla de propuesta con botones")
     caso("Guion: si preguntan por ubicación, manda dirección, horarios y mapa",
          "enlace de mapa" in guion_normal
          and "Nunca inventes un enlace ni una dirección" in guion_normal,

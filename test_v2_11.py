@@ -151,9 +151,10 @@ def main():
         # decisión por etapa (pregunto), no en una sección aparte.
         caso("(a) Cada respuesta acerca a la cita: beneficio, precio, cita",
              "Beneficio primero" in prompt and "precio después, cita al final" in prompt
-             and "DOS opciones concretas de día y hora" in prompt)
-        caso("(b) Ofrece DOS opciones concretas de día y hora (con interés)",
-             "DOS opciones concretas de día y hora" in prompt
+             and "NO listes los huecos en texto" in prompt)
+        caso("(b) Propone con botones al agendar (sin listar huecos en texto)",
+             "NO listes los huecos en texto" in prompt
+             and "marca quiere_agendar con esa fecha_cita" in prompt
              and "Ofrece la cita SOLO si el cliente mostró interés" in prompt)
         caso("(c) Prohíbe cerrar con preguntas genéricas",
              'Nunca termines con "¿tienes alguna otra duda?"' in prompt

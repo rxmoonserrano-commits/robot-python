@@ -150,7 +150,8 @@ def main():
         # pasos: es decidir según la etapa del cliente (ver robot/estado.py).
         caso("(b) El prompt decide según la etapa y ofrece la cita",
              "Decide según la etapa" in prompt
-             and "DOS opciones concretas de día y hora" in prompt
+             and "NO listes los huecos en texto" in prompt
+             and "marca quiere_agendar con esa fecha_cita" in prompt
              and "Beneficio primero" in prompt
              and "precio después, cita al final" in prompt,
              "falta la decisión por etapa")

@@ -164,8 +164,8 @@ def main():
              "el negocio está cerrado, tú no" in prompt
              and "El negocio ya cerró por hoy, pero yo te atiendo igual" in prompt
              and 'Nunca digas "ya cerramos"' in prompt)
-        caso("(g) Lo voraz de la v2.11 sigue: dos opciones y 'lo voy a pensar'",
-             "DOS opciones concretas de día y hora" in prompt
+        caso("(g) Lo de la v2.11 sigue: propuesta con botones y 'lo voy a pensar'",
+             "NO listes los huecos en texto" in prompt
              and "Te aparto el lugar hasta mañana sin compromiso" in prompt)
 
         # (e) La espera es 15 segundos en los tres lugares.
