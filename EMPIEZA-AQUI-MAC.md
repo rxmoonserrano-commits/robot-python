@@ -6,9 +6,27 @@ instalador, y te lo explico paso a paso cuando llegues ahí.
 
 ## Paso 1. Descarga el robot
 
+Tienes dos formas. La recomendada es con git (así actualizar después es
+un solo comando). Si el repo es privado, git te pedirá tu usuario de
+GitHub y un token personal como contraseña (se crea en
+github.com/settings/tokens, con permiso "repo").
+
+Opción A (git, recomendada):
+
+```
+cd ~/Desktop
+git clone https://github.com/rxmoonserrano-commits/robot-python.git robot-python
+```
+
+Opción B (zip):
+
 1. Descarga el archivo `robot-python.zip` que te mandó Muse.
 2. Búscalo en Descargas y haz doble clic. Se crea una carpeta `robot-python`.
 3. Arrástrala a tu Escritorio, para encontrarla fácil.
+
+Si ya tienes una carpeta vieja `robot-python` en el Escritorio y
+actualizas con zip, copia los archivos DENTRO de la carpeta que ya
+tienes, sin borrar tu archivo `.env` (ahí están tus claves).
 
 ## Paso 2. Abre la Terminal
 
@@ -67,6 +85,19 @@ instalador te dice dónde sacarla, una por una.
 Copia TODO lo que dice la Terminal (el comando que pegaste y el error en
 rojo) y mándaselo a Muse. Con eso te dice exactamente qué hacer, no
 adivines.
+
+## Actualizar el robot (cuando Muse suba una versión nueva)
+
+Si lo bajaste con git (Opción A), pega esto en la Terminal:
+
+```
+cd ~/Desktop/robot-python
+git pull
+```
+
+Con eso tienes la última versión, sin tocar tu `.env` ni tus claves.
+Si lo bajaste con zip (Opción B), Muse te manda el zip nuevo y copias
+los archivos dentro de tu carpeta, sin borrar tu `.env`.
 
 ## El mapa completo (para que no te pierdas)
 

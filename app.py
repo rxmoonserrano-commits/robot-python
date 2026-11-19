@@ -51,7 +51,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.4.0"
+VERSION = "3.4.7"
 app = FastAPI(title="Robot WhatsApp — IA gratis", version=VERSION)
 
 
