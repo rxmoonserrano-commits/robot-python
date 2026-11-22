@@ -14,9 +14,9 @@ from zoneinfo import ZoneInfo
 
 from .config import settings
 from .gemini import generar_texto
-from .logic import _DIAS_NOMBRE, _MESES, contar_semana
+from .logic import _DIAS_NOMBRE, _MESES, contar_semana, formatear_cita_bonita
 from .mail import enviar_correo
-from .negocio import funcion_activa
+from .negocio import correo_dueno, funcion_activa, nombre_negocio
 from .sheets import guardar_reporte, leer_pestana, leer_propuestas
 
 
@@ -142,10 +142,28 @@ def generar_resumen_manana() -> dict:
     }
 
 
+def _fecha_corta(valor: str) -> str:
+    """Fecha corta legible (dd/mm hh:mm) desde un ISO; si no, el texto tal cual."""
+    try:
+        fecha = datetime.fromisoformat(str(valor or "").replace("Z", "+00:00"))
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=timezone.utc)
+        local = fecha.astimezone(ZoneInfo("America/Mazatlan"))
+        return local.strftime("%d/%m %H:%M")
+    except (ValueError, TypeError):
+        return str(valor or "")[:16]
+
+
 def generar_reporte_semanal() -> dict:
     """Hace el reporte de los últimos 7 días y lo manda. Devuelve los contadores.
 
-    (v3.6) Paquete básico: sin reportes. Se omite sin mandar nada.
+    (v3.7) Los TRES tipos de alerta del dueño en UN solo correo
+    semanal, estilo "reporte de valor" (lo que Jose pidió del chat
+    de ChatGPT): citas confirmadas, necesitaron humano, y resumen
+    con números que prueban el valor. Sin avalancha de correos: el
+    dueño ve todo el lunes a las 08:00, sin entrar a ningún lado.
+    Los números salen de las hojas; lo estimado va marcado como
+    estimado. Paquete básico: sin reportes, se omite sin mandar nada.
     """
     if not funcion_activa("reportes"):
         return {"omitido": True, "motivo": "paquete sin reportes"}
@@ -154,6 +172,46 @@ def generar_reporte_semanal() -> dict:
     conversaciones = leer_pestana("Conversaciones")
     clientes = leer_pestana("Clientes")
     conteo = contar_semana(conversaciones, clientes, desde, hasta)
+
+    # Tipo 1: citas confirmadas esta semana (lista con fecha bonita).
+    citas = [
+        f for f in clientes
+        if _en_ventana(f, desde, hasta)
+        and str(f.get("estatus", "")).strip() == "agendado"
+        and str(f.get("fecha_cita", "")).strip()
+    ]
+    # Tipo 2: necesitaron atención humana esta semana.
+    humanos = [
+        f for f in clientes
+        if _en_ventana(f, desde, hasta)
+        and str(f.get("handoff", "")).strip().lower() == "si"
+    ]
+    # Por recuperar: preguntaron (tienen motivo), no agendaron, sin
+    # cita y nadie los está atendiendo (sin handoff). Uno por
+    # teléfono (el último registro manda).
+    por_recuperar: dict[str, dict] = {}
+    for f in clientes:
+        if (
+            _en_ventana(f, desde, hasta)
+            and str(f.get("estatus", "")).strip() == "en conversacion"
+            and not str(f.get("fecha_cita", "")).strip()
+            and str(f.get("motivo", "")).strip()
+            and str(f.get("handoff", "")).strip().lower() != "si"
+        ):
+            por_recuperar[str(f.get("telefono", "")).strip()] = f
+    recuperar = list(por_recuperar.values())
+
+    # Métricas de valor: confirmados vs estimados, sin inventar.
+    atendidos = conteo["mensajes_atendidos"]
+    handoffs_n = conteo["handoffs"]
+    resueltas = max(atendidos - handoffs_n, 0)
+    pct = round(100 * resueltas / atendidos) if atendidos else 0
+    horas = resueltas * 5 / 60
+    sin_respuesta = sum(
+        1 for f in conversaciones
+        if _en_ventana(f, desde, hasta)
+        and str(f.get("robot_respondio", "")).strip() == "no"
+    )
 
     semana = f"{desde.date()} a {hasta.date()}"
     motivos = (
@@ -177,17 +235,55 @@ def generar_reporte_semanal() -> dict:
         json_mode=False,
     )
 
+    nombre_neg = nombre_negocio() or "tu negocio"
+    if citas:
+        lineas_citas = "\n".join(
+            f"- {f.get('nombre') or f.get('telefono')} — {f.get('motivo') or 'cita'}"
+            f" — {formatear_cita_bonita(str(f.get('fecha_cita', '')))}"
+            for f in citas
+        )
+    else:
+        lineas_citas = "Ninguna esta semana."
+    if humanos:
+        lineas_humanos = "\n".join(
+            f"- {f.get('nombre') or f.get('telefono')} — {f.get('motivo') or 'sin motivo'}"
+            f" ({_fecha_corta(str(f.get('fecha', '')))})"
+            for f in humanos
+        )
+    else:
+        lineas_humanos = "Ninguna esta semana."
+    if recuperar:
+        lineas_recuperar = "\n".join(
+            f"- {f.get('nombre') or f.get('telefono')} preguntó por {f.get('motivo')}."
+            f" Borrador listo para copiar: \"Hola {f.get('nombre') or ''}, vi que"
+            f" preguntaste por {f.get('motivo')}. ¿Te aparto un lugar esta semana?\""
+            for f in recuperar
+        )
+    else:
+        lineas_recuperar = "Nadie por recuperar esta semana."
+
     cuerpo = (
-        f"Reporte semanal del robot — {semana}\n\n"
-        f"Mensajes atendidos: {conteo['mensajes_atendidos']}\n"
-        f"Clientes calificados: {conteo['clientes_calificados']}\n"
-        f"Citas agendadas: {conteo['citas_agendadas']}\n"
-        f"Casos pasados a una persona: {conteo['handoffs']}\n"
-        f"Mensajes sin responder (humano atendiendo): {conteo['sin_respuesta_por_humano']}\n"
-        f"Motivos más comunes: {motivos}\n\n"
+        f"Tu semana en {nombre_neg} — {semana}\n\n"
+        "Aquí está tu semana, sin que tengas que entrar a ningún lado.\n\n"
+        f"📅 CITAS CONFIRMADAS ({len(citas)})\n{lineas_citas}\n\n"
+        f"🙋 NECESITARON ATENCIÓN HUMANA ({len(humanos)})\n{lineas_humanos}\n\n"
+        f"💬 CLIENTES POR RECUPERAR ({len(recuperar)})\n{lineas_recuperar}\n\n"
+        "📊 TU SEMANA EN NÚMEROS\n"
+        f"- Conversaciones atendidas: {atendidos}\n"
+        f"- Resueltas sin pasar a humano: {resueltas} ({pct}%)\n"
+        f"- Citas confirmadas: {conteo['citas_agendadas']}\n"
+        f"- Clientes atendidos: {conteo['clientes_calificados']}\n"
+        f"- Tiempo ahorrado estimado: ~{horas:.1f} h"
+        " (5 min por conversación resuelta)\n"
+        f"- Mensajes sin respuesta del robot: {sin_respuesta}"
+        " (todos quedaron registrados en la hoja)\n\n"
         f"{resumen}\n"
     )
-    enviar_correo(settings.owner_email, f"Reporte semanal del robot — {semana}", cuerpo)
+    enviar_correo(
+        correo_dueno(),
+        f"Tu semana en {nombre_neg} — citas, humanos y resumen",
+        cuerpo,
+    )
     guardar_reporte(
         semana,
         conteo["mensajes_atendidos"],

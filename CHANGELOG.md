@@ -5,6 +5,34 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.7.0 — Alertas del dueño: 3 tipos, un correo semanal (2026-11-21)
+
+Lo que Jose pidió del chat de ChatGPT: las alertas para el dueño
+son por correo, una vez a la semana, y solo tres tipos, en ese
+estilo de "reporte de valor".
+
+1. **Correo semanal reescrito (generar_reporte_semanal):** un solo
+   correo los lunes 08:00 con los 3 tipos:
+   - 📅 Citas confirmadas esta semana (lista con fecha bonita).
+   - 🙋 Necesitaron atención humana (lista con motivo y cuándo).
+   - 💬 Clientes por recuperar (preguntaron y no agendaron, con
+     borrador listo para copiar; el robot no manda WhatsApp).
+   Más el bloque 📊 TU SEMANA EN NÚMEROS estilo reporte de valor:
+   conversaciones atendidas, resueltas sin humano (%), citas
+   confirmadas, tiempo ahorrado estimado (5 min por conversación,
+   marcado como estimado), mensajes sin respuesta (todos
+   registrados). Confirmados vs estimados, sin inventar. El
+   esquema de la pestaña Reporte no cambia.
+2. **alertas_instantaneas (Configuración):** SI (default, como
+   siempre) = alertas de cita y lead caliente al momento. NO =
+   esas dos van solo en el correo semanal (sin avalancha de
+   correos). El handoff (necesita humano) sigue saliendo al
+   momento por seguridad, y también aparece en el semanal. La
+   hoja viva y la plantilla quedan en NO.
+3. **El resumen de la mañana diario se mantiene** como estaba
+   (Jose lo aprobó antes); el semanal es el de los 3 tipos.
+4. **Pruebas:** test_v3_7.py (6 casos). Suite completa en verde.
+
 ## v3.6.0 — Paquetes y switches por canal (2026-11-21)
 
 Todos tienen el mismo código (la versión pro); el paquete autoriza

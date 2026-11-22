@@ -401,12 +401,15 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     # (v3.3) Alerta de cita confirmada: el dueño no ve las citas en su
     # calendario (el robot agenda en el suyo propio). Sin este correo,
     # se entera hasta el lunes. Best-effort: si el correo falla, la
-    # cita ya quedó creada igual.
-    _avisar_por_correo(
-        getattr(deps, "alerta_cita_confirmada", None),
-        propuesta["nombre"], telefono, propuesta["motivo"],
-        propuesta["fecha_bonita"], fecha,
-    )
+    # cita ya quedó creada igual. (v3.7) Con alertas_instantaneas=NO
+    # la cita va en el correo semanal de 3 tipos y aquí no se manda
+    # nada (sin avalancha de correos).
+    if funcion_activa("alertas_instantaneas"):
+        _avisar_por_correo(
+            getattr(deps, "alerta_cita_confirmada", None),
+            propuesta["nombre"], telefono, propuesta["motivo"],
+            propuesta["fecha_bonita"], fecha,
+        )
     return {"respondio": True, "handoff": False, "cita": cita}
 
 
@@ -1472,7 +1475,9 @@ def atender_mensaje(
         # propias palabras ("quiero una cita"), el dueño se entera en
         # el momento, no el lunes. Si solo preguntó un precio y el
         # robot le ofreció, no hay correo: eso no es un lead caliente.
-        if _quiere_agendar_ya(texto):
+        # (v3.7) Con alertas_instantaneas=NO, el lead va en el correo
+        # semanal de 3 tipos (sección clientes por recuperar).
+        if _quiere_agendar_ya(texto) and funcion_activa("alertas_instantaneas"):
             _avisar_por_correo(
                 getattr(deps, "alerta_lead_caliente", None),
                 respuesta.nombre or nombre, telefono,
