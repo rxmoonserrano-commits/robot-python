@@ -396,6 +396,7 @@ class DepsFalla:
         self.diagnosticos = []
         self.alertas_error = []
         self.clientes = []
+        self.escribiendo = []
 
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
@@ -438,7 +439,7 @@ class DepsFalla:
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):
-        pass
+        self.escribiendo.append(message_id)
 
     def registrar_conversacion(self, fecha, telefono, quien, mensaje, respondio, motivo=""):
         self.conversaciones.append({"quien": quien, "mensaje": mensaje, "motivo": motivo})
@@ -492,6 +493,21 @@ def test_doble_aviso_suprimido():
          f"textos={d2.textos} r={r2}")
 
 
+def test_burbuja_sin_refresco():
+    """(k) Ritmo natural (v3.9.2): la burbuja se prende UNA vez por
+    lote (paso 3) y ya no hay hilo que la refresque sin fin."""
+    import robot.logic as logic_mod
+
+    caso("(k) Burbuja: ya no existe el refresco infinito",
+         not hasattr(logic_mod, "_refrescar_escribiendo"))
+
+    d = DepsFalla()
+    atender_mensaje(d, "5216694608263", "Jose", "me da miedo",
+                    con_ritmo=False, ahora=_AHORA_J)
+    caso("(k) Burbuja: se prende una sola vez por lote",
+         len(d.escribiendo) == 1, f"escribiendo={d.escribiendo}")
+
+
 def main():
     class MP:
         def __init__(self):
@@ -518,6 +534,7 @@ def main():
         test_guion_protocolo(mp)
         test_fila_espejo()
         test_doble_aviso_suprimido()
+        test_burbuja_sin_refresco()
     finally:
         mp.undo()
         _CITAS_PENDIENTES.clear()

@@ -36,9 +36,10 @@ def marcar_leido(message_id: str) -> None:
     (v3.4.8) Se llama en cuanto llega el mensaje, antes de esperar los
     15 segundos del buffer: el cliente ve al instante que su mensaje
     llegó y fue leído, como cuando una persona lo ve en su teléfono.
-    El "escribiendo..." sigue saliendo solo cuando el robot de verdad
-    está redactando (ver marcar_leido_y_escribiendo). No es un
-    mensaje: no se cobra y no deja rastro en el chat.
+    (v3.9.2) Inmediatamente después se prende la burbuja con
+    marcar_leido_y_escribiendo: el cliente ve "escribiendo..." desde
+    el primer segundo, no después de la espera del buffer.
+    No es un mensaje: no se cobra y no deja rastro en el chat.
     """
     if not message_id:
         return
@@ -63,9 +64,14 @@ def marcar_leido_y_escribiendo(message_id: str) -> None:
 
     Es UNA sola llamada de la Cloud API: status "read" + typing_indicator.
     La burbuja dura máximo 25 segundos y se apaga sola cuando el robot
-    contesta (o a los 25 s). Si Gemini tarda más, hay que volver a llamar.
-    Solo vale dentro de la ventana de 24 horas y solo cuando el robot va
-    a contestar de verdad (no en pausa, no apagado, no en handoff).
+    contesta (o a los 25 s). (v3.9.2) Se llama en cuanto llega el
+    mensaje (webhook) y de nuevo al arrancar el lote (paso 3 de
+    atender_mensaje). Ya NO se refresca mientras Gemini piensa: una
+    burbuja que dura lo que tarda la IA (a veces más de un minuto) se
+    siente robótica; una persona escribe un rato y se calla.
+    Solo vale dentro de la ventana de 24 horas. En el webhook se
+    prende sin saber si el robot va a contestar (pausa, apagado):
+    en ese caso la burbuja solo se apaga a los 25 s, sin más efecto.
     No es un mensaje: no se cobra y no deja rastro en el chat.
     """
     if not message_id:

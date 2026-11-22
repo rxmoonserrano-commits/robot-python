@@ -322,11 +322,11 @@ Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
 resumen_cliente, interes_cliente, proxima_accion, preferencias, partes.
-"partes" es una lista de mensajes cortos en orden, solo si tu
-respuesta necesita ir en varios mensajes (por ejemplo, contestar dos
-temas distintos): cada parte es su propio mensaje. Si no, déjala
-vacía y usa respuesta_texto. En propuestas con botones y en
-handoffs usa siempre respuesta_texto.
+"partes" es una lista de mensajes cortos en orden, máximo 2, solo si
+tu respuesta necesita ir en varios mensajes por temas realmente
+distintos: cada parte es su propio mensaje. Si dudas, déjala vacía
+y usa respuesta_texto en un solo mensaje. En propuestas con botones
+y en handoffs usa siempre respuesta_texto.
 """
 
 

@@ -5,6 +5,30 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.9.2 — Ritmo natural: la burbuja sale al instante y ya no dura lo que tarda la IA (2026-11-22)
+
+Jose probó en vivo y reportó: "las burbujas de chat cuando mando
+mensaje no se sienten naturales y el tiempo de escritura es
+demasiado largo". Tres cambios:
+
+1. **La burbuja sale al instante.** Antes: visto al llegar, 15 s de
+   buffer, y recién ahí "escribiendo...". Ahora el webhook prende la
+   burbuja junto con el visto (best-effort): el cliente ve actividad
+   desde el primer segundo, como cuando una persona ve el mensaje y
+   empieza a escribir. Cuando el lote arranca, `atender_mensaje`
+   (paso 3) la vuelve a prender, así que se ve continua.
+2. **Sin refresco infinito.** Se quitó el hilo que volvía a prender
+   la burbuja cada 20 s mientras Gemini pensaba: la burbuja duraba
+   lo que tardara la IA (a veces más de un minuto) y eso se siente
+   robótico. Una persona escribe un rato y se calla; si la respuesta
+   tarda más, la burbuja se apaga sola (~25 s) y la respuesta llega
+   cuando está lista. El vigilante de 90 s sigue como red de seguridad.
+3. **Menos burbujas partidas.** El guion ahora pide máximo 2 partes
+   y solo por temas realmente distintos; si duda, una sola respuesta.
+   El tope de código (4) queda como red de seguridad.
+
+Pruebas nuevas en test_v3_9 (k): 38/38; suite completa verde (24 archivos).
+
 ## v3.9.1 — El doble "dame un momento" ya no se repite (2026-11-22)
 
 Cuando un lote tardaba más de 90 s, el vigilante mandaba el aviso al

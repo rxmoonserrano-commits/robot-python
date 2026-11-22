@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.9.1"
+VERSION = "3.9.2"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -359,6 +359,19 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
             whatsapp.marcar_leido(wamid)
         except Exception as exc:  # noqa: BLE001 - el visto nunca rompe el webhook
             aviso(f"[visto] No pude marcar leído {wamid} de {telefono}: {exc}")
+        # (v3.9.2) La burbuja también sale desde el primer segundo:
+        # el cliente ve "escribiendo..." en cuanto manda el mensaje,
+        # no después de la espera del buffer. La burbuja dura ~25 s y
+        # se apaga sola; cuando el lote arranca, atender_mensaje la
+        # vuelve a prender (paso 3) y ya no se refresca: si la
+        # respuesta tarda más, la burbuja se apaga como la de una
+        # persona que dejó de escribir, y la respuesta llega cuando
+        # está lista. Best-effort: si el robot va a quedarse callado
+        # (pausa, apagado), la burbuja solo se apaga a los 25 s.
+        try:
+            whatsapp.marcar_leido_y_escribiendo(wamid)
+        except Exception as exc:  # noqa: BLE001 - la burbuja nunca rompe el webhook
+            aviso(f"[escribiendo] No pude prender la burbuja {wamid} de {telefono}: {exc}")
     if tipo == "interactive":
         boton = mensaje.get("interactive", {}).get("button_reply", {})
         boton_id = boton.get("id", "")

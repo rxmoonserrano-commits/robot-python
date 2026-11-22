@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import re
-import threading
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1056,20 +1055,6 @@ def _diagnostico(deps: Dependencias, fecha, componente: str, estado: str,
         log_aviso(f"[diagnostico] No pude escribir en la hoja: {exc}")
 
 
-def _refrescar_escribiendo(deps: Dependencias, message_id: str, parar: threading.Event) -> None:
-    """Hilo que vuelve a prender la burbuja cada 20 segundos.
-
-    La burbuja dura máximo 25 s: si Gemini tarda más, el cliente la
-    vería apagarse. Este hilo la refresca hasta que el agente termina.
-    Si la llamada falla, no pasa nada: nunca bloquea la respuesta.
-    """
-    while not parar.wait(20):
-        try:
-            deps.marcar_leido_y_escribiendo(message_id)
-        except Exception:
-            pass  # Lo mejor posible: si falla, la respuesta sigue igual.
-
-
 def atender_mensaje(
     deps: Dependencias,
     telefono: str,
@@ -1398,8 +1383,11 @@ def atender_mensaje(
         f"{texto}"
     )
 
-    # 6. El agente decide qué responder y qué hacer. Mientras piensa,
-    # la burbuja se refresca cada 20 segundos.
+    # 6. El agente decide qué responder y qué hacer. La burbuja ya
+    # salió en el webhook y se volvió a prender en el paso 3; aquí
+    # ya no se refresca (v3.9.2): refrescarla sin fin hacía que el
+    # "escribiendo..." durara lo que tardara Gemini, y eso se siente
+    # robótico. Una persona escribe un rato y se calla.
     # (v3.3) Urgencia: si el cliente dice que es urgente o que le
     # duele, no se llama al agente: se pasa a una persona en ese
     # momento, con el correo al dueño (paso 8, handoff).
@@ -1415,16 +1403,7 @@ def atender_mensaje(
             motivo=texto[:120],
         )
     else:
-        parar = threading.Event()
-        refresco = threading.Thread(
-            target=_refrescar_escribiendo, args=(deps, message_id, parar), daemon=True
-        )
-        if message_id:
-            refresco.start()
-        try:
-            respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
-        finally:
-            parar.set()
+        respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
 
     # (v2.13) Revisor: segunda mirada antes de mandar. Si la respuesta
     # repite una oferta pendiente, ofrece cita en un saludo o dice
