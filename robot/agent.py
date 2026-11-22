@@ -24,6 +24,7 @@ from .negocio import (
     mensaje_fuera_horario,
     nombre_negocio,
     nombre_recepcionista,
+    protocolo_urgencias,
     saludo_config,
     tipo_negocio,
     tono,
@@ -61,6 +62,9 @@ def _construir_guion() -> str:
     _fuera = mensaje_fuera_horario()
     if _fuera:
         extras += f'\nSi es de noche o fuera de horario, usa este mensaje tal cual: "{_fuera}"'
+    _protocolo = protocolo_urgencias()
+    if _protocolo:
+        extras += f'\nProtocolo de urgencias (texto aprobado del negocio): "{_protocolo}"'
     if not funcion_activa("responder_faqs"):
         extras += ("\nSi la respuesta está en las preguntas frecuentes, di que "
                    "un humano del negocio te atenderá con gusto.")

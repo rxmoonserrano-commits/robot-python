@@ -14,8 +14,10 @@ se descarga su archivo JSON y se comparte la hoja con su correo
 
 from __future__ import annotations
 
+import re
 import threading
 import time
+import unicodedata
 
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import service_account
@@ -158,6 +160,88 @@ def actualizar_ultima_respuesta_humana(fecha_iso: str) -> None:
 def leer_conocimiento() -> list[dict]:
     """Conocimiento: servicios, precios, horarios, políticas y FAQs del negocio."""
     return leer_pestana("Conocimiento")
+
+
+def _normalizar(texto: str) -> str:
+    t = unicodedata.normalize("NFKD", str(texto or ""))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def duracion_servicio(motivo: str) -> int | None:
+    """Duración en minutos de un servicio, desde Conocimiento (columna
+    Duración_min, v3.9).
+
+    Busca la fila de tipo servicio cuyo nombre coincida con el motivo
+    (sin acentos, contención en cualquier dirección). None si no hay
+    dato válido: el robot usa la duración por defecto (60).
+    """
+    objetivo = _normalizar(motivo)
+    if not objetivo:
+        return None
+    try:
+        filas = leer_conocimiento()
+    except Exception:  # noqa: BLE001 - sin dato, se usa el default
+        return None
+    for f in filas:
+        if str(f.get("tipo", "")).strip().lower() != "servicio":
+            continue
+        nombre = _normalizar(f.get("pregunta_o_servicio", ""))
+        if nombre and (objetivo in nombre or nombre in objetivo):
+            try:
+                minutos = int(float(str(f.get("Duración_min", "") or "").strip()))
+            except (ValueError, TypeError):
+                return None
+            return minutos if minutos > 0 else None
+    return None
+
+
+# --- Espejo de citas (v3.9): la pestaña Citas como vista de solo lectura ---
+# El dueño consulta ahí confirmadas, pendientes, canceladas y no-show
+# sin entrar al calendario. La fuente de verdad sigue siendo el
+# calendario: editar el espejo no agenda nada.
+_CITAS_COLUMNAS = ["ID_Cita", "ID_Paciente", "Teléfono", "Servicio", "Profesional", "Fecha",
+                   "Hora_inicio", "Hora_fin", "Estado", "Origen", "Recordatorio_enviado",
+                   "Confirmado", "Notas", "Creado_por", "Última_actualización"]
+
+
+def registrar_cita_espejo(fila: dict) -> None:
+    """Agrega una fila a la pestaña Citas (espejo de solo lectura, v3.9).
+
+    Best-effort: si la hoja falla, solo queda en el registro; nunca
+    rompe la respuesta al cliente.
+    """
+    try:
+        agregar_fila("Citas", [str(fila.get(c, "") or "") for c in _CITAS_COLUMNAS])
+        _invalidar_cache("Citas")
+    except Exception as exc:  # noqa: BLE001
+        log_error(f"[citas-espejo] No se pudo registrar la cita: {exc}")
+
+
+def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str) -> None:
+    """Actualiza el Estado (columna I) de la última cita espejo que
+    coincida con teléfono + fecha (v3.9). Best-effort."""
+    try:
+        filas = leer_pestana("Citas")
+        dia = str(fecha_cita or "")[:10]
+        objetivo = str(telefono or "").strip()
+        numero = None
+        for i, f in enumerate(filas):
+            if (str(f.get("Teléfono", "") or "").strip() == objetivo
+                    and str(f.get("Fecha", "") or "")[:10] == dia):
+                numero = i + 2  # +1 encabezado, +1 base 1
+        if numero is None:
+            return
+        servicio = _servicio_sheets()
+        servicio.values().update(
+            spreadsheetId=settings.sheet_id,
+            range=f"Citas!I{numero}",
+            valueInputOption="RAW",
+            body={"values": [[estado]]},
+        ).execute()
+        _invalidar_cache("Citas")
+    except Exception as exc:  # noqa: BLE001
+        log_error(f"[citas-espejo] No se pudo actualizar la cita: {exc}")
 
 
 def leer_configuracion() -> dict[str, str]:

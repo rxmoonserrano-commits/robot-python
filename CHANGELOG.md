@@ -5,6 +5,41 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.9.0 — Estructura Sereno: duración por servicio, espejo de citas, cita pendiente y correo HTML (2026-11-22)
+
+Adoptada la estructura del ecosistema Sereno (excels del dueño) en
+las hojas y en el código:
+
+- **Duración por servicio**: la pestaña Conocimiento ganó columnas
+  estructuradas (E a N: ID, categoría, Duración_min, profesionales,
+  anticipo, nota de preparación, visible, vigente). La cita dura lo
+  que diga la hoja para ese servicio; sin dato, 60. La confirmación
+  dice la duración real ("Dura 45 minutos."). Las columnas A a D no
+  se tocaron: el robot las lee por posición.
+- **Espejo de citas (pestaña Citas)**: vista de solo lectura para el
+  dueño (confirmadas, pendientes, canceladas, realizadas, no-show,
+  con panel automático). El robot la actualiza al confirmar
+  (Confirmada), al cancelar (Cancelada) y al quedar pendiente.
+  Editar el espejo no agenda nada: la fuente de verdad es el
+  calendario.
+- **Cita pendiente (Sereno decisión 1)**: si el calendario falla con
+  la hora libre, la solicitud ya NO se reporta como "hora ocupada":
+  se le dice al cliente que quedó pendiente, se avisa al dueño por
+  correo (`alerta_cita_pendiente`) y el espejo queda Pendiente.
+  La hora ocupada (ValueError de booking) sigue con su mensaje de
+  siempre.
+- **Reporte semanal HTML**: el correo del lunes ahora manda versión
+  HTML bonita (KPIs, las 3 secciones, números, resumen) además del
+  texto plano. Cuenta canceladas y no-show desde el espejo.
+- **Protocolo de urgencias**: la clave `protocolo_urgencias` de
+  Configuración entra al guion (texto aprobado del negocio).
+- **Clientes Q a V**: consentimiento de mensajes, fecha de
+  consentimiento, citas totales, última cita, marca y hora de la
+  alerta de handoff. La columna P (robot_activo) sigue igual.
+- Pruebas: test_v3_9.py (33 casos). Suite completa verde (24
+  archivos). Sin cambios de esquema que rompan: columnas nuevas a la
+  derecha y pestañas nuevas; el robot ignora lo que no conoce.
+
 ## v3.8.0 — IA apagada: el handoff sigue leyendo (2026-11-22)
 
 Decisión del dueño: "alerta solo en casos graves". Con la IA

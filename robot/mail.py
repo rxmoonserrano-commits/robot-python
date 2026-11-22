@@ -32,8 +32,10 @@ class CorreoError(RuntimeError):
     """No se pudo mandar el correo (falta la contraseña de app, red, etc.)."""
 
 
-def enviar_correo(destinatario: str, asunto: str, cuerpo: str) -> None:
-    """Manda un correo de texto plano. Simple, sin adornos."""
+def enviar_correo(destinatario: str, asunto: str, cuerpo: str,
+                  html: str | None = None) -> None:
+    """Manda un correo. Si llega `html`, va como multipart: texto plano
+    siempre (para clientes sin HTML) y la versión bonita encima."""
     if not settings.gmail_user or not settings.gmail_app_password:
         raise CorreoError(
             "Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env. "
@@ -44,6 +46,8 @@ def enviar_correo(destinatario: str, asunto: str, cuerpo: str) -> None:
     mensaje["To"] = destinatario
     mensaje["Subject"] = asunto
     mensaje.set_content(cuerpo)
+    if html:
+        mensaje.add_alternative(html, subtype="html")
     try:
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as servidor:
             servidor.starttls()
@@ -103,6 +107,30 @@ def alerta_lead_caliente(
         f"Fecha: {fecha}\n\n"
         "Último mensaje del cliente:\n"
         f"{ultimo_mensaje}\n",
+    )
+
+
+def alerta_cita_pendiente(
+    nombre: str, telefono: str, motivo: str, fecha_bonita: str, fecha: str
+) -> None:
+    """Correo al dueño: la cita NO quedó creada (falló el calendario).
+
+    Sereno, decisión 1: nunca inventar una cita. Al cliente se le dijo
+    que su solicitud quedó pendiente; el dueño la crea a mano o llama.
+    """
+    enviar_correo(
+        correo_dueno(),
+        f"Cita pendiente: {nombre or telefono} — {fecha_bonita}",
+        "⚠ CITA PENDIENTE — no quedó creada\n\n"
+        "El cliente pidió una cita por WhatsApp, pero el calendario "
+        "falló al crearla. Al cliente se le dijo que su solicitud "
+        "quedó pendiente y que el equipo le escribe en breve.\n\n"
+        f"Nombre: {nombre}\n"
+        f"Teléfono: {telefono}\n"
+        f"Motivo: {motivo}\n"
+        f"Fecha pedida: {fecha_bonita}\n"
+        f"Alerta: {fecha}\n\n"
+        "Crea la cita a mano en el calendario o llama al cliente.",
     )
 
 

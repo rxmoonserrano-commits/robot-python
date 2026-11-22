@@ -387,12 +387,52 @@ def _quiere_agendar_ya(texto: str) -> bool:
     return any(p in normal for p in _PALABRAS_QUIERE_AGENDAR)
 
 
+def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
+                 duracion: int, estado: str, ahora: str) -> dict:
+    """Fila para la pestaña Citas (espejo de solo lectura, v3.9).
+
+    La fecha/hora salen de la fecha_cita ISO de la propuesta; si no
+    se puede leer, quedan vacías y el resto de la fila se guarda igual.
+    """
+    fecha_iso = str(propuesta.get("fecha_cita", "") or "")
+    try:
+        inicio = _parse_fecha_iso(fecha_iso)
+        if inicio is None:
+            raise ValueError("fecha inválida")
+        hora_inicio = inicio.strftime("%H:%M")
+        hora_fin = (inicio + timedelta(minutes=duracion)).strftime("%H:%M")
+        fecha_dia = inicio.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        hora_inicio = hora_fin = ""
+        fecha_dia = fecha_iso[:10]
+    return {
+        "ID_Cita": f"C-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(telefono)[-4:]}",
+        "ID_Paciente": "",
+        "Teléfono": telefono,
+        "Servicio": str(propuesta.get("motivo", "") or ""),
+        "Profesional": "Equipo de la clínica",
+        "Fecha": fecha_dia,
+        "Hora_inicio": hora_inicio,
+        "Hora_fin": hora_fin,
+        "Estado": estado,
+        "Origen": "WhatsApp",
+        "Recordatorio_enviado": "-",
+        "Confirmado": "Sí" if estado == "Confirmada" else "No",
+        "Notas": f"Paciente: {nombre_cita}" if nombre_cita else "",
+        "Creado_por": "Asistente",
+        "Última_actualización": str(ahora or "")[:10],
+    }
+
+
 def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                               fecha: str, con_ritmo: bool = True) -> dict:
     """Crea la cita de una propuesta guardada y manda la confirmación bonita.
 
     La usan el botón Confirmar y el "sí" por texto: el mismo resultado
     por los dos caminos. Si la hora ya se ocupó, avisa y no crea nada.
+    Si el calendario falla con la hora libre, la solicitud queda
+    PENDIENTE y se avisa al dueño (v3.9, Sereno decisión 1: nunca
+    inventar una cita).
     """
     propuesta = _CITAS_PENDIENTES.get(telefono)
     if not propuesta:
@@ -401,14 +441,59 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
     nombre_cita = str(propuesta.get("nombre") or "").strip()
     telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
+    # (v3.9) Duración por servicio desde la hoja; si no hay dato, el default.
+    _dur = getattr(deps, "duracion_servicio", lambda m: None)(propuesta["motivo"])
+    try:
+        duracion = int(_dur) if _dur else settings.duracion_cita_minutos
+    except (TypeError, ValueError):
+        duracion = settings.duracion_cita_minutos
     try:
         cita = deps.crear_cita(
             nombre_cita or "Cliente", telefono, propuesta["motivo"],
             propuesta["fecha_cita"],
             nota=(f"Teléfono de registro: {telefono_registro}" if telefono_registro else ""),
         )
-    except Exception:
+    except ValueError:
+        # booking: la hora está ocupada (su contrato). No se crea nada.
         _borrar_propuesta(deps, telefono)
+        mensaje = (
+            "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
+            "te vienen mejor? Te la agendo enseguida."
+        )
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
+        return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
+    except Exception:
+        # (v3.9) Falló el calendario (u otra cosa) al crear. ¿La hora
+        # está libre? Si sí, la solicitud queda PENDIENTE: se le dice
+        # al cliente con honestidad y se avisa al dueño. Si no está
+        # libre, es una hora ocupada normal.
+        _libre = True
+        try:
+            _libre = bool(deps.hora_libre(propuesta["fecha_cita"]))
+        except Exception:
+            _libre = True
+        _borrar_propuesta(deps, telefono)
+        if _libre:
+            mensaje = (
+                f"Me pasó algo al registrar tu cita del {propuesta['fecha_bonita']} "
+                f"y quedó pendiente, perdón. Ya avisé al equipo para que te la "
+                f"dejen lista en breve."
+            )
+            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+            deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cita pendiente")
+            _reg = getattr(deps, "registrar_cita_espejo", lambda f: None)
+            try:
+                _reg(_fila_espejo(propuesta, telefono, nombre_cita, duracion, "Pendiente", fecha))
+            except Exception:
+                pass
+            _avisa = getattr(deps, "alerta_cita_pendiente", lambda *a: None)
+            try:
+                _avisa(nombre_cita or "Cliente", telefono, propuesta["motivo"],
+                       propuesta["fecha_bonita"], fecha)
+            except Exception:
+                pass
+            return {"respondio": True, "motivo": "cita pendiente", "handoff": False}
         mensaje = (
             "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
             "te vienen mejor? Te la agendo enseguida."
@@ -424,7 +509,7 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     saludo = f"¡Perfecto, {nombre_cita}!" if nombre_cita else "¡Perfecto!"
     mensaje = (
         f"{saludo} Tu cita quedó para el {propuesta['fecha_bonita']}."
-        f"\n\nDura {settings.duracion_cita_minutos} minutos."
+        f"\n\nDura {duracion} minutos."
     )
     if telefono_registro:
         mensaje += f"\n\nQuedó registrada al {telefono_registro}."
@@ -435,6 +520,13 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         fecha, propuesta["nombre"], telefono, propuesta["motivo"],
         propuesta["fecha_cita"], "whatsapp", "agendado", "no",
     )
+    # (v3.9) Espejo de citas: la pestaña Citas queda como vista de
+    # solo lectura para el dueño. Best-effort: nunca rompe la confirmación.
+    _reg = getattr(deps, "registrar_cita_espejo", lambda f: None)
+    try:
+        _reg(_fila_espejo(propuesta, telefono, nombre_cita, duracion, "Confirmada", fecha))
+    except Exception:
+        pass
     # (v3.4.11) Después de confirmar (la cita YA quedó: pedir los
     # datos no bloquea nada), si falta el nombre completo o el número
     # de registro, se piden en un mensaje aparte y cálido. Primero el
@@ -534,6 +626,12 @@ def _atender_cambio_cancelacion(deps: Dependencias, telefono: str, nombre: str,
             pass
         try:
             cancelar_cliente(telefono)
+        except Exception:
+            pass
+        # (v3.9) El espejo marca la cita como Cancelada. Best-effort.
+        _act = getattr(deps, "actualizar_cita_espejo", lambda t, f, e: None)
+        try:
+            _act(telefono, fecha_cita, "Cancelada")
         except Exception:
             pass
         if intencion == "cancelar":
@@ -895,6 +993,23 @@ class Dependencias:
         return True
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha): ...
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
+
+    # --- Nuevos en la v3.9 (vacío = no hacer nada, el robot sigue) ---
+    def duracion_servicio(self, motivo: str):
+        """Duración en minutos del servicio (hoja Conocimiento). None = usar el default."""
+        return None
+
+    def registrar_cita_espejo(self, fila: dict) -> None:
+        """Agrega la cita a la pestaña Citas (espejo de solo lectura). Por defecto: nada."""
+        ...
+
+    def actualizar_cita_espejo(self, telefono: str, fecha_cita: str, estado: str) -> None:
+        """Actualiza el estado de la cita espejo. Por defecto: nada."""
+        ...
+
+    def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha) -> None:
+        """Avisa al dueño que una cita no quedó creada (falló el calendario). Por defecto: nada."""
+        ...
 
     # --- Nuevos en la v2 (vacío = no hacer nada, el robot sigue) ---
     def marcar_leido_y_escribiendo(self, message_id): ...

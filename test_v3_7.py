@@ -195,7 +195,7 @@ orig_correo = report_mod.enviar_correo
 orig_guardar = report_mod.guardar_reporte
 report_mod.leer_pestana = lambda tab: conv if tab == "Conversaciones" else cli
 report_mod.generar_texto = lambda prompt, json_mode=True: "Esta semana atendimos bien."
-report_mod.enviar_correo = lambda dest, asunto, cuerpo: correos.append((dest, asunto, cuerpo))
+report_mod.enviar_correo = lambda dest, asunto, cuerpo, html=None: correos.append((dest, asunto, cuerpo))
 report_mod.guardar_reporte = lambda *args: guardados.append(args)
 try:
     resultado = report_mod.generar_reporte_semanal()

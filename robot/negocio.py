@@ -123,6 +123,11 @@ def mensaje_fuera_horario() -> str:
     return _cfg("mensaje_fuera_horario", "")
 
 
+def protocolo_urgencias() -> str:
+    """Texto aprobado del negocio para urgencias (v3.9); "" si no está definido."""
+    return _cfg("protocolo_urgencias", "")
+
+
 def correo_dueno() -> str:
     """Correo del dueño: Configuración manda; si no, OWNER_EMAIL."""
     return _cfg("correo_dueno", "") or (settings.owner_email or "").strip()

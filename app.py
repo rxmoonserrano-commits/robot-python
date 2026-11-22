@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.8.0"
+VERSION = "3.9.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -114,7 +114,39 @@ class DependenciasReales(Dependencias):
         whatsapp.enviar_foto(telefono, url)
 
     def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
-        return booking.crear_cita(nombre, telefono, motivo, fecha_cita, nota=nota)
+        # (v3.9) La cita dura lo que diga la hoja para ese servicio
+        # (columna Duración_min); sin dato, el default de 60.
+        dur = None
+        try:
+            dur = sheets.duracion_servicio(motivo)
+        except Exception:
+            dur = None
+        return booking.crear_cita(nombre, telefono, motivo, fecha_cita,
+                                  duracion_min=dur, nota=nota)
+
+    def duracion_servicio(self, motivo):
+        try:
+            return sheets.duracion_servicio(motivo)
+        except Exception:
+            return None
+
+    def registrar_cita_espejo(self, fila):
+        try:
+            sheets.registrar_cita_espejo(fila)
+        except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
+            aviso(f"[citas-espejo] {exc}")
+
+    def actualizar_cita_espejo(self, telefono, fecha_cita, estado):
+        try:
+            sheets.actualizar_cita_espejo(telefono, fecha_cita, estado)
+        except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
+            aviso(f"[citas-espejo] {exc}")
+
+    def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha):
+        try:
+            mail.alerta_cita_pendiente(nombre, telefono, motivo, fecha_bonita, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     def hora_libre(self, fecha_iso):
         # (v3.4.9) Si el calendario falla, se asume libre: la

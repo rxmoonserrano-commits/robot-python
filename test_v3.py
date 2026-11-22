@@ -114,7 +114,7 @@ def _probar_reporte():
     orig_guardar = report_mod.guardar_reporte
     report_mod.leer_pestana = lambda tab: conv if tab == "Conversaciones" else cli
     report_mod.generar_texto = lambda prompt, json_mode=True: "Esta semana atendimos bien."
-    report_mod.enviar_correo = lambda dest, asunto, cuerpo: correos.append((dest, asunto, cuerpo))
+    report_mod.enviar_correo = lambda dest, asunto, cuerpo, html=None: correos.append((dest, asunto, cuerpo))
     report_mod.guardar_reporte = lambda *args: guardados.append(args)
     try:
         resultado = report_mod.generar_reporte_semanal()
@@ -386,8 +386,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.8.0",
-     'version="3.8.0"' in app_txt or "VERSION = \"3.8.0\"" in app_txt,
+caso("(g) La app es la versión 3.9.0",
+     'version="3.9.0"' in app_txt or "VERSION = \"3.9.0\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt

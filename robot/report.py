@@ -9,6 +9,7 @@ Si no hay datos, los contadores salen en cero y el correo lo dice.
 
 from __future__ import annotations
 
+import html as _html
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -154,6 +155,150 @@ def _fecha_corta(valor: str) -> str:
         return str(valor or "")[:16]
 
 
+def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
+                          humanos: list[dict], recuperar: list[dict],
+                          atendidos: int, resueltas: int, pct: int, citas_n: int,
+                          canceladas: int, no_show: int, horas: float,
+                          sin_respuesta: int, resumen: str) -> str:
+    """Versión HTML del reporte semanal (v3.9): misma información que
+    el texto, con el diseño limpio que el dueño lee en un minuto.
+
+    Los datos salen de las hojas; lo estimado va marcado como
+    estimado. Todo el texto del negocio se escapa antes de meterlo
+    al HTML.
+    """
+    def e(v) -> str:
+        return _html.escape(str(v or ""))
+
+    def _filas_citas() -> str:
+        if not citas:
+            return ('<tr><td style="padding:8px 10px; color:#6B7280;">'
+                    'Ninguna esta semana.</td></tr>')
+        filas = []
+        for i, f in enumerate(citas):
+            fondo = ' style="background:#F9FAFB;"' if i % 2 else ""
+            filas.append(
+                f'<tr{fondo}><td style="padding:8px 10px; border-bottom:1px solid #E5E7EB;">'
+                f'{e(f.get("nombre") or f.get("telefono"))} — {e(f.get("motivo") or "cita")}</td>'
+                f'<td align="right" style="padding:8px 10px; border-bottom:1px solid #E5E7EB;">'
+                f'{e(formatear_cita_bonita(str(f.get("fecha_cita", ""))))}</td></tr>'
+            )
+        return "".join(filas)
+
+    def _lista_humanos() -> str:
+        if not humanos:
+            return "Ninguna esta semana."
+        return "<br>".join(
+            f'• <strong>{e(f.get("nombre") or f.get("telefono"))}</strong>'
+            f' — {e(f.get("motivo") or "sin motivo")} ({e(_fecha_corta(str(f.get("fecha", ""))))})'
+            for f in humanos
+        )
+
+    def _lista_recuperar() -> str:
+        if not recuperar:
+            return "Nadie por recuperar esta semana."
+        return "<br>".join(
+            f'<strong>{e(f.get("nombre") or f.get("telefono"))}</strong> preguntó por '
+            f'{e(f.get("motivo"))}.<br><span style="color:#6B7280;">Borrador listo para copiar: '
+            f'«Hola {e(f.get("nombre") or "")}, vi que preguntaste por {e(f.get("motivo"))}. '
+            f'¿Te aparto un lugar esta semana?»</span>'
+            for f in recuperar
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu semana en {e(nombre_neg)} — {e(semana)}</title>
+</head>
+<body style="margin:0; padding:0; background:#F3F5F6; font-family:Arial, Helvetica, sans-serif;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F5F6; padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#FFFFFF; border-radius:12px; overflow:hidden; border:1px solid #E5E7EB;">
+
+  <tr><td style="background:#2E5266; padding:24px 28px;">
+    <div style="font-size:13px; letter-spacing:2px; color:#9FC5CE; text-transform:uppercase;">Reporte semanal</div>
+    <div style="font-size:22px; font-weight:bold; color:#FFFFFF; margin-top:6px;">Tu semana en {e(nombre_neg)}</div>
+    <div style="font-size:14px; color:#D7E5EA; margin-top:4px;">{e(semana)} · llega por correo los lunes 08:00</div>
+  </td></tr>
+
+  <tr><td style="padding:22px 28px 6px 28px; font-size:15px; color:#374151; line-height:1.55;">
+    Aquí está tu semana, <strong>sin que tengas que entrar a ningún lado</strong>. Los números salen de tus conversaciones reales; nada está inventado.
+  </td></tr>
+
+  <tr><td style="padding:16px 28px 4px 28px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="33%" align="center" style="padding:8px;">
+          <div style="font-size:26px; font-weight:bold; color:#2E5266;">{atendidos}</div>
+          <div style="font-size:12px; color:#6B7280;">Conversaciones<br>atendidas</div>
+        </td>
+        <td width="33%" align="center" style="padding:8px;">
+          <div style="font-size:26px; font-weight:bold; color:#2E5266;">{citas_n}</div>
+          <div style="font-size:12px; color:#6B7280;">Citas<br>creadas</div>
+        </td>
+        <td width="33%" align="center" style="padding:8px;">
+          <div style="font-size:26px; font-weight:bold; color:#2E5266;">~{horas:.1f} h</div>
+          <div style="font-size:12px; color:#6B7280;">Tiempo ahorrado<br>estimado</div>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:14px 28px 4px 28px;">
+    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #2E5266; padding-left:10px;">📅 CITAS CONFIRMADAS ({len(citas)})</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; font-size:14px; color:#374151;">
+      {_filas_citas()}
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:22px 28px 4px 28px;">
+    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #D97706; padding-left:10px;">🙋 NECESITARON ATENCIÓN HUMANA ({len(humanos)})</div>
+    <div style="font-size:14px; color:#374151; margin-top:10px; line-height:1.6;">
+      {_lista_humanos()}
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:22px 28px 4px 28px;">
+    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #059669; padding-left:10px;">💬 CLIENTES POR RECUPERAR ({len(recuperar)})</div>
+    <div style="font-size:14px; color:#374151; margin-top:10px; line-height:1.6;">
+      {_lista_recuperar()}
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:22px 28px 6px 28px;">
+    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #2E5266; padding-left:10px;">📊 TU SEMANA EN NÚMEROS</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; font-size:14px; color:#374151;">
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Conversaciones atendidas</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{atendidos}</strong></td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Resueltas sin pasar a humano</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{resueltas} ({pct}%)</strong></td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Citas confirmadas</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{citas_n}</strong></td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Canceladas / no-show</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{canceladas} / {no_show}</strong></td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Mensajes sin respuesta del robot</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{sin_respuesta}</strong> (todos registrados)</td></tr>
+      <tr><td style="padding:7px 0;">Tiempo ahorrado estimado</td><td align="right" style="padding:7px 0;"><strong>~{horas:.1f} h</strong> (5 min por conversación resuelta)</td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:20px 28px;">
+    <div style="background:#E8F1F2; border-radius:8px; padding:16px 18px; font-size:14px; color:#374151; line-height:1.6;">
+      <strong>Resumen de la semana:</strong> {e(resumen)}
+    </div>
+  </td></tr>
+
+  <tr><td style="background:#2E5266; padding:18px 28px; font-size:13px; color:#D7E5EA; text-align:center; line-height:1.6;">
+    Este correo llega automáticamente cada lunes a las 08:00.<br>
+    ¿Quieres pausarlo o cambiar el destino? Responde a este correo o avisa a tu contacto.
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+
+</body>
+</html>"""
+
+
 def generar_reporte_semanal() -> dict:
     """Hace el reporte de los últimos 7 días y lo manda. Devuelve los contadores.
 
@@ -200,6 +345,24 @@ def generar_reporte_semanal() -> dict:
         ):
             por_recuperar[str(f.get("telefono", "")).strip()] = f
     recuperar = list(por_recuperar.values())
+
+    # (v3.9) Canceladas y no-show desde el espejo de Citas. Solo
+    # cuenta lo que el robot registró desde v3.9; si la pestaña no
+    # existe o está vacía, da 0 y el correo sale igual.
+    try:
+        _espejo = leer_pestana("Citas")
+    except Exception:
+        _espejo = []
+    canceladas = sum(
+        1 for f in _espejo
+        if _en_ventana_texto(str(f.get("Fecha", "")), desde, hasta)
+        and str(f.get("Estado", "")).strip() == "Cancelada"
+    )
+    no_show = sum(
+        1 for f in _espejo
+        if _en_ventana_texto(str(f.get("Fecha", "")), desde, hasta)
+        and str(f.get("Estado", "")).strip() == "No-show"
+    )
 
     # Métricas de valor: confirmados vs estimados, sin inventar.
     atendidos = conteo["mensajes_atendidos"]
@@ -272,6 +435,7 @@ def generar_reporte_semanal() -> dict:
         f"- Conversaciones atendidas: {atendidos}\n"
         f"- Resueltas sin pasar a humano: {resueltas} ({pct}%)\n"
         f"- Citas confirmadas: {conteo['citas_agendadas']}\n"
+        f"- Canceladas: {canceladas} · No-show: {no_show}\n"
         f"- Clientes atendidos: {conteo['clientes_calificados']}\n"
         f"- Tiempo ahorrado estimado: ~{horas:.1f} h"
         " (5 min por conversación resuelta)\n"
@@ -279,10 +443,17 @@ def generar_reporte_semanal() -> dict:
         " (todos quedaron registrados en la hoja)\n\n"
         f"{resumen}\n"
     )
+    html = _html_reporte_semanal(
+        nombre_neg=nombre_neg, semana=semana, citas=citas, humanos=humanos,
+        recuperar=recuperar, atendidos=atendidos, resueltas=resueltas, pct=pct,
+        citas_n=conteo["citas_agendadas"], canceladas=canceladas, no_show=no_show,
+        horas=horas, sin_respuesta=sin_respuesta, resumen=resumen,
+    )
     enviar_correo(
         correo_dueno(),
         f"Tu semana en {nombre_neg} — citas, humanos y resumen",
         cuerpo,
+        html=html,
     )
     guardar_reporte(
         semana,
