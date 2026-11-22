@@ -459,6 +459,100 @@ def _quiere_agendar_ya(texto: str) -> bool:
     return any(p in normal for p in _PALABRAS_QUIERE_AGENDAR)
 
 
+# (v3.11) Días de la semana para respetar el día que el cliente pide.
+# La red de seguridad antes proponía el primer hueco libre (la próxima
+# apertura) ignorando el día mencionado: pedir "el martes" y recibir
+# una propuesta para el lunes es justo lo que Jose vio en vivo el
+# 2026-11-22. Ahora el día pedido manda.
+_DIAS_SEMANA = {
+    "lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3,
+    "viernes": 4, "sabado": 5, "domingo": 6,
+}
+
+# Otras personas para las que se puede pedir cita ("para mi hermana").
+_RELACIONES = (
+    "hermana", "hermano", "mama", "papa", "esposa", "esposo",
+    "hija", "hijo", "amigo", "amiga", "novia", "novio", "familiar",
+    "cuñada", "cuñado", "abuelo", "abuela",
+)
+
+
+def _dias_pedidos(texto: str) -> list[int]:
+    """Días de la semana mencionados, en orden de aparición (v3.11).
+
+    "el martes para mí y el miércoles para mi hermana" → [1, 2].
+    Se busca por palabras completas, sin acentos: "martes" no cuenta
+    dentro de otra palabra.
+    """
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
+    normal = re.sub(r"\s+", " ", normal)
+    vistos: list[int] = []
+    for palabra in normal.split():
+        dia = _DIAS_SEMANA.get(palabra)
+        if dia is not None and dia not in vistos:
+            vistos.append(dia)
+    return vistos
+
+
+def _relacion_pedida(texto: str) -> str:
+    """La otra persona mencionada ("para mi hermana" → "hermana")."""
+    normal = _normalizar_para_reglas(texto)
+    for rel in _RELACIONES:
+        if re.search(rf"\b{rel}\b", normal):
+            return rel
+    return ""
+
+
+def _hueco_en_dia(huecos, weekday: int, ahora: datetime):
+    """Primer hueco ISO que cae en ese día de la semana (v3.11).
+
+    Devuelve None si ningún hueco cae en ese día (quien llama decide:
+    próxima apertura en esa fecha o después, nunca otro día a ciegas).
+    """
+    if not huecos:
+        return None
+    ahora_local = _a_hora_local(ahora)
+    for iso in huecos:
+        try:
+            dt = _parse_fecha_iso(iso)
+            if dt is None:
+                continue
+            local = _a_hora_local(dt)
+            if local.weekday() == weekday and local >= ahora_local:
+                return iso
+        except Exception:
+            continue
+    return None
+
+
+def _proxima_fecha_dia(weekday: int, ahora: datetime) -> datetime:
+    """Medianoche local del próximo día con ese weekday (hoy cuenta)."""
+    local = _a_hora_local(ahora)
+    delta = (weekday - local.weekday()) % 7
+    return (local + timedelta(days=delta)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+def _huecos_amplios(deps, conocimiento, ahora):
+    """Huecos con rango amplio, para cuando el cliente pide días concretos.
+
+    Los fakes viejos de las pruebas solo aceptan (conocimiento, ahora):
+    si el deps no acepta cantidad/dias, se cae al llamado de siempre.
+    """
+    try:
+        return deps.proximos_huecos_libres(
+            conocimiento, ahora, cantidad=12, dias=8
+        )
+    except TypeError:
+        try:
+            return deps.proximos_huecos_libres(conocimiento, ahora)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
 def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
                  duracion: int, estado: str, ahora: str) -> dict:
     """Fila para la pestaña Citas (espejo de solo lectura, v3.9).
@@ -1373,8 +1467,14 @@ class Dependencias:
     def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
 
     # --- Nuevos en la v3.3 (vacío = no hacer nada, el robot sigue) ---
-    def proximos_huecos_libres(self, conocimiento: list[dict], ahora: datetime) -> list[str]:
-        """Los próximos huecos libres (fechas ISO) para ofrecer. Por defecto: ninguno."""
+    def proximos_huecos_libres(self, conocimiento: list[dict], ahora: datetime,
+                               cantidad: int = 2, dias: int = 3) -> list[str]:
+        """Los próximos huecos libres (fechas ISO) para ofrecer. Por defecto: ninguno.
+
+        (v3.11) cantidad/dias permiten pedir un rango amplio cuando el
+        cliente pide días concretos; el default mantiene el comportamiento
+        de siempre.
+        """
         return []
     def hora_libre(self, fecha_iso: str) -> bool:
         """¿Está libre esa hora en el calendario? (v3.4.9) Por defecto
@@ -1690,12 +1790,31 @@ def atender_mensaje(
     except Exception:
         fila_cliente = {}
     estado = estado_cliente(
-        historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre
+        historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre,
+        ahora=ahora,
     )
     # (v3.10) ¿La cita del cliente es a futuro? R8 la usa: una cita ya
     # pasada no justifica afirmar una cita nueva. La fecha de Clientes
     # viene en hora del negocio (naive); se compara en hora local.
     estado["tiene_cita_futura"] = _cita_es_futura(fila_cliente, ahora)
+    # (v3.11) Memoria: una cita ya pasada no es vigente. Se le dice
+    # al agente para que no ofrezca cambiarla ni la trate como viva
+    # (en vivo el 2026-11-22 el robot ofreció cambiar "tus horas" por
+    # una cita del 19 de noviembre que ya había pasado).
+    _fc_pasada = str(fila_cliente.get("fecha_cita", "") or "").strip()
+    if (
+        _fc_pasada
+        and str(fila_cliente.get("estatus", "") or "").strip().lower() == "agendado"
+        and not estado.get("tiene_cita")
+    ):
+        try:
+            _bonita_pasada = formatear_cita_bonita(_fc_pasada)
+        except Exception:
+            _bonita_pasada = _fc_pasada
+        contexto.append(
+            f"Su última cita fue el {_bonita_pasada} y ya pasó: no la "
+            "trates como vigente ni le ofrezcas cambiarla."
+        )
     # (v3.2) Memoria del cliente: lo que el robot aprendió en
     # conversaciones pasadas (resumen, intereses, pendientes,
     # preferencias). Va ANTES de los últimos mensajes: así el robot
@@ -1761,12 +1880,46 @@ def atender_mensaje(
     # palabras claras, aunque sea el primer mensaje del cliente
     # (etapa "nuevo"): sin huecos, la red de seguridad no puede
     # proponer con botones.
+    _dias_msg = _dias_pedidos(texto)
     if estado["etapa"] in ("pregunto", "oferta_pendiente") or _quiere_agendar_ya(texto):
         try:
-            huecos = deps.proximos_huecos_libres(conocimiento, ahora)
+            if _dias_msg:
+                # (v3.11) Pidió días concretos: se buscan huecos en un
+                # rango amplio para poder ofrecerle ESE día, no el
+                # primer hueco de la semana.
+                huecos = _huecos_amplios(deps, conocimiento, ahora)
+            else:
+                huecos = deps.proximos_huecos_libres(conocimiento, ahora)
         except Exception:
             huecos = None
-        if huecos:
+        if huecos and _dias_msg:
+            # (v3.11) Hueco por día pedido: el agente ofrece el día
+            # que el cliente mencionó, nunca inventa ni cambia el día.
+            lineas = []
+            for _d in _dias_msg:
+                _iso_d = _hueco_en_dia(huecos, _d, ahora)
+                if _iso_d:
+                    try:
+                        _dt_d = _a_hora_local(_parse_fecha_iso(_iso_d))
+                        lineas.append(
+                            f"el {_DIAS_NOMBRE[_d]} a las {_dt_d:%H:%M}"
+                        )
+                    except Exception:
+                        pass
+            if lineas:
+                contexto.append(
+                    "Huecos en los días que pidió: " + "; ".join(lineas)
+                    + ". Ofrécele SOLO estos: nunca inventes una hora "
+                    "ni cambies el día que pidió."
+                )
+            else:
+                contexto.append(
+                    "En los días que pidió no hay huecos libres por "
+                    "ahora: no ofrezcas cita para esos días; di que la "
+                    "agenda está llena por ahora y pregúntale si quiere "
+                    "que le avises cuando se libere algo."
+                )
+        elif huecos:
             bonitos = []
             for iso in huecos[:2]:
                 try:
@@ -1962,11 +2115,56 @@ def atender_mensaje(
     # con el primer hueco libre. El paso que vende no se deja al azar
     # del modelo. (v3.4.11) La propuesta NO pide nombre ni número:
     # se piden después de confirmar, para no frenar la reserva.
+    # (v3.11) La red respeta el DÍA que el cliente pidió: si mencionó
+    # "el martes", la propuesta es para el martes (su primer hueco de
+    # ese día), no para la próxima apertura. Si mencionó dos días y
+    # otra persona ("el martes para mí y el miércoles para mi
+    # hermana"), arma las dos citas en determinista. Y marca la
+    # propuesta como de red de seguridad: el texto del agente (que
+    # lista horas en texto) se reemplaza por una propuesta limpia,
+    # sin fricción.
+    _red_seguridad = False
     if _agendar_activo and respuesta.quiere_agendar != "si" and _quiere_agendar_ya(texto):
         _huecos = locals().get("huecos")
         if _huecos:
+            _dias_msg = _dias_pedidos(texto)
             respuesta.quiere_agendar = "si"
-            respuesta.fecha_cita = _huecos[0]
+            _red_seguridad = True
+            if _dias_msg:
+                _fecha_dia = _hueco_en_dia(_huecos, _dias_msg[0], ahora)
+                if _fecha_dia:
+                    respuesta.fecha_cita = _fecha_dia
+                else:
+                    _pa = proxima_apertura(
+                        conocimiento, ahora,
+                        desde=_proxima_fecha_dia(_dias_msg[0], ahora),
+                    )
+                    respuesta.fecha_cita = (
+                        _pa.isoformat() if _pa else _huecos[0]
+                    )
+            else:
+                respuesta.fecha_cita = _huecos[0]
+            # Segunda cita en determinista: dos días + otra persona.
+            if (
+                len(_dias_msg) >= 2
+                and not (getattr(respuesta, "citas_extra", None))
+            ):
+                _rel = _relacion_pedida(texto)
+                if _rel:
+                    _fecha2 = _hueco_en_dia(_huecos, _dias_msg[1], ahora)
+                    if not _fecha2:
+                        _pa2 = proxima_apertura(
+                            conocimiento, ahora,
+                            desde=_proxima_fecha_dia(_dias_msg[1], ahora),
+                        )
+                        _fecha2 = _pa2.isoformat() if _pa2 else None
+                    if _fecha2:
+                        respuesta.citas_extra = [{
+                            "motivo": respuesta.motivo or texto,
+                            "fecha_cita": _fecha2,
+                            "nombre_paciente": "",
+                            "relacion_paciente": _rel,
+                        }]
 
     # 9. Agendar: NO se crea la cita todavía. Se propone con botones y
     # el cliente confirma. Así no se agenda nada por un malentendido.
@@ -2080,18 +2278,27 @@ def atender_mensaje(
                 ("hablar_persona", "Hablar con persona"),
             ]
         else:
-            # (v3.4.9) Si el agente preguntó "¿Te agendo...?" o
-            # "¿Confirmo...?" en su texto, esa pregunta se quita: el
-            # sistema agrega la confirmación con botones. Nunca dos
-            # preguntas de confirmación en el mismo mensaje.
-            texto_propuesta = re.sub(
-                r"¿(te (la )?agendo|confirmo|te reservo)[^?]*\?\s*",
-                "", respuesta.respuesta_texto, flags=re.IGNORECASE,
-            ).strip()
-            if texto_propuesta:
-                propuesta = f"{texto_propuesta}\n\n¿Confirmo tu cita para el {fecha_bonita}?"
+            if _red_seguridad:
+                # (v3.11) Propuesta de la red de seguridad: texto
+                # limpio, sin la lista de horas del agente. Una sola
+                # pregunta + botones: el cliente toca, no teclea.
+                propuesta = (
+                    f"¡Con gusto! Te propongo tu cita para el {fecha_bonita}. "
+                    "¿La confirmamos?"
+                )
             else:
-                propuesta = f"¿Confirmo tu cita para el {fecha_bonita}?"
+                # (v3.4.9) Si el agente preguntó "¿Te agendo...?" o
+                # "¿Confirmo...?" en su texto, esa pregunta se quita: el
+                # sistema agrega la confirmación con botones. Nunca dos
+                # preguntas de confirmación en el mismo mensaje.
+                texto_propuesta = re.sub(
+                    r"¿(te (la )?agendo|confirmo|te reservo)[^?]*\?\s*",
+                    "", respuesta.respuesta_texto, flags=re.IGNORECASE,
+                ).strip()
+                if texto_propuesta:
+                    propuesta = f"{texto_propuesta}\n\n¿Confirmo tu cita para el {fecha_bonita}?"
+                else:
+                    propuesta = f"¿Confirmo tu cita para el {fecha_bonita}?"
             botones = BOTONES_CITA
         propuesta_dict = {
             "nombre": respuesta.nombre or nombre,
@@ -2120,9 +2327,21 @@ def atender_mensaje(
             )
         try:
             deps.enviar_botones(telefono, propuesta, botones)
-        except Exception:
+        except Exception as exc:
             # Si los botones fallan, se manda el texto normal: el cliente
             # puede contestar "sí" escribiendo. Nunca se queda sin respuesta.
+            # (v3.11) El fallo se registra en Diagnóstico: antes caía a
+            # texto en silencio y el error real de Meta era invisible.
+            # Sin este registro, "no aparece el botón" no se puede
+            # diagnosticar (Jose lo reportó el 2026-11-22).
+            try:
+                deps.registrar_diagnostico(
+                    fecha, "whatsapp", "FALLO",
+                    f"Botones no enviados: {str(exc)[:250]}",
+                    telefono, "propuesta con botones",
+                )
+            except Exception:
+                pass
             enviar_con_ritmo(deps.enviar_texto, telefono, propuesta, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", propuesta, "si", respuesta.motivo)
         deps.registrar_cliente(
@@ -2195,7 +2414,7 @@ def atender_boton(
     # borra para que un "sí" viejo no la confirme después. Excepción:
     # "hablar con una persona" sigue funcionando: es el camino al
     # humano, no una respuesta del robot.
-    if boton_id in ("confirmar_cita", "cambiar_hora"):
+    if boton_id in ("confirmar_cita", "cambiar_hora", "cambiar_mia", "cambiar_de_otra"):
         leer_activo = getattr(deps, "leer_robot_activo", lambda t: "SI")
         if not robot_activo_para_cliente(leer_activo(telefono)):
             _borrar_propuesta(deps, telefono)
@@ -2212,6 +2431,9 @@ def atender_boton(
     if boton_id == "cambiar_hora":
         # (v3.10) Con dos citas en la propuesta, se pregunta cuál
         # cambiar primero (la otra se retoma después).
+        # (v3.11) Esa pregunta va con BOTONES: un toque en vez de
+        # teclear. Regla de Jose: los botones están para reducir
+        # fricción, en todos los casos.
         _propuesta_cambio = _CITAS_PENDIENTES.get(telefono)
         _borrar_propuesta(deps, telefono)
         if _propuesta_cambio and _propuesta_cambio.get("cita2"):
@@ -2224,6 +2446,25 @@ def atender_boton(
                     f"{_rel_cambio}? Dime el nuevo día y hora para esa, y la otra "
                     f"la retomamos después."
                 )
+                botones = [
+                    ("cambiar_mia", "La mía"),
+                    ("cambiar_de_otra", f"La de {_rel_cambio}"[:20]),
+                    ("hablar_persona", "Hablar con persona"),
+                ]
+                try:
+                    deps.enviar_botones(telefono, mensaje, botones)
+                except Exception as exc:
+                    try:
+                        deps.registrar_diagnostico(
+                            fecha, "whatsapp", "FALLO",
+                            f"Botones no enviados: {str(exc)[:250]}",
+                            telefono, "cambiar hora",
+                        )
+                    except Exception:
+                        pass
+                    enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+                deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambiar hora")
+                return {"respondio": True, "handoff": False}
             else:
                 mensaje = (
                     "Claro, sin problema. ¿Cuál cambiamos primero? Dime el nuevo "
@@ -2231,6 +2472,18 @@ def atender_boton(
                 )
         else:
             mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambiar hora")
+        return {"respondio": True, "handoff": False}
+
+    if boton_id in ("cambiar_mia", "cambiar_de_otra"):
+        # (v3.11) El cliente tocó cuál cita cambia: la propuesta ya se
+        # borró al tocar "Cambiar hora" (la otra se retoma después,
+        # limitación documentada). Solo se pregunta el nuevo día/hora.
+        if boton_id == "cambiar_mia":
+            mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor para la tuya?"
+        else:
+            mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor para esa cita?"
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambiar hora")
         return {"respondio": True, "handoff": False}

@@ -5,6 +5,44 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.11.0 — Reservas robustas: el día que pides, memoria sin citas viejas, botones sin fricción (2026-11-22)
+
+Jose probó en vivo (03:35 MST) y reportó que la propuesta salió para
+el lunes 23 cuando pidió el martes para él y el miércoles para su
+hermana, sin botones visibles, y que el robot le ofreció cambiar
+"tus horas" por una cita del 19 de noviembre que ya había pasado.
+Diagnóstico con evidencia (Conversaciones + Propuestas + código):
+
+- **El día pedido manda.** La red de seguridad proponía el primer
+  hueco libre (la próxima apertura) ignorando el día mencionado.
+  Ahora `_dias_pedidos` detecta los días de la semana del mensaje
+  ("el martes", "el miércoles") y la propuesta usa el primer hueco
+  de ESE día; si no hay hueco ese día, la próxima apertura en esa
+  fecha o después. Con dos días + otra persona ("para mi hermana"),
+  la red arma las dos citas en determinista (la segunda con la
+  relación), sin depender de que el modelo las extraiga.
+- **Propuesta limpia.** Cuando la red de seguridad dispara, el
+  texto del agente (que lista horas en texto, contra el guion) se
+  reemplaza por una propuesta corta con una sola pregunta + botones.
+  El cliente toca, no teclea.
+- **Memoria sin citas viejas.** `estado_cliente` acepta `ahora`:
+  una cita pasada ya no cuenta como vigente (etapa deja de ser
+  "agendado") y el contexto le dice al agente "su última cita ya
+  pasó: no la trates como vigente ni le ofrezcas cambiarla".
+- **Botones visibles o registrados.** Si `enviar_botones` falla, el
+  error real de Meta se registra en Diagnóstico (componente
+  whatsapp, FALLO) antes de caer a texto plano. Antes caía en
+  silencio y "no aparece el botón" era indiagnosticable.
+- **Botones para reducir fricción en todos los casos (regla de
+  Jose):** "cambiar hora" con dos citas ahora pregunta con botones
+  (La mía / La de X / Hablar con persona) y esos botones se
+  atienden; el guion enseña a proponer para los días concretos que
+  el cliente menciona.
+- Huecos: `proximos_huecos_libres` acepta cantidad/dias opcionales
+  (rango amplio cuando hay días concretos); los fakes viejos de las
+  pruebas caen al llamado de siempre. Tests: `test_v3_11.py`
+  37/37; suite completa verde (27 archivos, 545 pruebas).
+
 ## v3.10.0 — Reservas para ti y para alguien más: tope 2 por número, confirmar ambas, sin afirmaciones falsas (2026-11-22)
 
 Jose probó en vivo (03:17–03:23 MST) y reportó cuatro cosas, todas

@@ -26,7 +26,9 @@ El estado tiene:
   noviembre a las 09:00"), o "".
 - ultimo_mensaje_robot: el último texto que el robot le mandó, o "".
 - ultimo_mensaje_cliente: el último texto del cliente, o "".
-- tiene_cita: True si en Clientes tiene fecha_cita y estatus agendado.
+- tiene_cita: True si en Clientes tiene fecha_cita y estatus agendado,
+  y (si se pasa "ahora") la cita es de hoy en adelante: una cita ya
+  pasada no cuenta como vigente (v3.11).
 - nombre: el nombre que se conoce del cliente, o "".
 - mensajes: cuántos mensajes hay en el historial.
 
@@ -92,6 +94,7 @@ def estado_cliente(
     propuesta: dict | None,
     cliente: dict | None,
     nombre: str = "",
+    ahora=None,
 ) -> dict:
     """Calcula el estado del cliente desde el historial, la propuesta y su fila.
 
@@ -116,6 +119,21 @@ def estado_cliente(
         str(cliente.get("fecha_cita", "") or "").strip()
         and str(cliente.get("estatus", "") or "").strip().lower() == "agendado"
     )
+    # (v3.11) Una cita ya pasada no es vigente: si se conoce "ahora",
+    # la cita solo cuenta si es de hoy en adelante. Sin esto, una cita
+    # vieja hacía que el agente ofreciera "cambiar tus horas" por una
+    # cita que ya pasó (visto en vivo 2026-11-22). Fecha rota: se
+    # mantiene el criterio anterior (mejor no bloquear).
+    if tiene_cita and ahora is not None:
+        try:
+            from datetime import datetime as _dt
+            _f = _dt.fromisoformat(
+                str(cliente.get("fecha_cita", "")).strip().replace("Z", "+00:00")
+            )
+            _hoy = ahora.date() if hasattr(ahora, "date") else ahora
+            tiene_cita = _f.date() >= _hoy
+        except Exception:
+            pass
     nombre_final = nombre or str(cliente.get("nombre", "") or "")
 
     # (v3.1) La oferta verbal: el último mensaje del robot ofreció

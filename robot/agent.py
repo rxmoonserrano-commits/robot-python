@@ -317,6 +317,12 @@ Límites duros:
   la primera y pon la segunda en citas_extra (lista con un elemento:
   motivo, fecha_cita, nombre_paciente, relacion_paciente). El sistema
   las propone juntas con un solo botón de confirmar.
+- Días concretos (v3.11): si el cliente menciona días ("el martes",
+  "el miércoles"), propón para ESOS días: pon fecha_cita del día que
+  pidió, no de la próxima apertura. Si pide dos días, uno para él y
+  otro para otra persona, usa citas_extra con el segundo día y la
+  relación. El sistema también lo resuelve si no lo marcas, pero
+  marcarlo tú da mejor texto.
 - Cita para otra persona (v3.10): si la cita es para alguien que no
   es quien escribe ("para mi hermana"), pon el nombre de esa persona
   en nombre_paciente y cómo la llamó el cliente en relacion_paciente

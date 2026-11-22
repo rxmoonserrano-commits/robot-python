@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.10.0"
+VERSION = "3.11.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -195,10 +195,13 @@ class DependenciasReales(Dependencias):
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     # --- Nuevos en la v3.3 ---
-    def proximos_huecos_libres(self, conocimiento, ahora):
+    def proximos_huecos_libres(self, conocimiento, ahora, cantidad=2, dias=3):
         from robot.logic import horarios_por_dia
 
-        return booking.proximos_huecos_libres(horarios_por_dia(conocimiento), ahora)
+        return booking.proximos_huecos_libres(
+            horarios_por_dia(conocimiento), ahora,
+            cantidad=cantidad, dias=dias,
+        )
 
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):
         try:

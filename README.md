@@ -7,8 +7,8 @@ avisa por correo y se calla. Todo lo que sabe del negocio vive en una
 hoja de Google Sheets. Nada de audio de respuesta, nada de mensajes
 automáticos por WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa **508 pruebas
-> simuladas sin internet** en 26 archivos (más la batería de
+> **Honestidad, como siempre:** la lógica pasa **545 pruebas
+> simuladas sin internet** en 27 archivos (más la batería de
 > inteligencia de 41 escenarios, ya incluida en el conteo). Y hay **20 conversaciones doradas**
 > aparte (`test_conversaciones_doradas.py`): conversaciones completas
 > contra la IA real, que se corren con la clave de Gemini antes de
@@ -83,7 +83,7 @@ El código de este flujo está en `robot/logic.py`, función
 | `CHANGELOG.md` | La historia de cada versión, en orden |
 | `requirements.txt` | Las librerías (todas gratuitas) |
 | `.env.example` | La plantilla de claves: cópiala como `.env` y llénala |
-| `test_simulado.py` … `test_v3_10.py` | 26 archivos de pruebas sin internet (508 casos): `python test_v3_10.py` y sus hermanas |
+| `test_simulado.py` … `test_v3_11.py` | 27 archivos de pruebas sin internet (545 casos): `python test_v3_11.py` y sus hermanas |
 | `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
 | `test_conversaciones_doradas.py` | 20 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
 
