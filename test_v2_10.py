@@ -101,7 +101,7 @@ class DepsV210:
         self.citas.append(cita)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):
@@ -158,9 +158,9 @@ def main():
         caso("(b) El prompt ofrece la cita solo con interés (embudo natural)",
              "Ofrece la cita SOLO si el cliente mostró interés" in prompt
              and "¿Quieres que te agende una?" in prompt)
-        caso("(c) El prompt prohíbe el catálogo entero (máximo 3 servicios)",
-             "pregunta cuál les interesa" in prompt
-             and "da solo los 3 más pedidos" in prompt)
+        caso("(c) El prompt responde servicios con precio, sin catálogo entero",
+             "máximo 5" in prompt
+             and "No sueltes el catálogo completo" in prompt)
         caso("(d) El prompt prohíbe inventar: solo Conocimiento, palabra por palabra",
              "palabra por palabra" in prompt and "Déjame confirmarlo" in prompt
              and "Nunca inventes precios, descuentos, promociones" in prompt)

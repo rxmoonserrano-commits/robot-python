@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
@@ -52,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.11.0"
+VERSION = "3.12.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -110,6 +111,9 @@ class DependenciasReales(Dependencias):
     def enviar_texto(self, telefono, texto):
         whatsapp.enviar_texto(telefono, texto)
 
+    def enviar_plantilla(self, telefono, plantilla, idioma, parametros):
+        whatsapp.enviar_plantilla(telefono, plantilla, idioma, parametros)
+
     def enviar_foto(self, telefono, url):
         whatsapp.enviar_foto(telefono, url)
 
@@ -136,9 +140,11 @@ class DependenciasReales(Dependencias):
         except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
             aviso(f"[citas-espejo] {exc}")
 
-    def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None):
+    def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None,
+                               recordatorio_enviado=None):
         try:
-            sheets.actualizar_cita_espejo(telefono, fecha_cita, estado, notas)
+            sheets.actualizar_cita_espejo(telefono, fecha_cita, estado, notas,
+                                          recordatorio_enviado)
         except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
             aviso(f"[citas-espejo] {exc}")
 
@@ -186,11 +192,11 @@ class DependenciasReales(Dependencias):
     def leer_propuestas(self):
         return sheets.leer_propuestas()
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         # Best-effort también aquí (doble protección, ver logic.py):
         # si Gmail no está configurado, el correo no debe romper nada.
         try:
-            mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha)
+            mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha, resumen)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
@@ -202,6 +208,19 @@ class DependenciasReales(Dependencias):
             horarios_por_dia(conocimiento), ahora,
             cantidad=cantidad, dias=dias,
         )
+
+    def proximos_huecos_profesionales(self, conocimiento, ahora, cantidad=2, dias=3):
+        # (v3.12) Agenda por profesional: sin profesionales activos con
+        # horario, devuelve [] y el robot usa la agenda por clínica.
+        try:
+            profesionales = sheets.leer_profesionales()
+            if not profesionales:
+                return []
+            return booking.proximos_huecos_por_profesional(
+                profesionales, ahora, cantidad=cantidad, dias=dias,
+            )
+        except Exception:
+            return []
 
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):
         try:
@@ -725,8 +744,26 @@ async def resumen_ahora(request: Request):
     return {"ok": True, "fecha": resultado["fecha"]}
 
 
-# --- Trabajos programados: reporte semanal (lunes 08:00) y resumen
-# de la mañana (todos los días 08:00). Manden correo, nunca WhatsApp.
+# --- Trabajos programados: reporte semanal (lunes 08:00), resumen
+# de la mañana (todos los días 08:00) y recordatorios (cada hora,
+# v3.12). El reporte y el resumen mandan correo, nunca WhatsApp;
+# los recordatorios sí son WhatsApp (plantilla aprobada, Sereno 03).
+
+
+def enviar_recordatorios_programados():
+    """Revisa las citas de las próximas ~24 h y manda recordatorios.
+
+    Best-effort total: si algo falla, queda en Diagnóstico y el
+    robot sigue. El interruptor `recordatorios` de Configuración
+    decide (sin él, la matriz de paquetes).
+    """
+    try:
+        from robot import recordatorios
+
+        recordatorios.enviar_recordatorios_pendientes(_DEPS)
+    except Exception as exc:  # noqa: BLE001 - el job nunca tumba el robot
+        aviso(f"[recordatorios] {exc}")
+
 
 scheduler = BackgroundScheduler(timezone=settings.timezone)
 scheduler.add_job(
@@ -739,6 +776,12 @@ scheduler.add_job(
     generar_resumen_manana,
     CronTrigger(hour=settings.reporte_hora, minute=settings.reporte_minuto),
     id="resumen-manana",
+    replace_existing=True,
+)
+scheduler.add_job(
+    enviar_recordatorios_programados,
+    IntervalTrigger(hours=1),
+    id="recordatorios",
     replace_existing=True,
 )
 

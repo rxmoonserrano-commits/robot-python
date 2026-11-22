@@ -172,6 +172,47 @@ def enviar_foto(telefono: str, url_foto: str, pie: str = "Te comparto una foto d
         )
 
 
+def enviar_plantilla(
+    telefono: str,
+    nombre_plantilla: str,
+    idioma: str,
+    parametros: list[str],
+) -> None:
+    """Manda una plantilla aprobada de WhatsApp (recordatorios, v3.12).
+
+    Las plantillas se aprueban en Meta (WhatsApp Manager); sin una
+    aprobada, Meta devuelve error y quien llama lo registra en
+    Diagnóstico. `parametros` son los valores para {{1}}, {{2}}...
+    en orden (p. ej. nombre y fecha/hora de la cita).
+    """
+    respuesta = requests.post(
+        f"{_API}/{settings.whatsapp_phone_number_id}/messages",
+        headers=_headers(),
+        json={
+            "messaging_product": "whatsapp",
+            "to": telefono,
+            "type": "template",
+            "template": {
+                "name": nombre_plantilla,
+                "language": {"code": idioma},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": str(p)} for p in parametros
+                        ],
+                    }
+                ],
+            },
+        },
+        timeout=30,
+    )
+    if respuesta.status_code not in (200, 201):
+        raise WhatsAppError(
+            f"WhatsApp devolvió {respuesta.status_code}: {respuesta.text[:300]}"
+        )
+
+
 def descargar_audio(media_id: str) -> tuple[bytes, str]:
     """Descarga un audio de WhatsApp y devuelve (bytes, tipo mime).
 

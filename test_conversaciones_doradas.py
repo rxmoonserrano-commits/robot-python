@@ -184,7 +184,7 @@ class DepsDoradas:
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):
@@ -325,11 +325,11 @@ def main():
               and bool(txt),
               f"confirmó la cita o se quedó callado (resultado={r})", txt)
 
-    # G7. Piden servicios: pregunta cuál, no suelta el catálogo.
+    # G7. Piden servicios: responde con servicios y precios, sin deflectar.
     d, r, txt = correr("G7", [], "¿qué servicios tienen?", DIA)
-    escenario("G7 piden servicios: pregunta cuál, sin catálogo",
-              txt.count("\n- ") <= 3 and tiene(txt, "interesa", "cuál", "cual"),
-              "soltó el catálogo o no preguntó cuál interesa", txt)
+    escenario("G7 piden servicios: responde con precios, sin deflectar",
+              "$" in txt,
+              "deflectó con pregunta o no dio precios", txt)
 
     # G8. Cambio de cita de noche: cancela y pregunta el nuevo día (camino determinista).
     d, r, txt = correr(

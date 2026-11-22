@@ -387,7 +387,7 @@ app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
 caso("(g) La app es la versión 3.11.0",
-     'version="3.11.0"' in app_txt or "VERSION = \"3.11.0\"" in app_txt,
+     'version="3.12.0"' in app_txt or "VERSION = \"3.12.0\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt
@@ -395,9 +395,9 @@ caso("(g) .env.example trae modelos vivos, no los retirados",
      and "ESPERA_AGRUPAR_SEGUNDOS=15" in env_txt
      and "ADMIN_TOKEN" in env_txt and "META_APP_SECRET" in env_txt,
      "el ejemplo sigue con modelos muertos o sin las claves nuevas")
-caso("(g) El instalador cubre la v3.0 y no dice '7 segundos'",
-     "test_v3.py" in inst_txt and "7 segundos" not in inst_txt
-     and "robot/estado.py" in inst_txt and "robot/revision.py" in inst_txt,
+caso("(g) El instalador escanea archivos (nunca se desactualiza) y no dice '7 segundos'",
+     "os.listdir" in inst_txt and "7 segundos" not in inst_txt
+     and "test_" in inst_txt and "robot/" in inst_txt,
      "el instalador está desactualizado")
 caso("(g) Ya no hay print() sueltos en el código del robot",
      all("print(" not in open(os.path.join(raiz, f), encoding="utf-8").read()

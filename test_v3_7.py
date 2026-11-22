@@ -137,7 +137,7 @@ class Deps37:
     def hora_libre(self, fecha_iso):
         return True
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         self.alertas_handoff.append((nombre, telefono, motivo))
 
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):

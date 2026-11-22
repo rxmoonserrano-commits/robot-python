@@ -105,7 +105,7 @@ class DepsV24:
         self.citas.append(cita)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         self.alertas.append((nombre, telefono, motivo))
 
     def marcar_leido_y_escribiendo(self, message_id):
@@ -129,10 +129,14 @@ def caso(nombre, condicion, detalle=""):
 
 DOMINGO_NOCHE = datetime(2026, 11, 16, 3, 0, tzinfo=timezone.utc)   # domingo 20:00 Mazatlán
 LUNES_MANANA = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)  # lunes 10:00 Mazatlán
-CLIENTE_AGENDADO = {"fecha": "2026-11-13T09:00:00-07:00", "nombre": "Jose Ramon",
+CLIENTE_AGENDADO = {"fecha": "2026-11-16T09:00:00-07:00", "nombre": "Jose Ramon",
                     "telefono": "5216694608263", "motivo": "Limpieza",
-                    "fecha_cita": "2026-11-13T09:00:00-07:00",
+                    "fecha_cita": "2026-11-17T09:00:00-07:00",
                     "origen": "whatsapp", "estatus": "agendado", "handoff": "no"}
+CLIENTE_PASADO = {"fecha": "2026-11-13T09:00:00-07:00", "nombre": "Jose Ramon",
+                  "telefono": "5216694608263", "motivo": "Limpieza",
+                  "fecha_cita": "2026-11-13T09:00:00-07:00",
+                  "origen": "whatsapp", "estatus": "agendado", "handoff": "no"}
 
 
 def main():
@@ -163,7 +167,7 @@ def main():
                          "disculpe mejor no, si deseo cambiar la cita puedo?",
                          con_ritmo=False, ahora=DOMINGO_NOCHE)
     caso("(b) 'mejor no, ¿puedo cambiar la cita?': borra el evento de Calendar",
-         len(d.citas_canceladas) == 1 and d.citas_canceladas[0][1].startswith("2026-11-13T09:00"),
+         len(d.citas_canceladas) == 1 and d.citas_canceladas[0][1].startswith("2026-11-17T09:00"),
          f"canceladas={d.citas_canceladas}")
     caso("(b) Cambiar cita: limpia la hoja y pregunta por el nuevo día",
          len(d.clientes_cancelados) == 1
@@ -180,6 +184,19 @@ def main():
     caso("(c) 'quiero cancelar mi cita': borra el evento y lo confirma",
          len(d.citas_canceladas) == 1
          and any("quedó cancelada" in t for _, t in d.textos_enviados),
+         f"textos={d.textos_enviados}")
+
+    # (c2) Cancelar una cita que YA PASÓ: no se borra ningún evento
+    # (ya terminó) y el robot dice la verdad: no hay cita vigente.
+    logic_mod._CITAS_PENDIENTES.clear()
+    d = DepsV24(cliente=dict(CLIENTE_PASADO))
+    r = atender_mensaje(d, "5216694608263", "Jose Ramon", "quiero cancelar mi cita",
+                         con_ritmo=False, ahora=DOMINGO_NOCHE)
+    caso("(c2) Cancelar cita pasada: no borra evento",
+         len(d.citas_canceladas) == 0,
+         f"canceladas={d.citas_canceladas}")
+    caso("(c2) Cancelar cita pasada: dice que no hay cita vigente",
+         any("No tienes ninguna cita agendada" in t for _, t in d.textos_enviados),
          f"textos={d.textos_enviados}")
 
     # (d) Pregunta normal de noche: va al agente, no a la frase grabada.

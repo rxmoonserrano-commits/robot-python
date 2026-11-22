@@ -21,12 +21,17 @@ sin fricción):
     (cambiar_mia / cambiar_de_otra) y esos botones se atienden.
 (i) Contexto: con cita pasada, el agente recibe la línea "ya pasó"
     y el estado dice tiene_cita false.
+(j) Espejo de citas: el append de Sheets se ancla al ancho real de
+    la fila (Citas 15 → A:O), para que el panel resumen en Q:R no
+    corra las filas a la derecha.
 
 Uso:  python test_v3_11.py
 """
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
+from robot import sheets as sheets_mod
 from robot.agent import RespuestaAgente
 from robot.estado import estado_cliente
 from robot.logic import (
@@ -185,7 +190,7 @@ class DepsV311(Dependencias):
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen=""):
         pass
 
     def cancelar_cita(self, telefono, fecha_cita):
@@ -402,6 +407,46 @@ def test_contexto_cita_pasada():
     _CITAS_PENDIENTES.pop(tel, None)
 
 
+# ------------------------------------------------------------------
+# (j) Espejo de citas: el append se ancla al ancho real de la fila
+# ------------------------------------------------------------------
+
+def test_ancho_append():
+    capturado = {}
+
+    class _Valores:
+        def append(self, spreadsheetId=None, range=None,
+                   valueInputOption=None, body=None):
+            capturado["range"] = range
+            return self
+
+        def execute(self):
+            return {}
+
+    class _Servicio:
+        def values(self):
+            return _Valores()
+
+    with patch.object(sheets_mod, "_servicio_sheets", lambda: _Servicio()):
+        sheets_mod.agregar_fila("Citas", ["x"] * 15)
+        caso("(j) Citas (15 cols) ancla el append en A:O",
+             capturado.get("range") == "Citas!A:O",
+             f"range={capturado.get('range')!r}")
+        sheets_mod.agregar_fila("Diagnóstico", ["x"] * 6)
+        caso("(j) Diagnóstico (6 cols) ancla el append en A:F",
+             capturado.get("range") == "Diagnóstico!A:F",
+             f"range={capturado.get('range')!r}")
+        sheets_mod.agregar_fila("Clientes", ["x"] * 8)
+        caso("(j) Clientes (8 cols) ancla el append en A:H",
+             capturado.get("range") == "Clientes!A:H",
+             f"range={capturado.get('range')!r}")
+    caso("(j) _columna_letra convierte anchos a letras",
+         sheets_mod._columna_letra(1) == "A"
+         and sheets_mod._columna_letra(15) == "O"
+         and sheets_mod._columna_letra(26) == "Z"
+         and sheets_mod._columna_letra(27) == "AA")
+
+
 if __name__ == "__main__":
     test_dias_pedidos()
     test_relacion_pedida()
@@ -412,6 +457,7 @@ if __name__ == "__main__":
     test_botones_fallan_se_registra()
     test_cambiar_hora_con_botones()
     test_contexto_cita_pasada()
+    test_ancho_append()
     total = len(RESULTADOS)
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{total} pruebas pasaron")

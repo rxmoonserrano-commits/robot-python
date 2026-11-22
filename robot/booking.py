@@ -176,6 +176,84 @@ def proximos_huecos_libres(
     return huecos
 
 
+def proximos_huecos_por_profesional(
+    profesionales: list[dict],
+    ahora: datetime,
+    cantidad: int = 2,
+    dias: int = 3,
+) -> list[dict]:
+    """Huecos libres con nombre de profesional (v3.12, Sereno función 02).
+
+    `profesionales` viene de sheets.leer_profesionales():
+    [{"nombre": str, "horarios": {weekday: (abre_min, cierra_min)}}].
+    Devuelve [{"inicio": iso, "profesional": nombre}] ordenados por
+    hora, en hora en punto, dentro del horario de cada profesional y
+    sin chocar con el calendario (una sola llamada freebusy, igual
+    que la versión por clínica; la revisión es conservadora: un
+    evento ocupado bloquea a todos, nunca se duplican citas).
+
+    Sin profesionales o con error de Calendar devuelve []: quien
+    llama cae a la agenda por clínica. La confirmación vuelve a
+    revisar la hora (crear_cita), como siempre.
+    """
+    if not profesionales:
+        return []
+    clave = (
+        f"pro:{cantidad}:{dias}:"
+        + ",".join(sorted(p["nombre"] for p in profesionales))
+    )
+    guardado = _HUECOS_CACHE.get(clave)
+    if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
+        return [dict(h) for h in guardado[1]]
+    local = ahora.astimezone(ZoneInfo(settings.timezone)) if ahora.tzinfo else ahora.replace(tzinfo=ZoneInfo(settings.timezone))
+    duracion = settings.duracion_cita_minutos
+    inicio_rango = local
+    fin_rango = local + timedelta(days=dias + 1)
+    try:
+        servicio = _servicio_calendar()
+        ocupados = (
+            servicio.freebusy()
+            .query(
+                body={
+                    "timeMin": inicio_rango.isoformat(),
+                    "timeMax": fin_rango.isoformat(),
+                    "timeZone": settings.timezone,
+                    "items": [{"id": settings.calendar_id}],
+                }
+            )
+            .execute()
+        )
+        lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
+        busy = [(_a_datetime(b["start"]), _a_datetime(b["end"])) for b in lista]
+    except Exception:
+        return []
+    huecos: list[dict] = []
+    for adelanto in range(dias + 1):
+        dia = local + timedelta(days=adelanto)
+        for prof in profesionales:
+            horas = prof.get("horarios", {}).get(dia.weekday())
+            if not horas:
+                continue
+            abre_min, cierra_min = horas
+            for hora in range(24):
+                inicio_min = hora * 60
+                if inicio_min < abre_min or inicio_min + duracion > cierra_min:
+                    continue
+                slot = dia.replace(hour=hora, minute=0, second=0, microsecond=0)
+                if slot <= local:
+                    continue
+                fin = slot + timedelta(minutes=duracion)
+                if any(b_inicio < fin and slot < b_fin for b_inicio, b_fin in busy):
+                    continue
+                huecos.append({"inicio": slot.isoformat(), "profesional": prof["nombre"]})
+        if len(huecos) >= cantidad:
+            break
+    huecos.sort(key=lambda h: (h["inicio"], h["profesional"]))
+    huecos = huecos[:cantidad]
+    _HUECOS_CACHE[clave] = (time.monotonic(), [dict(h) for h in huecos])
+    return huecos
+
+
 def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
     """Borra del calendario la cita de ese teléfono en esa fecha.
 

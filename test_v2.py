@@ -7,7 +7,9 @@ Cubre solo lo nuevo de la v2 (lo de la v1 sigue en test_simulado.py):
 (d) un wamid duplicado se ignora,
 (e) el botón "Hablar con una persona" hace handoff,
 (f) si Gemini falla, el cliente recibe un "dame un momento" y el dueño un correo,
-(g) NO existe ningún código que mande recordatorios por WhatsApp,
+(g) los recordatorios van por plantilla aprobada (v3.12, Sereno
+    función 03): existe la función y el trabajo programado, y el
+    reporte semanal + resumen de la mañana siguen por correo,
 (h) fuera de horario no se agenda nada imposible,
 (i) confirmar la cita con el botón crea la cita y manda la confirmación bonita,
 (i4)-(i6) y (k): propuesta sin fricción (datos después de confirmar),
@@ -122,7 +124,7 @@ class DepsV2:
         self.citas_notas.append(nota)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
         if self.alertas_fallan:
             raise RuntimeError("Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env.")
         self.alertas.append((nombre, telefono, motivo))
@@ -477,23 +479,22 @@ def main():
          formatear_cita_bonita("2026-11-14T10:00:00") == "sábado 14 de noviembre a las 10:00",
          formatear_cita_bonita("2026-11-14T10:00:00"))
 
-    # (g) NO existe código que mande recordatorios por WhatsApp.
-    # Se revisa solo el código de producción (app.py + robot/), no las
-    # pruebas: los comentarios pueden decir "no hay recordatorios", pero
-    # lo que importa es que no haya ninguna función ni trabajo que los mande.
+    # (g) Recordatorios SÍ existen desde la v3.12 (Sereno función 03):
+    # van por plantilla aprobada de WhatsApp, nunca texto libre, con
+    # interruptor `recordatorios` en Configuración. El reporte
+    # semanal y el resumen de la mañana siguen siendo por correo.
     raiz = pathlib.Path(__file__).parent
     prod = [raiz / "app.py", raiz / "instalar.py"] + list((raiz / "robot").glob("*.py"))
     textos_py = "\n".join(f.read_text(errors="ignore") for f in prod if f.exists())
-    caso("(g) No hay función que mande recordatorios por WhatsApp",
-         "enviar_recordatorio" not in textos_py
-         and not re.search(r"def \w*recordatorio", textos_py, re.IGNORECASE),
-         "se encontró código de recordatorios")
-    # (v3.3) Ahora son DOS trabajos programados, los dos por correo y
-    # nunca por WhatsApp: el reporte semanal y el resumen de la mañana.
-    caso("(g) Los únicos trabajos programados son el reporte semanal y el resumen de la mañana (por correo)",
-         textos_py.count("add_job") == 2
+    caso("(g) Existe la función de recordatorios por plantilla aprobada",
+         "def enviar_recordatorios_pendientes" in textos_py
+         and "def enviar_plantilla" in textos_py,
+         "no se encontró el código de recordatorios")
+    caso("(g) Los trabajos programados son reporte semanal, resumen de la mañana y recordatorios",
+         textos_py.count("add_job") == 3
          and 'id="reporte-semanal"' in textos_py
-         and 'id="resumen-manana"' in textos_py)
+         and 'id="resumen-manana"' in textos_py
+         and 'id="recordatorios"' in textos_py)
 
     # (v3.4.9) Inteligencia para manejar las situaciones.
     AHORA = datetime(2026, 11, 18, 16, 0, tzinfo=timezone.utc)

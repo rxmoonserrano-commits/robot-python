@@ -118,12 +118,28 @@ def leer_pestana(pestana: str, spreadsheet_id: str | None = None) -> list[dict]:
     return list(filas)
 
 
+def _columna_letra(n: int) -> str:
+    """1 -> A, 15 -> O, 27 -> AA... (letra de columna para un ancho dado)."""
+    letra = ""
+    while n > 0:
+        n, resto = divmod(n - 1, 26)
+        letra = chr(65 + resto) + letra
+    return letra or "A"
+
+
 def agregar_fila(pestana: str, fila: list[str]) -> None:
-    """Agrega una fila al final de una pestaña (sin borrar nada)."""
+    """Agrega una fila al final de una pestaña (sin borrar nada).
+
+    El rango del append se ancla al ancho real de la fila, no a A:Z:
+    si la pestaña tiene datos a la derecha (p. ej. el panel resumen
+    de Citas en Q:R), el append de Sheets lo toma como otra tabla y
+    escribe las filas corridas en Q. Con el ancho exacto, la tabla
+    detectada es la principal y la fila cae en su sitio.
+    """
     servicio = _servicio_sheets()
     servicio.values().append(
         spreadsheetId=settings.sheet_id,
-        range=f"{pestana}!A:Z",
+        range=f"{pestana}!A:{_columna_letra(len(fila))}",
         valueInputOption="RAW",
         body={"values": [fila]},
     ).execute()
@@ -196,6 +212,49 @@ def duracion_servicio(motivo: str) -> int | None:
     return None
 
 
+def _parse_rango_horas(texto: str) -> tuple[int, int] | None:
+    """'09:00-18:00' -> (540, 1080). 'Cerrado', vacío o ilegible -> None."""
+    m = re.search(r"(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})", str(texto or ""))
+    if not m:
+        return None
+    h1, m1, h2, m2 = (int(x) for x in m.groups())
+    if h1 > 23 or h2 > 23 or m1 > 59 or m2 > 59:
+        return None
+    abre, cierra = h1 * 60 + m1, h2 * 60 + m2
+    return (abre, cierra) if cierra > abre else None
+
+
+def leer_profesionales() -> list[dict]:
+    """Profesionales activos con su horario, desde la pestaña Profesionales (v3.12).
+
+    Devuelve [{"nombre": str, "horarios": {weekday: (abre_min, cierra_min)}}]
+    solo con los activos (Activo = Sí) y con horario legible. Sin pestaña
+    o sin datos válidos devuelve []: la agenda sigue por clínica, como
+    siempre (compatibilidad total con hojas viejas).
+    """
+    try:
+        filas = leer_pestana("Profesionales")
+    except Exception:  # noqa: BLE001 - sin pestaña, agenda por clínica
+        return []
+    resultado = []
+    for f in filas:
+        nombre = str(f.get("Nombre", "") or "").strip()
+        activo = _normalizar(f.get("Activo", ""))
+        if not nombre or activo not in ("si", "true", "1", "x"):
+            continue
+        horarios: dict[int, tuple[int, int]] = {}
+        rango = _parse_rango_horas(f.get("Horario_lun_vie", ""))
+        if rango:
+            for dia in range(5):
+                horarios[dia] = rango
+        rango_sab = _parse_rango_horas(f.get("Horario_sab", ""))
+        if rango_sab:
+            horarios[5] = rango_sab
+        if horarios:
+            resultado.append({"nombre": nombre, "horarios": horarios})
+    return resultado
+
+
 # --- Espejo de citas (v3.9): la pestaña Citas como vista de solo lectura ---
 # El dueño consulta ahí confirmadas, pendientes, canceladas y no-show
 # sin entrar al calendario. La fuente de verdad sigue siendo el
@@ -219,11 +278,13 @@ def registrar_cita_espejo(fila: dict) -> None:
 
 
 def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = None,
-                           notas: str | None = None) -> None:
-    """Actualiza el Estado (columna I) y/o las Notas (columna M) de la
-    última cita espejo que coincida con teléfono + fecha (v3.9; las
-    Notas se suman en v3.10 para guardar los datos de la otra
-    persona). Best-effort. Sin estado ni notas, no hace nada."""
+                           notas: str | None = None,
+                           recordatorio_enviado: str | None = None) -> None:
+    """Actualiza el Estado (columna I), las Notas (columna M) y/o el
+    Recordatorio_enviado (columna K, v3.12) de la última cita espejo
+    que coincida con teléfono + fecha (v3.9; las Notas se suman en
+    v3.10 para guardar los datos de la otra persona). Best-effort.
+    Sin estado, notas ni recordatorio, no hace nada."""
     try:
         filas = leer_pestana("Citas")
         dia = str(fecha_cita or "")[:10]
@@ -249,6 +310,13 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = 
                 range=f"Citas!M{numero}",
                 valueInputOption="RAW",
                 body={"values": [[notas]]},
+            ).execute()
+        if recordatorio_enviado is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!K{numero}",
+                valueInputOption="RAW",
+                body={"values": [[recordatorio_enviado]]},
             ).execute()
         _invalidar_cache("Citas")
     except Exception as exc:  # noqa: BLE001

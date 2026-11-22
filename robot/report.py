@@ -159,7 +159,8 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                           humanos: list[dict], recuperar: list[dict],
                           atendidos: int, resueltas: int, pct: int, citas_n: int,
                           canceladas: int, no_show: int, horas: float,
-                          sin_respuesta: int, resumen: str) -> str:
+                          sin_respuesta: int, resumen: str,
+                          confirmaciones: int = 0) -> str:
     """Versión HTML del reporte semanal (v3.9): misma información que
     el texto, con el diseño limpio que el dueño lee en un minuto.
 
@@ -275,6 +276,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Resueltas sin pasar a humano</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{resueltas} ({pct}%)</strong></td></tr>
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Citas confirmadas</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{citas_n}</strong></td></tr>
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Canceladas / no-show</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{canceladas} / {no_show}</strong></td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Confirmaciones de asistencia</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{confirmaciones}</strong></td></tr>
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Mensajes sin respuesta del robot</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{sin_respuesta}</strong> (todos registrados)</td></tr>
       <tr><td style="padding:7px 0;">Tiempo ahorrado estimado</td><td align="right" style="padding:7px 0;"><strong>~{horas:.1f} h</strong> (5 min por conversación resuelta)</td></tr>
     </table>
@@ -363,6 +365,14 @@ def generar_reporte_semanal() -> dict:
         if _en_ventana_texto(str(f.get("Fecha", "")), desde, hasta)
         and str(f.get("Estado", "")).strip() == "No-show"
     )
+    # (v3.12, Sereno función 06) Confirmaciones de asistencia: el
+    # paciente confirmó por texto que sí vendrá (queda en las Notas
+    # del espejo). Sin recordatorios, da 0 y el correo sale igual.
+    confirmaciones = sum(
+        1 for f in _espejo
+        if _en_ventana_texto(str(f.get("Fecha", "")), desde, hasta)
+        and "confirmó asistencia" in str(f.get("Notas", "") or "")
+    )
 
     # Métricas de valor: confirmados vs estimados, sin inventar.
     atendidos = conteo["mensajes_atendidos"]
@@ -392,6 +402,7 @@ def generar_reporte_semanal() -> dict:
         f"Mensajes atendidos por el robot: {conteo['mensajes_atendidos']}\n"
         f"Clientes calificados: {conteo['clientes_calificados']}\n"
         f"Citas agendadas: {conteo['citas_agendadas']}\n"
+        f"Confirmaciones de asistencia: {confirmaciones}\n"
         f"Casos pasados a una persona: {conteo['handoffs']}\n"
         f"Mensajes sin responder porque una persona atendía: {conteo['sin_respuesta_por_humano']}\n"
         f"Motivos más comunes: {motivos}",
@@ -436,6 +447,7 @@ def generar_reporte_semanal() -> dict:
         f"- Resueltas sin pasar a humano: {resueltas} ({pct}%)\n"
         f"- Citas confirmadas: {conteo['citas_agendadas']}\n"
         f"- Canceladas: {canceladas} · No-show: {no_show}\n"
+        f"- Confirmaciones de asistencia: {confirmaciones}\n"
         f"- Clientes atendidos: {conteo['clientes_calificados']}\n"
         f"- Tiempo ahorrado estimado: ~{horas:.1f} h"
         " (5 min por conversación resuelta)\n"
@@ -448,6 +460,7 @@ def generar_reporte_semanal() -> dict:
         recuperar=recuperar, atendidos=atendidos, resueltas=resueltas, pct=pct,
         citas_n=conteo["citas_agendadas"], canceladas=canceladas, no_show=no_show,
         horas=horas, sin_respuesta=sin_respuesta, resumen=resumen,
+        confirmaciones=confirmaciones,
     )
     enviar_correo(
         correo_dueno(),

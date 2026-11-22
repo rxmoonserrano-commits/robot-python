@@ -141,14 +141,17 @@ _FUNCIONES_POR_PAQUETE = {
     "basico": {
         "responder_faqs": True, "derivar_humano": True,
         "agendar": False, "enviar_fotos": False, "reportes": False,
+        "recordatorios": False,
     },
     "pro": {
         "responder_faqs": True, "derivar_humano": True,
         "agendar": True, "enviar_fotos": True, "reportes": True,
+        "recordatorios": True,
     },
     "premium": {
         "responder_faqs": True, "derivar_humano": True,
         "agendar": True, "enviar_fotos": True, "reportes": True,
+        "recordatorios": True,
     },
 }
 

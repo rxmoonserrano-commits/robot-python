@@ -83,8 +83,9 @@ El código de este flujo está en `robot/logic.py`, función
 | `CHANGELOG.md` | La historia de cada versión, en orden |
 | `requirements.txt` | Las librerías (todas gratuitas) |
 | `.env.example` | La plantilla de claves: cópiala como `.env` y llénala |
-| `test_simulado.py` … `test_v3_11.py` | 27 archivos de pruebas sin internet (545 casos): `python test_v3_11.py` y sus hermanas |
+| `test_simulado.py` … `test_escenarios_100.py` | 29 archivos de pruebas sin internet (758 casos): `python test_escenarios_100.py` y sus hermanas |
 | `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
+| `test_escenarios_100.py` | 100 escenarios conversacionales (149 casos) contra el código real: saludo, precios, agendar, dos citas, terceros, memoria, cambio/cancelación, handoff, fallas, paquetes |
 | `test_conversaciones_doradas.py` | 20 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
 
 ## La inteligencia artificial: gratis y funcional
@@ -198,6 +199,33 @@ La estructura de hojas adoptada del ecosistema Sereno:
   consentimiento, citas totales, última cita, marca y hora de la
   alerta de handoff. La columna P (`robot_activo`) sigue siendo el
   interruptor por cliente.
+
+## Sereno completo (v3.12)
+
+El producto final: agenda por profesional, recordatorios,
+urgencia con guía y respuestas directas.
+
+- **Agenda por profesional:** los huecos salen del horario de cada
+  profesional activo (pestaña Profesionales) y la propuesta, la
+  confirmación y el espejo llevan su nombre real. Sin profesionales
+  activos, la agenda sigue por clínica, idéntica a antes.
+- **Recordatorios automáticos:** ~24 h antes de la cita manda la
+  plantilla aprobada de WhatsApp (nombre + fecha/hora) y marca
+  `Recordatorio_enviado` en el espejo. Interruptor `recordatorios`
+  en Configuración (en paquete básico va apagado). Sin plantilla
+  aprobada en Meta, el envío falla y queda en Diagnóstico: nunca
+  silencioso, nunca con costo. El paciente puede confirmar su
+  asistencia ("confirmo") y queda registrado en el espejo.
+- **Urgencia con guía:** ante una posible urgencia, el robot orienta
+  a buscar atención médica inmediata antes del handoff (texto
+  personalizable con `mensaje_urgencia` en Configuración).
+- **Servicios sin evasión:** servicios y precios se responden
+  directo desde Conocimiento (máximo 5), sin derivar con "¿cuál te
+  interesa?".
+- **Handoff con contexto:** el correo al dueño incluye el resumen
+  de la conversación del cliente.
+- **Reporte con confirmaciones:** el correo semanal cuenta las
+  confirmaciones de asistencia del paciente.
 
 ## La salud del robot (v3.0)
 
@@ -495,7 +523,7 @@ secreto del servicio o pega su contenido en una variable de entorno
 ## Qué NO hace este robot
 
 - No responde con audios. Nunca.
-- No manda mensajes de WhatsApp por su cuenta (reseñas, recordatorios). Solo responde cuando le escriben, y avisa por correo lo demás.
+- No manda reseñas ni promociones por su cuenta. Sí manda recordatorios de cita por plantilla aprobada de WhatsApp (interruptor `recordatorios` en Configuración); todo lo demás llega por correo.
 - No diagnostica ni da consejos médicos o legales.
 - No inventa precios, horarios, servicios.
 - No manda fotos que no estén en la lista blanca.

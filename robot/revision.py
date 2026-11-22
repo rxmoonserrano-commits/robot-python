@@ -94,15 +94,6 @@ def _sin_acentos(texto: str) -> str:
     return texto.lower().strip()
 
 
-def _dia_correcto(nombre_dia: str) -> str:
-    """Normaliza un día ("Miércoles", "miercoles") a su forma con acento."""
-    normal = _sin_acentos(nombre_dia)
-    for dia in _DIAS:
-        if _sin_acentos(dia) == normal:
-            return dia
-    return nombre_dia
-
-
 def _corregir_dias(texto: str, ahora: datetime | None) -> tuple[str, bool]:
     """R4: corrige "mañana <día equivocado>" y "hoy <día equivocado>".
 

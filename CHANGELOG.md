@@ -5,6 +5,124 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.12.0 — Sereno completo: agenda por profesional, recordatorios, urgencia con guía (2026-11-22)
+
+Jose adoptó el producto "Sereno" (recepción de clínica por
+WhatsApp) como la definición del robot y pidió el producto final
+pulido, no una demo. Auditoría contra las 6 funciones y las 3
+demandas de Sereno, y construcción de lo que faltaba:
+
+- **Agenda por profesional (función 02).** Nueva pestaña
+  Profesionales leída por `sheets.leer_profesionales()`: los
+  huecos salen del horario de cada profesional activo (ej. lunes
+  09:00 solo con la Dra. Ruiz, que entra antes que el Dr. Santos)
+  y la propuesta, la confirmación, la nota del calendario y el
+  espejo llevan el nombre real. Una sola llamada freebusy al
+  calendario (conservador: un evento ocupado bloquea a todos,
+  nunca se duplican citas). Sin profesionales activos con horario,
+  la agenda sigue por clínica, idéntica a antes.
+- **Recordatorios automáticos (función 03).** Nuevo
+  `robot/recordatorios.py`: ~24 h antes de la cita manda la
+  plantilla aprobada de WhatsApp (nombre + fecha/hora) y marca
+  `Recordatorio_enviado` en el espejo. Interruptor
+  `recordatorios` en Configuración (SI/NO; en paquete básico va
+  apagado, sin agenda no hay recordatorios). Job programado cada
+  hora. Sin plantilla aprobada en Meta, el envío falla y queda en
+  Diagnóstico: nunca silencioso. El paciente confirma con
+  "confirmo" / "ahí nos vemos" y queda registrado en las Notas
+  del espejo. Cancelar libera el hueco (ya funcionaba). La
+  recuperación de interesados sin cita sigue siendo solo borrador
+  por correo en el reporte semanal: sin WhatsApp de marketing.
+- **Urgencia con guía al paciente (demanda 3).** El mensaje de
+  urgencia ahora orienta a buscar atención médica inmediata
+  antes del handoff ("Si sientes que es una urgencia médica,
+  busca atención inmediata..."). Nunca indicaciones ni
+  diagnósticos. La clínica puede personalizar el texto con
+  `mensaje_urgencia` en Configuración.
+- **Handoff con contexto (función 05).** El correo de handoff
+  incluye el resumen de la conversación (memoria del cliente):
+  el dueño recibe el contexto junto con la alerta, sin buscar en
+  la hoja.
+- **Servicios sin evasión (función 01).** El guion ya no deflecta
+  "¿qué servicios tienen?" con "¿cuál te interesa?": responde con
+  los servicios principales y sus precios de Conocimiento
+  (máximo 5) y la puerta abierta a agendar. Actualizados el
+  golden G7 y test_v2_10.
+- **Reporte semanal con confirmaciones (función 06).** El correo
+  del lunes suma "Confirmaciones de asistencia" (texto y HTML),
+  contadas desde las Notas del espejo.
+- **Decisión comercial:** se vende un solo plan (Pro, $1,499/mes
+  ≈ Sereno $1,490); los paquetes básico/pro/premium quedan como
+  control interno de Jose (cada negocio recibe lo que autoriza
+  con el interruptor). El código de paquetes no se borró.
+
+Tests: nueva batería `test_v3_12.py` 48/48; suite completa verde
+(29 archivos, 758 casos). `test_v2.py` (g) actualizado: ya no
+prohíbe recordatorios, verifica que van por plantilla aprobada.
+
+**Depuración (mismo día, antes de subir):** eliminada la función
+muerta `_dia_correcto` de `revision.py` (sin referencias; R4 no la
+usaba); `guion-robot.md` sincronizado con el guion real (servicios
+directos, nombre/número después de confirmar, perfil desde la hoja);
+`README.md` con sección Sereno completo y corrección de la regla
+de recordatorios; `instalar.py` ya no trae listas fijas de archivos
+(escanea el directorio, nunca se desactualiza) y su mensaje final
+habla de los recordatorios por plantilla; borradas las hojas de
+prueba de versiones viejas (PRUEBA-HUMO-V3.4.12 y
+PRUEBA-V3.11-DOS-CITAS) y las carpetas `__pycache__`.
+
+**Retomar tras cambiar hora (mejora, mismo día):** si el cliente
+toca "Cambiar hora" en una propuesta de dos citas y elige cuál
+cambia, la OTRA ya no se pierde: se guarda en memoria y viaja junto
+con la nueva propuesta ("Confirmar ambas"), con etiquetas correctas
+en ambos sentidos (la suya / la de la otra persona). Expira a las
+48 h o si su fecha ya pasó; "Hablar con persona" la limpia; el
+mensaje solo promete retomarla cuando sí se guardó. Solo en memoria
+(un reinicio en medio deja pedirla de nuevo). Pruebas nuevas (k)
+11/11; suite completa verde (29 archivos, 758 casos).
+
+**Lo que falta de Jose para encender los recordatorios en vivo:**
+aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp
+Manager → Plantillas → crear: utilidad, cuerpo con dos variables
+{{1}} nombre y {{2}} fecha/hora, idioma es_MX). Mientras tanto,
+Meta rechaza los envíos y no cuestan nada; para apagarlos, poner
+`recordatorios = NO` en Configuración.
+
+## v3.11.1 — Simulación de 100 escenarios: dos huecos reales tapados (2026-11-22)
+
+Jose pidió simular 100 escenarios conversacionales contra el código
+real (sin su celular) y pulir lo que fallara. Nueva batería
+`test_escenarios_100.py` (149 casos en 10 categorías + extras de los
+casos que Jose vivió en vivo). La primera corrida dejó 144/149; los
+dos huecos reales:
+
+- **El agente dice "sí agendo" pero sin fecha (o con fecha ilegible)
+  y el cliente se quedaba sin propuesta.** La red de seguridad solo
+  entraba si el agente NO marcaba quiere_agendar. Ahora también
+  entra cuando marca "sí" pero la fecha viene vacía o ilegible y el
+  mensaje pide agendar en claro: la propuesta sale con el día
+  pedido (o la próxima apertura) en vez de nada.
+- **"Cancelar" una cita ya pasada borraba el evento.** El camino de
+  cambio/cancelación cancelaba cualquier cita con estatus agendado,
+  aunque fuera vieja. Ahora solo cancela citas a futuro (o de hoy);
+  una cita pasada se trata como si no hubiera nada que cambiar.
+
+Confirmado en la simulación: el caso de las 11:40 (propuesta viva +
+pregunta de disponibilidad con días) ya propone las dos citas
+(martes + miércoles) sin cancelar nada; los botones fallidos quedan
+en Diagnóstico; el tope de 2 citas por número, la cita de terceros
+con su nombre, la memoria sin citas viejas y los paquetes básicos
+sin agenda/fotos pasan.
+
+- **El espejo de citas caía corrido a la derecha.** Al confirmar
+  las dos citas de la prueba en vivo, las filas del espejo (Citas)
+  se escribieron a partir de la columna Q en vez de A: el append
+  de Sheets, con rango A:Z, tomó el panel resumen (Q:R) como otra
+  tabla. `agregar_fila` ahora ancla el rango al ancho real de la
+  fila (Citas 15 → A:O, Diagnóstico 6 → A:F, Clientes 8 → A:H...).
+  Las dos filas ya escritas se movieron a su sitio en la hoja.
+  Tests: `test_v3_11.py` 41/41; suite completa verde (699 casos).
+
 ## v3.11.0 — Reservas robustas: el día que pides, memoria sin citas viejas, botones sin fricción (2026-11-22)
 
 Jose probó en vivo (03:35 MST) y reportó que la propuesta salió para
