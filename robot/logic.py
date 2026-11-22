@@ -1079,6 +1079,7 @@ def atender_mensaje(
     message_id: str = "",
     con_ritmo: bool = True,
     ahora: datetime | None = None,
+    aviso_lote_enviado: dict | None = None,
 ) -> dict:
     """Atiende UN mensaje (o un lote ya juntado) de un cliente.
 
@@ -1087,7 +1088,10 @@ def atender_mensaje(
     primer mensaje, para el visto y la burbuja. `con_ritmo=False`
     apaga las pausas (solo para las pruebas, que si no tardarían).
     `ahora` es la hora actual (solo para las pruebas de horario).
-    Devuelve un resumen de lo que pasó.
+    `aviso_lote_enviado` es un dict compartido `{"si": bool}` que el
+    vigilante de app.py pone en True cuando ya mandó el "dame un
+    momento" (lote > 90 s): así la falla técnica no manda el mismo
+    texto dos veces. Devuelve un resumen de lo que pasó.
     """
     ahora = ahora or datetime.now(timezone.utc)
     fecha = fecha_iso or ahora.isoformat()
@@ -1510,7 +1514,16 @@ def atender_mensaje(
             # Gemini falló: al cliente un "dame un momento" (no silencio),
             # al dueño un correo de error, y queda escrito en Diagnóstico
             # para revisarlo desde la hoja sin entrar a Render (v2.7).
-            enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
+            # (v3.9.1) Si el vigilante ya mandó el "dame un momento"
+            # (el lote tardó más de 90 s), NO mandar el mismo texto
+            # otra vez: el cliente recibía dos burbujas idénticas.
+            # El registro en la hoja y los avisos quedan igual.
+            _aviso_ya = (
+                isinstance(aviso_lote_enviado, dict)
+                and bool(aviso_lote_enviado.get("si"))
+            )
+            if not _aviso_ya:
+                enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
             deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "falla tecnica")
             _diagnostico(deps, fecha, "gemini", "FALLO", respuesta.motivo_handoff or "Gemini no contestó",
                          telefono, texto)

@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.9.0"
+VERSION = "3.9.1"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -230,6 +230,12 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
     """
     texto_unido = "\n".join(textos)
     primer_wamid = wamids[0] if wamids else ""
+    # (v3.9.1) Bandera compartida con el vigilante: si el lote tarda
+    # más de 90 s, el vigilante manda el "dame un momento" y pone la
+    # bandera; si después la respuesta es una falla técnica, logic.py
+    # no manda el mismo texto otra vez (el cliente recibía dos
+    # burbujas idénticas).
+    aviso_lote = {"si": False}
 
     def _avisar_lote_lento():
         """El lote lleva más de 90 s: que se vea y que el cliente sepa.
@@ -240,6 +246,7 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
         recibe un "dame un momento"; la respuesta real llega igual
         cuando el trabajo termine.
         """
+        aviso_lote["si"] = True
         try:
             sheets.registrar_diagnostico(
                 datetime.now(timezone.utc), "lote", "TARDANDO",
@@ -263,7 +270,7 @@ def _procesar_lote(telefono: str, nombre: str, textos: list[str], wamids: list[s
     try:
         estado_servidor.contar_lote_inicio()
         con_vigilancia(
-            lambda: atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid),
+            lambda: atender_mensaje(_DEPS, telefono, nombre, texto_unido, message_id=primer_wamid, aviso_lote_enviado=aviso_lote),
             _avisar_lote_lento,
             segundos=LOTE_LENTO_SEGUNDOS,
         )

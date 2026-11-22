@@ -5,6 +5,17 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.9.1 — El doble "dame un momento" ya no se repite (2026-11-22)
+
+Cuando un lote tardaba más de 90 s, el vigilante mandaba el aviso al
+cliente; si después la respuesta era una falla técnica (p. ej. Gemini
+con 503), el robot mandaba el MISMO texto otra vez: dos burbujas
+idénticas. Ahora `app.py` comparte una bandera (`aviso_lote_enviado`)
+con `atender_mensaje`: si el vigilante ya avisó, la falla técnica no
+reenvía el texto (el registro en la hoja, el Diagnóstico y el correo
+de error quedan igual). Visto en vivo el 2026-11-22 ~03:06 MST.
+Prueba nueva en test_v3_9 (j): 36/36; suite completa verde (24 archivos).
+
 ## v3.9.0 — Estructura Sereno: duración por servicio, espejo de citas, cita pendiente y correo HTML (2026-11-22)
 
 Adoptada la estructura del ecosistema Sereno (excels del dueño) en

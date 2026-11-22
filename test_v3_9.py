@@ -34,7 +34,9 @@ from robot.logic import (
     _atender_cambio_cancelacion,
     _confirmar_cita_propuesta,
     _fila_espejo,
+    atender_mensaje,
 )
+from robot.agent import RespuestaAgente
 
 RESULTADOS = []
 
@@ -379,6 +381,117 @@ def test_fila_espejo():
          fila2["Hora_inicio"] == "" and fila2["Estado"] == "Pendiente", f"fila={fila2}")
 
 
+# ------------------------------------------------------------------
+# (j) Doble "dame un momento" (v3.9.1): si el vigilante ya mandó el
+# aviso (lote > 90 s), la falla técnica NO manda el mismo texto otra
+# vez. El registro en la hoja y los avisos quedan igual.
+# ------------------------------------------------------------------
+
+class DepsFalla:
+    """Deps mínimo para atender_mensaje con un agente que falla."""
+
+    def __init__(self):
+        self.textos = []
+        self.conversaciones = []
+        self.diagnosticos = []
+        self.alertas_error = []
+        self.clientes = []
+
+    def leer_control(self):
+        return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
+
+    def leer_robot_activo(self, telefono):
+        return "SI"
+
+    def leer_cliente(self, telefono):
+        return None
+
+    def leer_conocimiento(self):
+        return [{"tipo": "servicio", "pregunta_o_servicio": "Limpieza",
+                 "respuesta_o_precio": "$600", "detalle": "Dura 60 minutos"}]
+
+    def leer_fotos(self):
+        return []
+
+    def leer_historial(self, telefono):
+        return []
+
+    def leer_propuestas(self):
+        return []
+
+    def preguntar_agente(self, mensaje, conocimiento, fotos, historial):
+        return RespuestaAgente(
+            respuesta_texto="Dame un momento, por favor. Estoy revisando tu mensaje y "
+                            "te atiendo enseguida.",
+            necesita_handoff="si",
+            motivo_handoff="Gemini no contestó: 503",
+            falla_tecnica=True,
+        )
+
+    def enviar_texto(self, telefono, texto):
+        self.textos.append((telefono, texto))
+
+    def enviar_foto(self, telefono, url):
+        pass
+
+    def enviar_botones(self, telefono, texto, botones):
+        pass
+
+    def marcar_leido_y_escribiendo(self, message_id):
+        pass
+
+    def registrar_conversacion(self, fecha, telefono, quien, mensaje, respondio, motivo=""):
+        self.conversaciones.append({"quien": quien, "mensaje": mensaje, "motivo": motivo})
+
+    def registrar_cliente(self, fecha, nombre, telefono, motivo, fecha_cita="",
+                          origen="whatsapp", estatus="en conversacion", handoff="no"):
+        self.clientes.append({"telefono": telefono, "handoff": handoff})
+
+    def registrar_diagnostico(self, fecha, componente, estado, detalle, telefono="", contexto=""):
+        self.diagnosticos.append((componente, estado))
+
+    def alerta_error(self, motivo, telefono, ultimo_mensaje, fecha):
+        self.alertas_error.append((motivo, telefono))
+
+    def guardar_memoria_cliente(self, telefono, resumen="", interes="",
+                                proxima_accion="", preferencias=""):
+        pass
+
+    def guardar_propuesta(self, telefono, propuesta):
+        pass
+
+    def borrar_propuesta(self, telefono):
+        pass
+
+
+_AHORA_J = datetime(2026, 11, 22, 10, 0, tzinfo=timezone.utc)
+
+
+def test_doble_aviso_suprimido():
+    # Con la bandera del vigilante en True: NO se manda el texto otra vez.
+    d = DepsFalla()
+    r = atender_mensaje(d, "5216694608263", "Jose", "me da miedo",
+                        con_ritmo=False, ahora=_AHORA_J,
+                        aviso_lote_enviado={"si": True})
+    caso("(j) Doble aviso: con vigilante, no se manda el texto dos veces",
+         d.textos == [] and r.get("handoff") is True,
+         f"textos={d.textos} r={r}")
+    caso("(j) Doble aviso: el registro y los avisos quedan igual",
+         [c for c in d.conversaciones if c["quien"] == "robot"]
+         and [c for c in d.conversaciones if c["quien"] == "robot"][0]["motivo"] == "falla tecnica"
+         and len(d.alertas_error) == 1
+         and len(d.diagnosticos) == 1,
+         f"conversaciones={d.conversaciones} alertas={d.alertas_error}")
+
+    # Sin bandera (lote rápido): el texto sí se manda, como siempre.
+    d2 = DepsFalla()
+    r2 = atender_mensaje(d2, "5216694608263", "Jose", "me da miedo",
+                         con_ritmo=False, ahora=_AHORA_J)
+    caso("(j) Doble aviso: sin vigilante, el texto sí se manda",
+         len(d2.textos) == 1 and r2.get("handoff") is True,
+         f"textos={d2.textos} r={r2}")
+
+
 def main():
     class MP:
         def __init__(self):
@@ -404,6 +517,7 @@ def main():
         test_mail_html(mp)
         test_guion_protocolo(mp)
         test_fila_espejo()
+        test_doble_aviso_suprimido()
     finally:
         mp.undo()
         _CITAS_PENDIENTES.clear()
