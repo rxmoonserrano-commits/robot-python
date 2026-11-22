@@ -314,6 +314,61 @@ def _es_urgencia(texto: str) -> bool:
     return any(p in normal for p in _PALABRAS_URGENCIA)
 
 
+# (v3.8) Con el interruptor por cliente apagado ("robot apagado para
+# este cliente"), el mensaje igual SE LEE: si es una urgencia, una
+# queja o un pedido explícito de persona, se resuelve la mecánica de
+# handoff —correo al dueño y caso marcado en Clientes— SIN contestarle
+# al paciente (la IA está apagada). Las dudas normales solo quedan
+# registradas, como siempre. Decisión del dueño: "alerta solo en
+# casos graves".
+_PALABRAS_QUEJA = (
+    "queja", "reclamo", "reclamar", "reclamacion", "pesimo", "horrible",
+    "mal servicio", "no me atendieron", "tardaron", "estafa",
+    "devolverme el dinero", "nunca me contestaron", "me dejaron colgado",
+)
+
+_PALABRAS_HUMANO = (
+    "hablar con una persona", "hablar con alguien", "quiero hablar con",
+    "pasame con", "pase con una persona", "una persona real",
+)
+
+
+def _normalizar_para_reglas(texto: str) -> str:
+    """Texto en minúsculas, sin acentos ni puntuación, con espacios
+    simples — igual que usan _es_urgencia y _quiere_agendar_ya."""
+    normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
+    return re.sub(r"\s+", " ", normal)
+
+
+def _es_queja(texto: str) -> bool:
+    """¿El cliente se está quejando (no solo hace una pregunta)?"""
+    normal = _normalizar_para_reglas(texto)
+    return any(p in normal for p in _PALABRAS_QUEJA)
+
+
+def _pide_hablar_con_persona(texto: str) -> bool:
+    """¿Pide con sus palabras hablar con una persona?"""
+    normal = _normalizar_para_reglas(texto)
+    return any(p in normal for p in _PALABRAS_HUMANO)
+
+
+def _motivo_handoff_en_silencio(texto: str) -> str:
+    """Motivo de handoff para un chat con la IA apagada, o "" si es
+    una duda normal (solo se registra, sin correo).
+
+    Es la regla "en cualquier caso siempre lee y resuelve el
+    handoff": la IA no contesta, pero el sistema revisa el mensaje
+    y, si es grave (urgencia, queja o pedido de persona), avisa.
+    """
+    if _es_urgencia(texto):
+        return f"{_MOTIVO_URGENCIA} (IA apagada): {texto[:120]}"
+    if _es_queja(texto):
+        return f"Queja del cliente (IA apagada): {texto[:120]}"
+    if _pide_hablar_con_persona(texto):
+        return f"El cliente pidió una persona (IA apagada): {texto[:120]}"
+    return ""
+
+
 # (v3.3) Quiere agendar YA: el cliente pidió una cita con sus propias
 # palabras ("quiero una cita", "agéndame"). No es lo mismo que una
 # oferta del robot: aquí el cliente ya decidió, y el dueño debe
@@ -946,6 +1001,29 @@ def atender_mensaje(
     )
     if not puede:
         # En silencio: sin visto, sin burbuja, sin respuesta. Solo registro.
+        # (v3.8) Excepción con la IA apagada —interruptor por cliente
+        # o botón global de la clínica—: el mensaje igual se LEE. Si
+        # es una urgencia, una queja o un pedido de persona, se
+        # resuelve el handoff —correo al dueño (siempre por correo) y
+        # caso marcado en Clientes— sin contestarle al paciente. Las
+        # dudas normales solo quedan registradas. Los demás silencios
+        # (pausa humana de 2 h, canal apagado) no cambian.
+        if motivo_silencio in ("robot apagado para este cliente", "boton apagado"):
+            motivo_handoff = _motivo_handoff_en_silencio(texto)
+            if motivo_handoff:
+                _avisar_por_correo(
+                    deps.alerta_handoff,
+                    nombre, telefono, motivo_handoff, texto, fecha,
+                )
+                deps.registrar_cliente(
+                    fecha, nombre, telefono, texto[:120], "", "whatsapp",
+                    "en conversacion", "si",
+                )
+                return {
+                    "respondio": False,
+                    "motivo": "robot apagado para este cliente; handoff alertado",
+                    "handoff": True,
+                }
         return {"respondio": False, "motivo": motivo_silencio, "handoff": False}
 
     # 3. Visto + "escribiendo...": el cliente ve que lo leyeron.

@@ -5,6 +5,25 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.8.0 — IA apagada: el handoff sigue leyendo (2026-11-22)
+
+Decisión del dueño: "alerta solo en casos graves". Con la IA
+apagada —interruptor por cliente o botón global de la clínica—, el
+mensaje ahora igual se LEE:
+
+- Urgencia ("me duele...", "urgente"), queja ("queja", "reclamo",
+  "pésimo"...) o pedido explícito de persona ("hablar con una
+  persona") → se resuelve la mecánica de handoff: correo al dueño
+  (`alerta_handoff`, siempre por correo) y caso marcado en Clientes
+  con handoff=si. El paciente NO recibe respuesta (la IA está
+  apagada).
+- Dudas normales → solo quedan registradas, como antes.
+
+El alcance: interruptor por cliente Y botón global (Control). La
+pausa de 2 h y el canal apagado no cambian. Lo que ya funcionaba
+sigue igual: el botón "hablar con una persona" hace handoff aunque
+la IA esté apagada. Pruebas: test_v3_8.py (19 casos).
+
 ## v3.7.0 — Alertas del dueño: 3 tipos, un correo semanal (2026-11-21)
 
 Lo que Jose pidió del chat de ChatGPT: las alertas para el dueño
