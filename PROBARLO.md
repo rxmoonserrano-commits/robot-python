@@ -6,7 +6,7 @@ Cuando las 10 pasen, ahí sí puedes decir que funciona. Antes no.
 Primero, lo rápido y sin internet:
 
 ```bash
-python instalar.py --check   # todo: 284 pruebas + el servidor arranca
+python instalar.py --check   # todo: 462 pruebas + el servidor arranca
 ```
 
 Deben salir 284 casos en PASS. Si alguno sale FAIL, el problema está

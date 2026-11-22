@@ -195,7 +195,7 @@ conversación dorada nueva, para que no vuelva a pasar.
 - **Resumen de la mañana:** cuenta solo las últimas 24 h (no lo de hace 8 días); trae pendientes, propuestas con sus apartados y las citas de hoy; el asunto es el de la mañana.
 - **Anti-abuso:** 3 ok, el 4º avisa, el 5º se ignora; pasada la ventana vuelve a dejar pasar; el límite es por teléfono.
 - **Guion:** las 4 reglas nuevas están escritas (huecos, nombre, agenda llena, urgencia).
-- **Doradas G13, G14 y G15:** huecos libres, urgencia y preguntar el nombre, con la IA real. Son 15 doradas; la regla sigue: si una falla, la versión no se sube.
+- **Doradas G13, G14 y G15:** huecos libres, urgencia y preguntar el nombre, con la IA real. Son 20 doradas; la regla sigue: si una falla, la versión no se sube.
 - **v3.3.1:** en un handoff normal el cliente recibe el texto (antes quedaba en silencio); queda registrado con motivo \"handoff\" y `respondio` es True. G5 ahora exige el texto además del handoff.
 - **v3.4 (test_v3_4.py, 9 casos):** un teléfono atascado se libera solo a los 5 min; sin atasco, el segundo lote espera su turno y luego se procesa; los contadores de /estado suben y la foto trae solo claves previstas (nada de clientes); GET /estado existe y el webhook cuenta cada mensaje.
 ## Lo nuevo de la v3.1 (test_v3_1.py, 27 casos)
@@ -240,7 +240,7 @@ conversación dorada nueva, para que no vuelva a pasar.
   escribir borra la caché.
 - **Buzón persistente:** el buzón se guarda en disco y se recupera
   al arrancar, con los wamids ya vistos.
-- **En vivo (con el servidor prendido):** `/health` dice 3.0.0;
+- **En vivo (con el servidor prendido):** `/health` dice 3.9.0;
   `/pausa` sin clave da 403 y con clave 200; `/reporte-semanal` sin
   clave da 403; el webhook con firma mala da 403 y con firma buena
   200. La página de pausa, si la hoja falla, muestra el error en vez

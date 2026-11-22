@@ -2,27 +2,20 @@
 
 Un robot que atiende el WhatsApp de un negocio 24/7: entiende texto y
 audio, contesta como una recepcionista tranquila, califica al cliente,
-agenda en Google Calendar, y si hace falta una persona, avisa por correo
-y se calla. Todo lo que sabe del negocio vive en una hoja de Google
-Sheets. Nada de audio de respuesta, nada de mensajes automáticos por
-WhatsApp: solo responde cuando le escriben.
+agenda en Google Calendar con botones, y si hace falta una persona,
+avisa por correo y se calla. Todo lo que sabe del negocio vive en una
+hoja de Google Sheets. Nada de audio de respuesta, nada de mensajes
+automáticos por WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa 334 pruebas simuladas
-> sin internet (23 de la v1 en `test_simulado.py` + 47 de la v2 en
-> `test_v2.py` + 15 de la v2.2 en `test_v2_2.py` + 10 de la v2.3 en
-> `test_v2_3.py` + 13 de la v2.4 en `test_v2_4.py` + 9 de la v2.5 en
-> `test_v2_5.py` + 7 de la v2.6 en `test_v2_6.py` + 9 de la v2.7 en
-> `test_v2_7.py` + 6 de la v2.8 en `test_v2_8.py` + 7 de la v2.9 en
-> `test_v2_9.py` + 8 de la v2.10 en `test_v2_10.py` + 9 de la v2.11 en
-> `test_v2_11.py` + 7 de la v2.12 en `test_v2_12.py` + 27 de la v2.13
-> en `test_v2_13.py` + 29 de la v3.0 en `test_v3.py` + 27 de la v3.1
-> en `test_v3_1.py` + 20 de la v3.2 en `test_v3_2.py` + 50 de la v3.3
-> en `test_v3_3.py` + 9 de la v3.4 en `test_v3_4.py`). Y hay 15 **conversaciones doradas** aparte
-> (`test_conversaciones_doradas.py`): conversaciones completas contra
-> la IA real, que se corren con la clave de Gemini antes de cada
-> despliegue. El **12 de noviembre de 2026 el robot contestó su
-> primer mensaje real** por WhatsApp (y agenda citas de verdad). La
-> historia de cada versión vive en `CHANGELOG.md`.
+> **Honestidad, como siempre:** la lógica pasa **462 pruebas
+> simuladas sin internet** en 24 archivos (más la batería de
+> inteligencia de 41 escenarios). Y hay **20 conversaciones doradas**
+> aparte (`test_conversaciones_doradas.py`): conversaciones completas
+> contra la IA real, que se corren con la clave de Gemini antes de
+> cada despliegue — la puerta de embarque: si una falla, esa versión
+> no sale. El **12 de noviembre de 2026 el robot contestó su primer
+> mensaje real** por WhatsApp (y agenda citas de verdad). La historia
+> de cada versión vive en `CHANGELOG.md`.
 
 ## Qué hace el robot (en una frase)
 
@@ -30,22 +23,27 @@ Entra un mensaje de WhatsApp, el robot lo entiende (texto o audio),
 revisa si puede responder, lee la información del negocio, contesta con
 calma como una persona, califica al cliente, agenda en el calendario si
 ya se puede, y registra todo. Si el cliente necesita una persona, avisa
-por correo y se calla.
+por correo y se calla. Con la IA apagada, sigue leyendo: si llega una
+urgencia, una queja o alguien pide una persona, avisa al dueño igual.
 
 ## Cómo se ve el flujo (en 5 pasos)
 
 ```
 1. WhatsApp entra (texto o audio)
    → si es audio, Gemini lo entiende; el robot responde SOLO en texto
-2. Se lee Control: ¿botón en NO? ¿humano hace < 2 h?
-   → NO puede responder: solo se registra el mensaje y se calla
+2. Se lee Control y el interruptor del cliente: ¿apagado? ¿humano hace < 2 h?
+   → NO puede responder: solo se registra. Pero si el mensaje es una
+     urgencia, una queja o pide una persona → handoff: correo al dueño
 3. Se carga Conocimiento + Fotos oficiales + Historial de ese teléfono
    → el agente (Gemini) responde con el estado de la conversación y
    un revisor corrige la respuesta antes de mandarla
 4. Foto validada contra la lista blanca · Handoff → correo al dueño
-   Agendar → se revisa que la hora esté libre → cita de 60 minutos
+   Agendar → propuesta con botones [Confirmar | Cambiar hora | Humano]
+   → al confirmar: cita con la duración del servicio (hoja) + espejo
+     en la pestaña Citas. Si el calendario falla: queda PENDIENTE,
+     se le dice al cliente y se avisa al dueño.
 5. Se manda la foto oficial (si la hay) + el texto por WhatsApp
-   → se registra todo en Conversaciones Y en Clientes
+   → se registra todo en Conversaciones, en Clientes y en el espejo Citas
 ```
 
 El código de este flujo está en `robot/logic.py`, función
@@ -55,9 +53,10 @@ El código de este flujo está en `robot/logic.py`, función
 
 | Archivo | Para qué sirve |
 |---|---|
-| `app.py` | El servidor: webhook de WhatsApp, `/health`, pausa humana, reporte manual |
+| `app.py` | El servidor: webhook de WhatsApp, `/health`, `/estado`, pausa humana, reporte manual |
 | `robot/config.py` | Todos los ajustes, desde el `.env` (nada secreto en el código) |
-| `robot/negocio.py` | El perfil del negocio: nombre, giro y recepcionista |
+| `robot/negocio.py` | El perfil del negocio y la pestaña Configuración (v3.5) |
+| `robot/canales.py` | Canales: WhatsApp activo; Messenger/Instagram diseñados, apagados (v3.5) |
 | `robot/sheets.py` | Leer y escribir en Google Sheets (con caché de 10 s por pestaña) |
 | `robot/gemini.py` | Hablar con Gemini gratis (texto y audio) |
 | `robot/whatsapp.py` | Mandar textos y fotos, bajar audios (WhatsApp Cloud API) |
@@ -65,9 +64,9 @@ El código de este flujo está en `robot/logic.py`, función
 | `robot/estado.py` | El estado del cliente, calculado por código (v2.13) |
 | `robot/revision.py` | El revisor: segunda mirada antes de mandar (v2.13) |
 | `robot/logic.py` | El cerebro: el flujo completo, paso a paso |
-| `robot/booking.py` | Agendar en Google Calendar (60 min, revisa que esté libre) |
-| `robot/mail.py` | Mandar correos por Gmail (handoff y reporte) |
-| `robot/report.py` | El reporte semanal de los lunes |
+| `robot/booking.py` | Agendar en Google Calendar (duración por servicio, revisa que esté libre) |
+| `robot/mail.py` | Mandar correos por Gmail (alertas y reporte, texto + HTML) |
+| `robot/report.py` | El reporte semanal de los lunes (3 tipos, texto + HTML) |
 | `robot/salud.py` | Revisión de salud al arrancar: cada pieza, en Diagnóstico |
 | `robot/seguridad.py` | Clave de dueño y firma de Meta |
 | `robot/registro.py` | El registro del robot (info / aviso / error) |
@@ -84,29 +83,9 @@ El código de este flujo está en `robot/logic.py`, función
 | `CHANGELOG.md` | La historia de cada versión, en orden |
 | `requirements.txt` | Las librerías (todas gratuitas) |
 | `.env.example` | La plantilla de claves: cópiala como `.env` y llénala |
-| `test_simulado.py` | 23 pruebas de la v1: `python test_simulado.py` |
-| `test_v2.py` | 47 pruebas de la v2: `python test_v2.py` |
-| `test_v2_2.py` | 15 pruebas de la v2.2: `python test_v2_2.py` |
-| `test_v2_3.py` | 10 pruebas de la v2.3: `python test_v2_3.py` |
-| `test_v2_4.py` | 13 pruebas de la v2.4: `python test_v2_4.py` |
-| `test_v2_5.py` | 9 pruebas de la v2.5: `python test_v2_5.py` |
-| `test_v2_6.py` | 7 pruebas de la v2.6: `python test_v2_6.py` |
-| `test_v2_7.py` | 9 pruebas de la v2.7: `python test_v2_7.py` |
-| `test_v2_8.py` | 6 pruebas de la v2.8: `python test_v2_8.py` |
-| `test_v2_9.py` | 7 pruebas de la v2.9: `python test_v2_9.py` |
-| `test_v2_10.py` | 8 pruebas de la v2.10: `python test_v2_10.py` |
-| `test_v2_11.py` | 9 pruebas de la v2.11: `python test_v2_11.py` |
-| `test_v2_12.py` | 7 pruebas de la v2.12: `python test_v2_12.py` |
-| `test_v2_13.py` | 27 pruebas de la v2.13: `python test_v2_13.py` |
-| `test_v3.py` | 29 pruebas de la v3.0: `python test_v3.py` |
-| `test_v3_1.py` | 27 pruebas de la v3.1: `python test_v3_1.py` |
-| `test_v3_2.py` | 20 pruebas de la v3.2: `python test_v3_2.py` |
-| `test_v3_3.py` | 50 pruebas de la v3.3: `python test_v3_3.py` |
-| `test_v3_4.py` | 9 pruebas de la v3.4: `python test_v3_4.py` |
-| `robot/estado_servidor.py` | Estado en memoria para GET /estado: contadores de webhooks, lotes y último error, sin datos de clientes |
-| `robot/abuso.py` | Anti-abuso: más de 10 mensajes en 60 s por teléfono → se avisa una vez y se ignoran los demás |
-| `robot/vigilancia.py` | Vigilancia anti-atasco: si un lote tarda más de 90 s, avisa en Diagnóstico y el cliente recibe un "dame un momento" |
-| `test_conversaciones_doradas.py` | 15 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY): `GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py` |
+| `test_simulado.py` … `test_v3_9.py` | 24 archivos de pruebas sin internet (462 casos): `python test_v3_9.py` y sus hermanas |
+| `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
+| `test_conversaciones_doradas.py` | 20 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
 
 ## La inteligencia artificial: gratis y funcional
 
@@ -126,18 +105,99 @@ que Google sugiere en el error y lo prueba solo (autocuración).
 
 **No se usa nada de pago aquí:** ni Whisper de pago, ni GPT de pago.
 
-## El perfil del negocio (v3.0)
+## Configuración por negocio (v3.5)
 
-El robot es genérico: para venderlo a otro negocio se cambia el perfil,
-no el código. Tres datos en el `.env`:
+El robot es genérico: para venderlo a otro negocio se cambia la hoja,
+no el código. La pestaña **Configuración** (clave | valor) manda:
+nombre del negocio, tipo, nombre de la asistente, tono
+(amigable/formal/breve/detallado), saludo obligatorio, mensaje fuera
+de horario, interruptores (agendar, enviar fotos, responder FAQs,
+derivar humano) y el correo del dueño. Prioridad: hoja > variables de
+entorno > valores por defecto. Sin pestaña o vacía, el robot se
+comporta como siempre. Los cambios aplican en el siguiente mensaje,
+sin reiniciar.
 
-- `NEGOCIO_NOMBRE` — el nombre real (opcional). Si está, el robot lo usa
-  ("En Clínica Dental Sonrisa ya cerraron por hoy..."); si no, dice
-  "el negocio".
-- `NEGOCIO_TIPO` — el giro, con artículo: "una clínica", "un
-  restaurante", "un taller". Es lo que la recepcionista dice que es.
-- `RECEPCIONISTA_NOMBRE` — el nombre de la persona que es el robot
-  ("Ana").
+El documento maestro **"Negocios"** es el panel de control del
+vendedor: un índice con un renglón por negocio (paquete, canales,
+estado) y un enlace a la hoja operativa de cada uno. La plantilla
+**"Plantilla — Negocio"** es la hoja lista para clonar por cliente.
+
+**Canales:** el motor es uno solo; cada canal es un adaptador.
+WhatsApp está activo. Messenger e Instagram están diseñados y
+apagados (rutas `/webhook/messenger` e `/webhook/instagram` responden
+`activo: false`) hasta que Jose decida conectarlos.
+
+## Paquetes y canales (v3.6)
+
+Todos los negocios tienen el mismo código (la versión pro); el
+paquete autoriza qué funciones recibe cada uno, con un interruptor
+en Configuración o en el documento maestro:
+
+| Paquete | Qué incluye |
+|---|---|
+| **Básico "Responde"** | Responde FAQs y precios, deriva a humano con alerta, registra leads. Sin agenda, sin fotos, sin reportes. |
+| **Pro "Agenda"** | Todo lo básico + agendar con botones, fotos oficiales, reporte semanal de 3 tipos, borradores por recuperar, resumen de la mañana. |
+| **Premium "Completo"** | Todo lo pro + Messenger/Instagram cuando se conecten + ajustes prioritarios. |
+
+Interruptores por canal (`canal_whatsapp`, `canal_messenger`,
+`canal_instagram`): WhatsApp en NO = el robot no contesta (igual que
+el botón global). Un interruptor explícito SI/NO manda sobre el
+paquete. Sin paquete definido, todo está en SI (compatibilidad).
+
+## Alertas del dueño (v3.7)
+
+**Un solo correo semanal** (lunes 08:00) con los 3 tipos que el dueño
+quiere ver, sin entrar a ningún lado:
+
+1. **📅 Citas confirmadas** — lista con fecha en claro.
+2. **🙋 Necesitaron atención humana** — lista con motivo y cuándo.
+3. **💬 Clientes por recuperar** — preguntaron y no agendaron, con un
+   borrador listo para copiar (el robot nunca manda WhatsApp).
+
+Más un bloque de valor: conversaciones atendidas, resueltas sin
+humano (%), citas, canceladas y no-show (desde el espejo Citas),
+tiempo ahorrado estimado (5 min por conversación, marcado como
+estimado) y mensajes sin respuesta (todos registrados). Confirmado
+vs estimado: nada inventado. El correo llega en texto y en HTML
+bonito (v3.9).
+
+Interruptor `alertas_instantaneas`: en SI (default) la cita
+confirmada y el lead caliente avisan en el momento; en NO solo van
+en el correo semanal (sin avalancha). Los handoff (urgencias, quejas,
+fallas técnicas) siempre avisan en el momento: es seguridad.
+
+## IA apagada: el handoff sigue leyendo (v3.8)
+
+Con la IA apagada —interruptor por cliente (`robot_activo = NO`) o
+botón global (Control)— el robot no contesta, pero **sí lee**. Si el
+mensaje es una urgencia, una queja o un pedido explícito de persona,
+se resuelve la mecánica de handoff: correo al dueño y caso marcado en
+Clientes, sin responderle al paciente. Las dudas normales solo
+quedan registradas. Reglas deterministas en código, sin IA.
+
+## Estructura Sereno (v3.9)
+
+La estructura de hojas adoptada del ecosistema Sereno:
+
+- **Conocimiento con columnas estructuradas (E a N):** ID, categoría,
+  `Duración_min`, profesionales, anticipo, nota de preparación,
+  visible, vigente. La cita dura lo que diga la hoja para ese
+  servicio; sin dato, 60 minutos. La confirmación lo dice en claro
+  ("Dura 45 minutos."). Las columnas A a D no se tocaron.
+- **Pestaña Citas (espejo):** vista de solo lectura para el dueño con
+  el estado de cada cita (Confirmada, Pendiente, Cancelada, Realizada,
+  No-show) y un panel automático de conteos. El robot la actualiza
+  solo; editarla no agenda nada (la fuente de verdad es el calendario).
+- **Cita pendiente:** si el calendario falla con la hora libre, la
+  solicitud ya no se reporta como "hora ocupada": se le dice al
+  cliente que quedó pendiente, se avisa al dueño por correo y el
+  espejo queda Pendiente. Nunca se inventa una cita.
+- **Protocolo de urgencias:** la clave `protocolo_urgencias` de
+  Configuración (texto aprobado del negocio) entra al guion.
+- **Clientes Q a V:** consentimiento de mensajes, fecha de
+  consentimiento, citas totales, última cita, marca y hora de la
+  alerta de handoff. La columna P (`robot_activo`) sigue siendo el
+  interruptor por cliente.
 
 ## La salud del robot (v3.0)
 
@@ -148,7 +208,9 @@ lee, si el calendario responde, si el token de WhatsApp sigue vivo
 (401 = muerto), si Gmail está configurado, si el correo del dueño es
 real, y si las claves de seguridad están puestas. También quedan ahí
 cada fallo de Gemini, cada envío rechazado por WhatsApp y cada
-corrección del revisor.
+corrección del revisor. `GET /estado` dice si el chequeo terminó,
+cuántos mensajes llegaron y cuántos lotes se procesaron (solo
+números, sin datos de clientes).
 
 ## El botón de apagado (minimalista, estilo Apple)
 
@@ -201,15 +263,17 @@ Esto es diseño, no un extra: el robot no debe pisar nunca a un humano.
   entera cualquier respuesta que traiga el guion, nombres de campos
   internos o un teléfono que no es el del cliente.
 - **Sin etiquetas internas (v3.1):** el revisor (R5) quita paréntesis
-  y palabras que son notas de la hoja ("FICTICIA", "EJEMPLO"). La
-  dirección de ejemplo salió con esa etiqueta en una respuesta real;
-  la hoja ya se limpió y el revisor es la red de seguridad.
+  y palabras que son notas de la hoja ("FICTICIA", "EJEMPLO").
 - **Anti-atasco (v3.1):** si un lote tarda más de 90 segundos, queda
   en Diagnóstico ("lote TARDANDO") y el cliente recibe un "dame un
   momento" en vez de silencio. Un lote se quedó más de 45 minutos sin
   responder ni fallar, sin dejar rastro; eso ya no puede pasar
   desapercibido. Las llamadas a Google (Sheets y Calendar) llevan
   tiempo límite de 30 segundos.
+- **Anti-abuso:** más de 10 mensajes en 60 s de un mismo teléfono: el
+  robot pide calma una vez y no procesa los demás hasta que pase la
+  ventana. Protege la cuota gratis de Gemini, que es lo que deja mudo
+  al robot para todos.
 
 ## La memoria del cliente (v3.2)
 
@@ -226,31 +290,36 @@ vuelve. Y el revisor (R7) no lo deja cerrar dos veces con la misma
 frase: si su último mensaje terminó en "Quedamos a tus órdenes", el
 siguiente cierra distinto.
 
-## Calidad para el dueño y para su cliente (v3.3)
+## Calidad para el dueño y para su cliente (v3.3 – v3.4)
 
-Seis cosas que se notan, pensadas desde los dos lados del mostrador:
-
-- **Horas libres de verdad.** El robot ya no inventa \"mañana a las 9:00\": antes de ofrecer, el código busca los próximos dos huecos libres en el calendario (una sola llamada, con caché de 60 s) y se los pasa al agente. Si no hay huecos, el robot dice que la agenda está llena y pregunta si quiere que le avisen. La confirmación vuelve a revisar la hora, por si se ocupó entre tanto.
-- **Preguntar el nombre.** Si el robot no sabe cómo se llama el cliente, se lo pregunta una sola vez: \"¿Con quién tengo el gusto?\". Si ya lo preguntó, no repite.
-- **Urgencias a humano.** Si el cliente dice que es urgente o que le duele (\"me duele mucho\", \"sangrando\", \"emergencia\"), el robot no llama a la IA: le dice en ese momento que lo pasa con una persona y avisa al dueño por correo. \"¿Duele la limpieza?\" no es urgencia: es una pregunta y va al agente normal.
-- **Resumen de la mañana.** Todos los días a las 08:00, un correo al dueño con lo de las últimas 24 h: mensajes atendidos, clientes nuevos, citas agendadas, quién necesita una persona, propuestas sin contestar (con sus apartados) y las citas de hoy. Sin IA: son números y listas de la hoja.
-- **Alertas en el momento.** Cuando un cliente pide agendar con sus palabras (\"quiero una cita\"), el dueño recibe un correo de lead caliente en ese momento. Y cuando se confirma una cita (botón o \"sí\" por texto), otro correo con el nombre, el teléfono y la fecha. Sin esto, el dueño no ve las citas en su calendario.
-- **Anti-abuso.** Más de 10 mensajes en 60 s de un mismo teléfono: el robot le pide calma una vez y no procesa los demás hasta que pase la ventana. Protege la cuota gratis de Gemini, que es lo que deja mudo al robot para todos.
-- **v3.3.1: el cliente también escucha el handoff.** En un handoff normal, el cliente recibe el texto (\"te paso con una persona...\") además del correo al dueño. Antes quedaba en silencio.
-- **v3.4: que nunca se calle.** El 13 de noviembre el robot dejó de contestar sin dejar rastro: el webhook devolvía 200 pero ningún lote se procesaba. Ahora (1) el Agrupador libera solo un teléfono atascado más de 5 minutos —un lote muerto ya no deja mudo a ese cliente para siempre— y (2) hay un `GET /estado` que dice si el chequeo de salud terminó, cuántos mensajes llegaron y cuántos lotes se procesaron, solo números, sin datos de clientes.
-## El reporte semanal
-
-Cada lunes a las 08:00 (hora del negocio), solo, el sistema lee los
-últimos 7 días, cuenta y manda un correo al dueño con: mensajes
-atendidos, clientes calificados, citas agendadas, casos pasados a una
-persona, mensajes sin responder porque una persona atendía, motivos
-más comunes, y un resumen escrito por Gemini con una idea útil y una
-sugerencia. También guarda una fila en la pestaña Reporte. **Nunca
-manda WhatsApp.** Los contadores salen de las hojas, no se inventan:
-si no hay datos, salen en cero.
-
-Para probarlo sin esperar al lunes: `python reporte_semanal.py` (o
-`POST /reporte-semanal` con la clave de dueño).
+- **Horas libres de verdad.** Antes de ofrecer, el código busca los
+  próximos dos huecos libres en el calendario y se los pasa al agente.
+  Si no hay huecos, dice que la agenda está llena. La confirmación
+  vuelve a revisar la hora, por si se ocupó entre tanto.
+- **Agenda con botones.** La propuesta llega con [Confirmar cita |
+  Cambiar hora | Hablar con persona]. Sin botones no hay cita: la
+  propuesta no es una cita hasta que el cliente confirma.
+- **Confirmación sin fricción (v3.4.11).** Corta, con la fecha en
+  claro y la duración real del servicio. Nombre y número se piden
+  DESPUÉS de confirmar, solo si faltan, y diciendo para qué.
+- **Calidez (v3.4.11).** El guion enseña a saludar como una
+  recepcionista buena onda: usa el nombre con naturalidad, valida
+  emociones, celebra los síes, una idea por mensaje. El revisor
+  (R8) nunca deja que el robot afirme una cita que no existe.
+- **Urgencias a humano.** Si el cliente dice que es urgente o que le
+  duele, el robot no llama a la IA: le dice en ese momento que lo
+  pasa con una persona y avisa al dueño por correo. "¿Duele la
+  limpieza?" no es urgencia: es una pregunta y va al agente normal.
+- **Resumen de la mañana.** Todos los días a las 08:00, un correo al
+  dueño con lo de las últimas 24 h: mensajes atendidos, clientes
+  nuevos, citas agendadas, quién necesita una persona, propuestas
+  sin contestar y las citas de hoy. Sin IA: son números y listas.
+- **Que nunca se calle (v3.4).** El Agrupador libera solo un teléfono
+  atascado más de 5 minutos y `GET /estado` dice cuántos lotes se
+  procesaron. Un lote muerto ya no deja mudo a un cliente para siempre.
+- **El cliente también escucha el handoff (v3.3.1).** En un handoff
+  normal, el cliente recibe el texto ("te paso con una persona...")
+  además del correo al dueño.
 
 ## Instalación paso a paso
 
@@ -262,7 +331,7 @@ python instalar.py
 
 Te pregunta tus claves una por una, en español, sin mostrarlas en
 pantalla. Instala las librerías, escribe el `.env`, genera tu clave
-de dueño, corre las 284 pruebas y al final te dice los 3 pasos que
+de dueño, corre las pruebas y al final te dice los 3 pasos que
 siguen: desplegar, pegar el webhook en Meta y mandar el primer mensaje
 de prueba. Se puede correr dos veces: si ya tienes `.env`, te pregunta
 antes de tocarlo.
@@ -331,7 +400,7 @@ a mano, genera una con `python3 -c "import secrets; print(secrets.token_urlsafe(
 uvicorn app:app --port 8000
 ```
 
-Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.0.0", ...}`.
+Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.9.0", ...}`.
 Para que Meta pueda llamar a tu webhook, tu computadora necesita una URL
 pública: usa `ngrok http 8000` mientras pruebas (gratis), y pon esa URL
 en Meta como `https://tu-url.ngrok.io/webhook`.
@@ -339,8 +408,9 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 334 pruebas + el servidor arranca
-python test_v3_3.py          # 33 casos nuevos de la v3.3
+python instalar.py --check   # todo: 462 pruebas + el servidor arranca
+python test_v3_9.py          # 33 casos nuevos de la v3.9
+python test_inteligencia.py  # 41 escenarios de inteligencia, sin API key
 ```
 
 Y las conversaciones doradas (contra la IA real, con tu clave):
@@ -384,18 +454,23 @@ secreto del servicio o pega su contenido en una variable de entorno
 
 ## Qué sigue pendiente (solo lo puede hacer Jose)
 
-- **Token permanente de WhatsApp.** El temporal dura ~24 horas; al
-  vencerse, el robot deja de contestar (error 401 en Diagnóstico y en
-  los Logs). Ya murió 3 veces. Sácalo en Meta y ponlo en Render como
-  `WHATSAPP_TOKEN`.
 - **Contraseña de aplicación de Gmail.** Sin ella no llegan los
-  correos de handoff ni el reporte semanal del lunes. El robot
-  contesta igual, pero esos correos no llegan. Pon `GMAIL_USER` y
-  `GMAIL_APP_PASSWORD` en Render (Environment) y redeploya.
+  correos de handoff, el reporte semanal del lunes (texto + HTML) ni
+  las alertas de cita pendiente. El robot contesta igual, pero esos
+  correos no llegan. Pon `GMAIL_USER` y `GMAIL_APP_PASSWORD` en
+  Render (Environment) y redeploya.
+- **Claves de seguridad en Render.** `ADMIN_TOKEN` y `META_APP_SECRET`
+  sin poner: `/pausa` y `/reporte-semanal` están cerrados y el webhook
+  acepta mensajes sin firma verificada.
 - **Calendario del dueño.** Hoy las citas caen en el calendario de la
   cuenta de servicio y el dueño no las ve en su app. Comparte el
   calendario del negocio con el correo de la cuenta de servicio
   (Editor) y pon su ID en `CALENDAR_ID` en Render, en vez de `primary`.
+- **Batería dorada con IA real (v3.4.8+).** Las 20 conversaciones
+  doradas pasaron en v3.4.7; las versiones nuevas (calidez,
+  confirmación, Sereno) aún no se corren con Gemini real en la Mac.
+- **Prueba en vivo por WhatsApp (v3.9).** Probar la duración por
+  servicio, el espejo Citas, la cita pendiente y el reporte HTML.
 
 ## Decisiones de diseño (Apple / Dieter Rams)
 
@@ -404,7 +479,7 @@ secreto del servicio o pega su contenido en una variable de entorno
 - **Comprensible.** Un principiante puede leer `logic.py` de arriba a abajo y entender el robot. Los nombres dicen qué hace cada cosa.
 - **Honesto.** Si no sabe algo, lo dice. Si no hay datos, el reporte dice cero. Si no está probado, esta guía lo dice.
 - **Discreto.** El robot se calla cuando hay un humano. El botón de apagado es una celda, no un panel.
-- **Seguro.** La lista blanca de fotos, el handoff por correo, el registro de todo, las claves solo en el `.env`, y desde la v3.0: la clave de dueño y la firma de Meta. Nada se manda sin pasar por una validación.
+- **Seguro.** La lista blanca de fotos, el handoff por correo, el registro de todo, las claves solo en el `.env`, la clave de dueño y la firma de Meta. Nada se manda sin pasar por una validación.
 - **Duradero.** El negocio cambia llenando una hoja o cambiando su perfil, no reprogramando el robot. Y a diferencia de n8n: no pagas por operación, el código es tuyo.
 
 ## Qué NO hace este robot
@@ -418,7 +493,7 @@ secreto del servicio o pega su contenido en una variable de entorno
 
 ## Qué cambió respecto a la versión de n8n (mejoras, no recortes)
 
-- **La cita dura 60 minutos.** En n8n, el nodo de Calendar ponía inicio = fin. Aquí `booking.py` calcula fin = inicio + duración, y la duración se cambia en el `.env`.
+- **La cita dura lo que diga la hoja.** En n8n, el nodo de Calendar ponía inicio = fin. Aquí `booking.py` calcula fin = inicio + duración, y la duración viene de la columna `Duración_min` de Conocimiento (sin dato: 60).
 - **Clientes sí se registra.** En n8n, el último nodo solo escribía Conversaciones y había que duplicarlo. Aquí `logic.py` escribe en las DOS hojas siempre.
 - **El audio sí se entiende de verdad.** En n8n era un nodo Code con instrucciones para conectar la llamada. Aquí `gemini.py` hace la llamada a Gemini multimodal directamente.
 - **El reporte no depende de un Merge.** Los contadores se calculan en `logic.contar_semana` con las fechas reales de las hojas.
