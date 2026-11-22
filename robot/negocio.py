@@ -30,13 +30,70 @@ def configuracion() -> dict[str, str]:
     no tiene la pestaña (hojas viejas), devuelve {} y todo sigue
     como antes. Se lee perezoso y con red de seguridad: un fallo de
     red nunca tumba una respuesta.
+
+    (v3.6) Si NEGOCIOS_SHEET_ID y NEGOCIO_CLAVE están en Render, el
+    documento maestro Negocios manda paquete y canales: Jose los
+    cambia con checkboxes en un solo lugar y el robot los respeta.
     """
     try:
         from . import sheets
 
-        return sheets.leer_configuracion()
+        cfg = sheets.leer_configuracion()
     except Exception:  # noqa: BLE001 - sin configuración, defaults
+        cfg = {}
+    try:
+        maestra = _config_maestra()
+        for clave in ("paquete", "canal_whatsapp", "canal_messenger", "canal_instagram"):
+            if maestra.get(clave):
+                cfg[clave] = maestra[clave]
+    except Exception:  # noqa: BLE001 - sin maestro, manda la hoja
+        pass
+    return cfg
+
+
+def _si_no(valor) -> str:
+    """Normaliza un checkbox de Sheets (TRUE/FALSE) o SI/NO a SI/NO."""
+    texto = str(valor if valor is not None else "").strip().upper()
+    if texto in ("TRUE", "SI", "SÍ", "1", "YES"):
+        return "SI"
+    if texto in ("FALSE", "NO", "0", ""):
+        return "NO" if texto else ""
+    return texto
+
+
+def _config_maestra() -> dict[str, str]:
+    """Paquete y canales desde el documento maestro Negocios.
+
+    Lee la pestaña Índice del maestro y busca la fila con la clave
+    de este negocio (NEGOCIO_CLAVE). Sin variables o sin fila, {}
+    y el robot usa la Configuración de su propia hoja. Nunca lanza.
+    """
+    import os
+
+    sid = os.getenv("NEGOCIOS_SHEET_ID", "").strip()
+    clave = os.getenv("NEGOCIO_CLAVE", "").strip()
+    if not sid or not clave:
         return {}
+    try:
+        from . import sheets
+
+        filas = sheets.leer_pestana("Índice", spreadsheet_id=sid)
+    except Exception:  # noqa: BLE001 - sin maestro, sin cambios
+        return {}
+    for fila in filas:
+        if str(fila.get("Clave", "")).strip().lower() == clave.lower():
+            cfg: dict[str, str] = {}
+            paquete_valor = str(fila.get("Paquete", "") or "").strip().lower()
+            if paquete_valor:
+                cfg["paquete"] = paquete_valor
+            for columna, clave_cfg in (("WhatsApp", "canal_whatsapp"),
+                                       ("Messenger", "canal_messenger"),
+                                       ("Instagram", "canal_instagram")):
+                valor = _si_no(fila.get(columna, ""))
+                if valor:
+                    cfg[clave_cfg] = valor
+            return cfg
+    return {}
 
 
 def _cfg(clave: str, defecto: str = "") -> str:
@@ -69,6 +126,60 @@ def mensaje_fuera_horario() -> str:
 def correo_dueno() -> str:
     """Correo del dueño: Configuración manda; si no, OWNER_EMAIL."""
     return _cfg("correo_dueno", "") or (settings.owner_email or "").strip()
+
+
+# --- Paquetes (v3.6): todos tienen el mismo código (la versión pro);
+# el paquete solo autoriza qué funciones recibe cada negocio. Jose lo
+# cambia con un botón en la hoja; el robot lo respeta en cada mensaje.
+
+_FUNCIONES_POR_PAQUETE = {
+    "basico": {
+        "responder_faqs": True, "derivar_humano": True,
+        "agendar": False, "enviar_fotos": False, "reportes": False,
+    },
+    "pro": {
+        "responder_faqs": True, "derivar_humano": True,
+        "agendar": True, "enviar_fotos": True, "reportes": True,
+    },
+    "premium": {
+        "responder_faqs": True, "derivar_humano": True,
+        "agendar": True, "enviar_fotos": True, "reportes": True,
+    },
+}
+
+
+def paquete() -> str:
+    """El paquete del negocio: basico / pro / premium, o "" si no hay."""
+    return _cfg("paquete", "").strip().lower()
+
+
+def funcion_activa(nombre: str) -> bool:
+    """¿La función está autorizada para este negocio?
+
+    Prioridad: interruptor explícito en Configuración (SI/NO) manda;
+    si está vacío, decide el paquete; sin paquete, todo en SI
+    (comportamiento histórico, compatible con hojas viejas).
+    """
+    explicito = _cfg(nombre, "").strip().upper()
+    if explicito in ("SI", "NO"):
+        return explicito == "SI"
+    p = paquete()
+    if p in _FUNCIONES_POR_PAQUETE:
+        return bool(_FUNCIONES_POR_PAQUETE[p].get(nombre, True))
+    return True
+
+
+def canal_negocio_activo(canal: str) -> bool:
+    """Switch por canal del negocio (canal_whatsapp, canal_messenger...).
+
+    Vacío = SI para WhatsApp (el canal vivo) y NO para los demás
+    (diseñados, apagados hasta conectar). El documento maestro
+    Negocios puede mandar este valor vía NEGOCIOS_SHEET_ID.
+    """
+    valor = _cfg(f"canal_{canal}", "").strip().upper()
+    if valor in ("SI", "NO"):
+        return valor == "SI"
+    return canal == "whatsapp"
 
 
 def nombre_recepcionista() -> str:

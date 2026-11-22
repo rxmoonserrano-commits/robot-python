@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from .gemini import generar_texto, ultimo_modelo
 from .negocio import (
     frase_cierre,
-    interruptor,
+    funcion_activa,
     mensaje_fuera_horario,
     nombre_negocio,
     nombre_recepcionista,
@@ -61,16 +61,16 @@ def _construir_guion() -> str:
     _fuera = mensaje_fuera_horario()
     if _fuera:
         extras += f'\nSi es de noche o fuera de horario, usa este mensaje tal cual: "{_fuera}"'
-    if not interruptor("responder_faqs"):
+    if not funcion_activa("responder_faqs"):
         extras += ("\nSi la respuesta está en las preguntas frecuentes, di que "
                    "un humano del negocio te atenderá con gusto.")
-    if not interruptor("derivar_humano"):
+    if not funcion_activa("derivar_humano"):
         extras += ("\nNo derives a una persona por preguntas de rutina; "
                    "resuelve tú mismo. Las urgencias y los temas sensibles "
                    "siempre se derivan.")
-    if not interruptor("enviar_fotos"):
+    if not funcion_activa("enviar_fotos"):
         extras += "\nNo envíes fotos: la función de fotos está apagada para este negocio."
-    if not interruptor("agendar"):
+    if not funcion_activa("agendar"):
         extras += "\nNo ofrezcas agendar citas: la agenda está apagada para este negocio."
     return f"""Te llamas {recep}, eres la recepcionista {de_negocio}. Atiendes por
 mensaje, solo con texto, nunca con audio. Español mexicano, cálido y

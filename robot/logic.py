@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
-from .negocio import interruptor
+from .negocio import canal_negocio_activo, funcion_activa
 from .revision import revisar_respuesta
 from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo, enviar_partes
@@ -931,6 +931,11 @@ def atender_mensaje(
         leer_activo = getattr(deps, "leer_robot_activo", lambda t: "SI")
         if not robot_activo_para_cliente(leer_activo(telefono)):
             puede, motivo_silencio = False, "robot apagado para este cliente"
+    # (v3.6) Switch por canal del negocio (Configuración o documento
+    # maestro): si WhatsApp está apagado para este negocio, el robot
+    # no contesta, igual que con el botón global. Vacío = SI.
+    if puede and not canal_negocio_activo("whatsapp"):
+        puede, motivo_silencio = False, "canal WhatsApp apagado para este negocio"
     # 2. Registrar que llegó el mensaje del cliente (una sola vez, siempre).
     deps.registrar_conversacion(
         fecha, telefono, "cliente", texto,
@@ -1340,8 +1345,8 @@ def atender_mensaje(
     # (v3.5) Interruptor de agenda desde Configuración: si el negocio
     # apagó "agendar", el robot responde preguntas pero no propone
     # citas (ni por red de seguridad). Vacío en la hoja = SI, como
-    # siempre.
-    _agendar_activo = interruptor("agendar")
+    # siempre. (v3.6) Ahora también manda el paquete: básico no agenda.
+    _agendar_activo = funcion_activa("agendar")
     if not _agendar_activo:
         respuesta.quiere_agendar = "no"
 
@@ -1493,8 +1498,9 @@ def atender_mensaje(
     # (si la hay), luego el texto. Si el agente decidió partes, cada
     # parte va como su propio mensaje, en orden (v3.4.8).
     # (v3.5) Interruptor de fotos desde Configuración: si está en NO,
-    # no se manda ninguna foto (el texto sale igual).
-    if foto and interruptor("enviar_fotos"):
+    # no se manda ninguna foto (el texto sale igual). (v3.6) El
+    # paquete básico tampoco manda fotos.
+    if foto and funcion_activa("enviar_fotos"):
         deps.enviar_foto(telefono, foto)
     if respuesta.partes:
         enviar_partes(deps.enviar_texto, telefono, respuesta.partes, dormir=con_ritmo)

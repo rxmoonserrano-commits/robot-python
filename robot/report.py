@@ -16,6 +16,7 @@ from .config import settings
 from .gemini import generar_texto
 from .logic import _DIAS_NOMBRE, _MESES, contar_semana
 from .mail import enviar_correo
+from .negocio import funcion_activa
 from .sheets import guardar_reporte, leer_pestana, leer_propuestas
 
 
@@ -51,7 +52,11 @@ def generar_resumen_manana() -> dict:
     semanal). Devuelve los contadores y las listas.
     Sin Gmail, el correo no sale (igual que el semanal) y eso queda en
     el registro del trabajo programado.
+
+    (v3.6) Paquete básico: sin reportes. Se omite sin mandar nada.
     """
+    if not funcion_activa("reportes"):
+        return {"omitido": True, "motivo": "paquete sin reportes"}
     hasta = datetime.now(timezone.utc)
     desde = hasta - timedelta(hours=24)
     conversaciones = leer_pestana("Conversaciones")
@@ -138,7 +143,12 @@ def generar_resumen_manana() -> dict:
 
 
 def generar_reporte_semanal() -> dict:
-    """Hace el reporte de los últimos 7 días y lo manda. Devuelve los contadores."""
+    """Hace el reporte de los últimos 7 días y lo manda. Devuelve los contadores.
+
+    (v3.6) Paquete básico: sin reportes. Se omite sin mandar nada.
+    """
+    if not funcion_activa("reportes"):
+        return {"omitido": True, "motivo": "paquete sin reportes"}
     hasta = datetime.now(timezone.utc)
     desde = hasta - timedelta(days=7)
     conversaciones = leer_pestana("Conversaciones")

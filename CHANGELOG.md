@@ -5,6 +5,40 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.6.0 — Paquetes y switches por canal (2026-11-21)
+
+Todos tienen el mismo código (la versión pro); el paquete autoriza
+qué recibe cada negocio. Jose lo cambia con un botón en la hoja.
+
+1. **Paquetes:** `paquete` en Configuración (basico / pro / premium).
+   - básico: responde FAQs, deriva a humano, registra leads. Sin
+     agenda, sin fotos, sin reportes.
+   - pro: todo lo anterior + agenda con botones, fotos oficiales,
+     resumen de la mañana, reporte semanal y alertas de lead.
+   - premium: todo lo anterior + Messenger/Instagram (cuando se
+     conecten) y seguimiento de leads por recuperar.
+   `negocio.funcion_activa(nombre)`: interruptor explícito SI/NO
+   manda; si está vacío, decide el paquete; sin paquete, todo SI
+   (compatibilidad total con hojas viejas).
+2. **Switches por canal:** `canal_whatsapp`, `canal_messenger`,
+   `canal_instagram` en Configuración. Si WhatsApp está en NO, el
+   robot no contesta (igual que el botón global). Vacío = SI para
+   WhatsApp, NO para los demás.
+3. **Documento maestro manda:** con NEGOCIOS_SHEET_ID y
+   NEGOCIO_CLAVE en Render, el robot lee la fila del negocio en la
+   pestaña Índice del maestro (paquete + checkboxes de canales) y
+   esos valores ganan sobre la hoja operativa. Sin variables, todo
+   sigue como antes. `sheets.leer_pestana` acepta spreadsheet_id
+   opcional; la caché ahora distingue hoja + pestaña.
+4. **Cortes deterministas:** agenda y fotos usan funcion_activa
+   (paquete básico no propone ni manda fotos); reportes se omiten
+   en básico; el guion refleja el paquete.
+5. **Sheets:** maestro Índice con columnas Clave, Paquete (dropdown)
+   y checkboxes WhatsApp/Messenger/Instagram; panel del negocio con
+   controles y matriz de paquetes; plantilla y hoja viva con las
+   filas paquete/canal_* (la demo queda en pro + WhatsApp SI).
+6. **Pruebas:** test_v3_6.py (12 casos). Suite completa en verde.
+
 ## v3.5.0 — Multi-negocio: la hoja manda + canales diseñados (2026-11-21)
 
 La evolución que Jose pidió: todo completo, Messenger e Instagram

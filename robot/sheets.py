@@ -68,30 +68,37 @@ def _servicio_sheets():
 # la caché de su pestaña al momento. Nadie lee datos viejos de más
 # de 10 segundos, y nadie lee lo que el propio robot acaba de escribir.
 _CACHE_TTL_SEGUNDOS = 10.0
-_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_CACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def _clave_cache(pestana: str, spreadsheet_id: str | None = None) -> tuple[str, str]:
+    return (spreadsheet_id or settings.sheet_id, pestana)
 
 
 def _invalidar_cache(pestana: str) -> None:
     """Borra la caché de una pestaña (después de escribir en ella)."""
     with _CACHE_LOCK:
-        _CACHE.pop(pestana, None)
+        _CACHE.pop(_clave_cache(pestana), None)
 
 
-def leer_pestana(pestana: str) -> list[dict]:
+def leer_pestana(pestana: str, spreadsheet_id: str | None = None) -> list[dict]:
     """Lee una pestaña y la devuelve como lista de filas (dict por columna).
 
     La primera fila son los encabezados. Las filas vacías se ignoran.
-    Las lecturas se comparten 10 s en caché (ver arriba).
+    Las lecturas se comparten 10 s en caché (ver arriba). Con
+    spreadsheet_id se lee de otra hoja (el documento maestro
+    Negocios, v3.6); sin él, de la hoja operativa del negocio.
     """
+    clave = _clave_cache(pestana, spreadsheet_id)
     with _CACHE_LOCK:
-        guardado = _CACHE.get(pestana)
+        guardado = _CACHE.get(clave)
         if guardado and time.monotonic() - guardado[0] < _CACHE_TTL_SEGUNDOS:
             return list(guardado[1])
     servicio = _servicio_sheets()
     resultado = (
         servicio.values()
-        .get(spreadsheetId=settings.sheet_id, range=f"{pestana}!A1:Z1000")
+        .get(spreadsheetId=clave[0], range=f"{pestana}!A1:Z1000")
         .execute()
     )
     valores = resultado.get("values", [])
@@ -105,7 +112,7 @@ def leer_pestana(pestana: str) -> list[dict]:
                 continue
             filas.append({h: (fila[i] if i < len(fila) else "") for i, h in enumerate(encabezados)})
     with _CACHE_LOCK:
-        _CACHE[pestana] = (time.monotonic(), filas)
+        _CACHE[clave] = (time.monotonic(), filas)
     return list(filas)
 
 
