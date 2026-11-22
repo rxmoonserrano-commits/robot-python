@@ -218,9 +218,12 @@ def registrar_cita_espejo(fila: dict) -> None:
         log_error(f"[citas-espejo] No se pudo registrar la cita: {exc}")
 
 
-def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str) -> None:
-    """Actualiza el Estado (columna I) de la última cita espejo que
-    coincida con teléfono + fecha (v3.9). Best-effort."""
+def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = None,
+                           notas: str | None = None) -> None:
+    """Actualiza el Estado (columna I) y/o las Notas (columna M) de la
+    última cita espejo que coincida con teléfono + fecha (v3.9; las
+    Notas se suman en v3.10 para guardar los datos de la otra
+    persona). Best-effort. Sin estado ni notas, no hace nada."""
     try:
         filas = leer_pestana("Citas")
         dia = str(fecha_cita or "")[:10]
@@ -233,15 +236,36 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str) -> None:
         if numero is None:
             return
         servicio = _servicio_sheets()
-        servicio.values().update(
-            spreadsheetId=settings.sheet_id,
-            range=f"Citas!I{numero}",
-            valueInputOption="RAW",
-            body={"values": [[estado]]},
-        ).execute()
+        if estado is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!I{numero}",
+                valueInputOption="RAW",
+                body={"values": [[estado]]},
+            ).execute()
+        if notas is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!M{numero}",
+                valueInputOption="RAW",
+                body={"values": [[notas]]},
+            ).execute()
         _invalidar_cache("Citas")
     except Exception as exc:  # noqa: BLE001
         log_error(f"[citas-espejo] No se pudo actualizar la cita: {exc}")
+
+
+def leer_citas_espejo() -> list[dict]:
+    """Todas las filas de la pestaña Citas (espejo, v3.10).
+
+    Lo usa el tope de 2 citas por número: cuenta las citas activas
+    (Confirmada/Pendiente a futuro) de un teléfono. Si la pestaña no
+    existe o la hoja falla, devuelve [].
+    """
+    try:
+        return leer_pestana("Citas")
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def leer_configuracion() -> dict[str, str]:
@@ -495,9 +519,12 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
 # sabía de qué cita hablaba. Ahora viven también en la pestaña
 # Propuestas (una fila por teléfono, se borra al confirmarse).
 # Columnas: telefono, nombre, motivo, fecha_cita, fecha_bonita, creado_en,
-# apartado (v3.2: "si" si le apartaron el lugar), aparta_hasta (hasta cuándo).
+# apartado (v3.2: "si" si le apartaron el lugar), aparta_hasta (hasta cuándo),
+# extra_json (v3.10: JSON con nombre_paciente, relacion_paciente y la
+# segunda cita "cita2" si hay dos; vacío en propuestas de una cita).
 _COLUMNAS_PROPUESTA = ["telefono", "nombre", "motivo", "fecha_cita",
-                       "fecha_bonita", "creado_en", "apartado", "aparta_hasta"]
+                       "fecha_bonita", "creado_en", "apartado", "aparta_hasta",
+                       "extra_json"]
 
 
 def registrar_diagnostico(fecha, componente: str, estado: str, detalle: str,
@@ -542,7 +569,7 @@ def guardar_propuesta(telefono: str, propuesta: dict) -> None:
             servicio = _servicio_sheets()
             servicio.values().update(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:H{i + 2}",
+                range=f"Propuestas!A{i + 2}:I{i + 2}",
                 valueInputOption="RAW",
                 body={"values": [fila_dato]},
             ).execute()
@@ -558,7 +585,7 @@ def borrar_propuesta(telefono: str) -> None:
             servicio = _servicio_sheets()
             servicio.values().clear(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:H{i + 2}",
+                range=f"Propuestas!A{i + 2}:I{i + 2}",
             ).execute()
             _invalidar_cache("Propuestas")
             return

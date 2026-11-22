@@ -42,11 +42,13 @@ R7. NO REPETIRSE (v3.2): si la respuesta cierra con la misma frase
     que el último mensaje del robot ("Quedamos a tus órdenes" tres
     veces seguidas en vivo), esa frase se quita. Si la respuesta ERA
     solo esa frase, se cambia por "¿Te ayudo con algo más?".
-R8. NUNCA AFIRMAR UNA CITA QUE NO EXISTE (v3.4.11): si el cliente no
-    tiene cita creada, frases como "ya estás apuntado" o "tu cita
-    quedó" se quitan; si la respuesta era solo eso, se cambia por
+R8. NUNCA AFIRMAR UNA CITA QUE NO EXISTE (v3.4.11, ampliada v3.10):
+    si el cliente no tiene cita a futuro, frases como "ya estás
+    apuntado", "tu cita quedó" o "quedamos en que nos vemos el
+    martes" se quitan; si la respuesta era solo eso, se cambia por
     "¿Te la confirmo con botones para dejarla lista?". En vivo dijo
-    "ya estás apuntado" sin que existiera ninguna cita.
+    "ya estás apuntado" sin que existiera ninguna cita, y después
+    "quedamos en que nos vemos el martes" con una cita ya pasada.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -250,10 +252,17 @@ def _es_oferta(oracion: str) -> bool:
 # (v3.4.11) Frases que afirman una cita confirmada. Si el cliente NO
 # tiene cita creada, el robot no puede decirlas: sería mentirle. En
 # vivo dijo "ya estás apuntado" sin que existiera ninguna cita.
+# (v3.10) Se suman las formas de "quedamos en que nos vemos...":
+# en vivo (2026-11-22) el robot dijo "Quedamos en que nos vemos el
+# martes a las 09:00" sin crear ninguna cita, y R8 no la atrapó.
 _AFIRMACION_CITA_RE = re.compile(
     r"ya estás apuntado|ya quedó apuntado|quedaste apuntado|tu cita quedó"
     r"|cita confirmada|ya te agendé|ya quedó agendada|ya está agendada"
-    r"|ya está apartado|ya quedó apartado",
+    r"|ya está apartado|ya quedó apartado"
+    r"|quedamos en que|quedamos para|ya quedó para|quedó para el"
+    r"|ya tienes tu cita|tu cita está|ya está tu cita|te espero el"
+    r"|nos vemos el (lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)"
+    r"|te veo el (lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)",
     re.IGNORECASE,
 )
 
@@ -340,7 +349,12 @@ def revisar_respuesta(
     # R8 (v3.4.11): nunca afirmar una cita confirmada si el cliente
     # NO tiene cita creada. Si la respuesta solo afirma eso, se
     # reemplaza por la oferta real (confirmar con botones).
-    if not estado.get("tiene_cita") and _AFIRMACION_CITA_RE.search(texto):
+    # (v3.10) Mira la cita a FUTURO: una cita ya pasada no justifica
+    # afirmar una cita nueva (en vivo, una cita de hace 3 días dejaba
+    # pasar "quedamos en que nos vemos..."). Si el estado no trae
+    # tiene_cita_futura (tests viejos), cae al comportamiento previo.
+    _tiene_futura = estado.get("tiene_cita_futura", estado.get("tiene_cita"))
+    if not _tiene_futura and _AFIRMACION_CITA_RE.search(texto):
         quedan = [o for o in _partir_oraciones(texto)
                   if not _AFIRMACION_CITA_RE.search(o)]
         if quedan:

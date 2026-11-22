@@ -7,9 +7,9 @@ avisa por correo y se calla. Todo lo que sabe del negocio vive en una
 hoja de Google Sheets. Nada de audio de respuesta, nada de mensajes
 automáticos por WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa **462 pruebas
-> simuladas sin internet** en 24 archivos (más la batería de
-> inteligencia de 41 escenarios). Y hay **20 conversaciones doradas**
+> **Honestidad, como siempre:** la lógica pasa **508 pruebas
+> simuladas sin internet** en 26 archivos (más la batería de
+> inteligencia de 41 escenarios, ya incluida en el conteo). Y hay **20 conversaciones doradas**
 > aparte (`test_conversaciones_doradas.py`): conversaciones completas
 > contra la IA real, que se corren con la clave de Gemini antes de
 > cada despliegue — la puerta de embarque: si una falla, esa versión
@@ -83,7 +83,7 @@ El código de este flujo está en `robot/logic.py`, función
 | `CHANGELOG.md` | La historia de cada versión, en orden |
 | `requirements.txt` | Las librerías (todas gratuitas) |
 | `.env.example` | La plantilla de claves: cópiala como `.env` y llénala |
-| `test_simulado.py` … `test_v3_9.py` | 24 archivos de pruebas sin internet (462 casos): `python test_v3_9.py` y sus hermanas |
+| `test_simulado.py` … `test_v3_10.py` | 26 archivos de pruebas sin internet (508 casos): `python test_v3_10.py` y sus hermanas |
 | `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
 | `test_conversaciones_doradas.py` | 20 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
 
@@ -299,13 +299,23 @@ siguiente cierra distinto.
 - **Agenda con botones.** La propuesta llega con [Confirmar cita |
   Cambiar hora | Hablar con persona]. Sin botones no hay cita: la
   propuesta no es una cita hasta que el cliente confirma.
+- **Dos citas en una (v3.10).** Si pide la suya y la de otra persona
+  (o dos servicios), se proponen juntas con un solo botón:
+  [Confirmar ambas | Cambiar hora | Hablar con persona]. Al confirmar
+  se crean las dos. Si la cita es para otra persona, el robot pide su
+  nombre completo y el número para registrarla.
+- **Tope de 2 citas por número (v3.10).** Máximo 2 citas activas por
+  teléfono (la suya y la de otra persona), para que nadie inunde el
+  calendario. Con 2 activas, el robot explica el límite y ofrece
+  cambiar alguna.
 - **Confirmación sin fricción (v3.4.11).** Corta, con la fecha en
   claro y la duración real del servicio. Nombre y número se piden
   DESPUÉS de confirmar, solo si faltan, y diciendo para qué.
 - **Calidez (v3.4.11).** El guion enseña a saludar como una
   recepcionista buena onda: usa el nombre con naturalidad, valida
   emociones, celebra los síes, una idea por mensaje. El revisor
-  (R8) nunca deja que el robot afirme una cita que no existe.
+  (R8, ampliado en v3.10) nunca deja que el robot afirme una cita
+  que no existe (mira la cita a futuro, no una ya pasada).
 - **Urgencias a humano.** Si el cliente dice que es urgente o que le
   duele, el robot no llama a la IA: le dice en ese momento que lo
   pasa con una persona y avisa al dueño por correo. "¿Duele la

@@ -125,12 +125,75 @@ def cargar_propuestas(deps: Dependencias) -> int:
         telefono = str(fila.get("telefono", "") or "").strip()
         if not telefono or not str(fila.get("fecha_cita", "") or "").strip():
             continue
-        _CITAS_PENDIENTES[telefono] = {
+        propuesta = {
             k: str(fila.get(k, "") or "")
             for k in ("nombre", "motivo", "fecha_cita", "fecha_bonita", "creado_en")
         }
+        # (v3.10) La columna extra_json trae los datos de la otra
+        # persona y la segunda cita, si la hay. Vacía o ilegible =
+        # propuesta de una cita, como siempre (compatibilidad).
+        extra = _parse_extra_propuesta(fila.get("extra_json"))
+        propuesta["nombre_paciente"] = extra.get("nombre_paciente", "")
+        propuesta["relacion_paciente"] = extra.get("relacion_paciente", "")
+        propuesta["numero_paciente"] = extra.get("numero_paciente", "")
+        propuesta["cita2"] = extra.get("cita2")
+        _CITAS_PENDIENTES[telefono] = propuesta
         n += 1
     return n
+
+
+def _parse_extra_propuesta(crudo) -> dict:
+    """Lee el JSON de la columna extra_json de Propuestas (v3.10).
+
+    Devuelve {"nombre_paciente", "relacion_paciente", "numero_paciente",
+    "cita2"} con valores seguros. Vacío o ilegible = propuesta de una
+    cita para quien escribe, como siempre.
+    """
+    vacio = {"nombre_paciente": "", "relacion_paciente": "",
+             "numero_paciente": "", "cita2": None}
+    if not crudo:
+        return vacio
+    try:
+        datos = json.loads(str(crudo))
+    except (ValueError, TypeError):
+        return vacio
+    if not isinstance(datos, dict):
+        return vacio
+    cita2 = datos.get("cita2")
+    if isinstance(cita2, dict) and str(cita2.get("fecha_cita") or "").strip():
+        cita2_limpia = {
+            "motivo": str(cita2.get("motivo") or "").strip(),
+            "fecha_cita": str(cita2.get("fecha_cita") or "").strip(),
+            "fecha_bonita": str(cita2.get("fecha_bonita") or "").strip(),
+            "nombre_paciente": str(cita2.get("nombre_paciente") or "").strip(),
+            "relacion_paciente": str(cita2.get("relacion_paciente") or "").strip(),
+            "numero_paciente": str(cita2.get("numero_paciente") or "").strip(),
+        }
+    else:
+        cita2_limpia = None
+    return {
+        "nombre_paciente": str(datos.get("nombre_paciente") or "").strip(),
+        "relacion_paciente": str(datos.get("relacion_paciente") or "").strip(),
+        "numero_paciente": str(datos.get("numero_paciente") or "").strip(),
+        "cita2": cita2_limpia,
+    }
+
+
+def _extra_propuesta_json(propuesta: dict) -> str:
+    """Serializa los extras de la propuesta a la columna extra_json.
+
+    Vacío si no hay nada extra (propuesta de una cita para quien
+    escribe): las filas viejas y las nuevas simples quedan igual.
+    """
+    datos = {
+        "nombre_paciente": str(propuesta.get("nombre_paciente") or "").strip(),
+        "relacion_paciente": str(propuesta.get("relacion_paciente") or "").strip(),
+        "numero_paciente": str(propuesta.get("numero_paciente") or "").strip(),
+        "cita2": propuesta.get("cita2"),
+    }
+    if not any(datos.values()):
+        return ""
+    return json.dumps(datos, ensure_ascii=False)
 
 
 # Una propuesta solo se confirma con un "sí" por texto si es reciente
@@ -375,7 +438,17 @@ def _motivo_handoff_en_silencio(texto: str) -> str:
 _PALABRAS_QUIERE_AGENDAR = (
     "quiero una cita", "quiero agendar", "agendame", "me agendo",
     "hazme una cita", "me haces una cita", "quiero reservar",
-    "reservame", "reserva una cita",
+    "reservame", "reserva una cita", "reservar una cita",
+    "agendar una cita", "hacer una cita", "quiero cita",
+    # (v3.10) Pedir disponibilidad o agendar para otra persona
+    # también es querer agendar: "¿qué días tienes disponibles el
+    # martes para mí y el miércoles para mi hermana?" no trae
+    # ninguna de las frases de arriba y en vivo no generó botones.
+    "que dias tienes", "dias tienes disponibles",
+    "cita para mi", "cita para su", "cita para ella", "cita para el",
+    "reservar para", "agendar para", "apartar para",
+    "puedo agendar", "puedo reservar",
+    "quiero apartar", "apartame",
 )
 
 
@@ -423,6 +496,177 @@ def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
     }
 
 
+# (v3.10) Tope de citas por número: la suya y la de otra persona.
+# Para que nadie inunde el calendario reservando sin parar.
+MAX_CITAS_POR_NUMERO = 2
+
+
+def _corregir_fecha_propuesta(fecha_cita, conocimiento, ahora, deps, huecos):
+    """Valida y corrige una fecha propuesta (v3.10, extraída del paso 9).
+
+    Si cae fuera de horario o en el pasado, se corrige a la próxima
+    apertura (en la fecha pedida o después). Si esa hora está ocupada,
+    se usa el primer hueco libre real. Devuelve la fecha final en ISO,
+    o None si no hay fecha válida (no se propone nada).
+    """
+    fecha_dt = None
+    try:
+        fecha_dt = _parse_fecha_iso(fecha_cita)
+        if fecha_dt is None:
+            raise ValueError(f"Fecha no legible: {fecha_cita!r}")
+        local_dt = _a_hora_local(fecha_dt)
+        horarios = horarios_por_dia(conocimiento)
+        if not horarios:
+            # Sin filas de horario en la hoja, no hay contra qué
+            # validar: se confía en el agente (como siempre).
+            valida = local_dt > _a_hora_local(ahora)
+        else:
+            horas = horarios.get(local_dt.weekday())
+            valida = (
+                horas is not None
+                and horas[0] <= local_dt.hour * 60 + local_dt.minute < horas[1]
+                and local_dt > _a_hora_local(ahora)
+            )
+    except (ValueError, TypeError):
+        valida = False
+    if not valida:
+        # (v3.4.10) La corrección busca la apertura en la fecha
+        # pedida o después, no desde ahora: pedir domingo y recibir
+        # "mañana jueves" no tiene sentido.
+        proxima_valida = proxima_apertura(conocimiento, ahora, desde=fecha_dt)
+        if proxima_valida is not None:
+            fecha_cita = proxima_valida.isoformat()
+        else:
+            return None
+    # (v3.4.9) La fecha propuesta también se revisa contra el
+    # calendario: si esa hora ya está ocupada, se usa el primer
+    # hueco libre real. Así la confirmación no falla con "esa hora
+    # ya se ocupó" por una fecha que el agente calculó.
+    try:
+        _verificar_libre = getattr(deps, "hora_libre", lambda f: True)
+        if not _verificar_libre(fecha_cita) and huecos:
+            fecha_cita = huecos[0]
+    except Exception:
+        pass  # sin calendario no se bloquea la propuesta
+    return fecha_cita
+
+
+def _citas_activas_telefono(deps, telefono: str, ahora: datetime) -> int:
+    """Citas activas (Confirmada/Pendiente a futuro) de un teléfono (v3.10).
+
+    El espejo de Citas es la fuente; si no se puede leer, se cae a
+    la fila de Clientes (una cita futura agendada cuenta como 1).
+    Best-effort: ante cualquier duda, devuelve 0 y no bloquea.
+    """
+    try:
+        leer = getattr(deps, "leer_citas_espejo", None)
+        if leer is not None:
+            filas = leer() or []
+            hoy = _a_hora_local(ahora).date().isoformat()
+            n = 0
+            for f in filas:
+                if str(f.get("Teléfono", "") or "").strip() != str(telefono).strip():
+                    continue
+                estado = str(f.get("Estado", "") or "").strip()
+                if estado not in ("Confirmada", "Pendiente"):
+                    continue
+                fecha = str(f.get("Fecha", "") or "")[:10]
+                if fecha and fecha >= hoy:
+                    n += 1
+            return n
+    except Exception:
+        pass
+    # Respaldo: la fila de Clientes (una sola cita por teléfono).
+    try:
+        leer_cliente_fn = getattr(deps, "leer_cliente", lambda t: None)
+        fila = leer_cliente_fn(telefono) or {}
+        if _cita_es_futura(fila, ahora):
+            return 1
+    except Exception:
+        pass
+    return 0
+
+
+def _pregunta_datos_citas(info: list[dict]) -> str:
+    """Pregunta de datos post-confirmación (v3.10). Una sola, cálida.
+
+    `info`: lista de dicts con es_tercero, relacion, falta_nombre,
+    falta_numero (una por cita creada). Para una sola cita del dueño
+    se conservan los textos históricos de la v3.4.11.
+    """
+    dueno_nombre = any(c["falta_nombre"] for c in info if not c["es_tercero"])
+    dueno_numero = any(c["falta_numero"] for c in info if not c["es_tercero"])
+    terceros = [c for c in info if c["es_tercero"]]
+    if len(info) == 1 and not terceros:
+        # Textos históricos (v3.4.11): no cambiarlos.
+        if dueno_nombre and dueno_numero:
+            return ("Para dejarte bien registrado, ¿me das tu nombre "
+                    "completo y a qué número lo registro?")
+        if dueno_nombre:
+            return "Para dejarte bien registrado, ¿me das tu nombre completo?"
+        if dueno_numero:
+            return "¿A qué número lo registro?"
+        return ""
+    if len(info) == 1:
+        c = terceros[0]
+        rel = c["relacion"]
+        if c["falta_nombre"] and c["falta_numero"]:
+            return (f"Para dejarla bien registrada, ¿me das el nombre "
+                    f"completo de {rel} y a qué número la registro?")
+        if c["falta_nombre"]:
+            return f"¿Me das el nombre completo de {rel}?"
+        if c["falta_numero"]:
+            return f"¿A qué número registro la cita de {rel}?"
+        return ""
+    partes = []
+    if dueno_nombre and dueno_numero:
+        partes.append("tu nombre completo y a qué número registro la tuya")
+    elif dueno_nombre:
+        partes.append("tu nombre completo")
+    elif dueno_numero:
+        partes.append("a qué número registro la tuya")
+    for c in terceros:
+        rel = c["relacion"]
+        if c["falta_nombre"] and c["falta_numero"]:
+            partes.append(f"el nombre completo de {rel} y a qué número la registro")
+        elif c["falta_nombre"]:
+            partes.append(f"el nombre completo de {rel}")
+        elif c["falta_numero"]:
+            partes.append(f"a qué número registro la cita de {rel}")
+    if not partes:
+        return ""
+    return "Para dejarlas bien registradas, ¿me das " + "? ¿Y ".join(partes) + "?"
+
+
+def _guardar_datos_paciente(deps, telefono: str, nombre_paciente: str,
+                            numero_paciente: str) -> None:
+    """Guarda los datos de la otra persona en la cita espejo (v3.10).
+
+    Busca la cita Confirmada más reciente del teléfono y le pone las
+    Notas ("Paciente: X, registro: Y"), para que el dueño los vea.
+    Best-effort: nunca rompe la respuesta al cliente.
+    """
+    try:
+        leer = getattr(deps, "leer_citas_espejo", None)
+        actualizar = getattr(deps, "actualizar_notas_cita", None)
+        if leer is None or actualizar is None:
+            return
+        filas = [f for f in (leer() or [])
+                 if str(f.get("Teléfono", "") or "").strip() == str(telefono).strip()
+                 and str(f.get("Estado", "") or "").strip() == "Confirmada"]
+        if not filas:
+            return
+        ultima = max(filas, key=lambda f: str(f.get("Fecha", "") or ""))
+        notas = str(ultima.get("Notas", "") or "").strip()
+        partes = [p for p in (nombre_paciente, numero_paciente) if p]
+        nuevo = ", ".join(partes)
+        if nuevo and nuevo not in notas:
+            notas = f"{notas} | {nuevo}" if notas else nuevo
+        actualizar(telefono, str(ultima.get("Fecha", "") or ""), notas)
+    except Exception:
+        pass
+
+
 def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                               fecha: str, con_ritmo: bool = True) -> dict:
     """Crea la cita de una propuesta guardada y manda la confirmación bonita.
@@ -432,6 +676,10 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     Si el calendario falla con la hora libre, la solicitud queda
     PENDIENTE y se avisa al dueño (v3.9, Sereno decisión 1: nunca
     inventar una cita).
+    (v3.10) Una propuesta puede traer DOS citas (la suya y la de otra
+    persona, o dos servicios): se crean las dos y se confirma en un
+    solo mensaje. El tope de 2 citas por número se revisa aquí también
+    (por si se confirmó otra cita entre la propuesta y la confirmación).
     """
     propuesta = _CITAS_PENDIENTES.get(telefono)
     if not propuesta:
@@ -440,107 +688,217 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
     nombre_cita = str(propuesta.get("nombre") or "").strip()
     telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
-    # (v3.9) Duración por servicio desde la hoja; si no hay dato, el default.
-    _dur = getattr(deps, "duracion_servicio", lambda m: None)(propuesta["motivo"])
-    try:
-        duracion = int(_dur) if _dur else settings.duracion_cita_minutos
-    except (TypeError, ValueError):
-        duracion = settings.duracion_cita_minutos
-    try:
-        cita = deps.crear_cita(
-            nombre_cita or "Cliente", telefono, propuesta["motivo"],
-            propuesta["fecha_cita"],
-            nota=(f"Teléfono de registro: {telefono_registro}" if telefono_registro else ""),
+    # (v3.10) Citas a crear: la primera + la segunda si la hay.
+    citas = [{
+        "motivo": propuesta["motivo"],
+        "fecha_cita": propuesta["fecha_cita"],
+        "fecha_bonita": propuesta["fecha_bonita"],
+        "nombre_paciente": str(propuesta.get("nombre_paciente") or "").strip(),
+        "relacion_paciente": str(propuesta.get("relacion_paciente") or "").strip(),
+        "numero_paciente": str(propuesta.get("numero_paciente") or "").strip(),
+    }]
+    if propuesta.get("cita2"):
+        _c2 = propuesta["cita2"]
+        citas.append({
+            "motivo": _c2.get("motivo") or propuesta["motivo"],
+            "fecha_cita": _c2["fecha_cita"],
+            "fecha_bonita": _c2.get("fecha_bonita") or _c2["fecha_cita"],
+            "nombre_paciente": str(_c2.get("nombre_paciente") or "").strip(),
+            "relacion_paciente": str(_c2.get("relacion_paciente") or "").strip(),
+            "numero_paciente": str(_c2.get("numero_paciente") or "").strip(),
+        })
+    # (v3.10) Es cita para OTRA persona si trae nombre o relación
+    # (aunque el nombre aún no se sepa: la relación ya lo dice).
+    # El nombre de la cita nunca es el del dueño para una cita ajena.
+    for _cita in citas:
+        _cita["es_tercero"] = bool(_cita["nombre_paciente"] or _cita["relacion_paciente"])
+        _cita["nombre_cita"] = (
+            _cita["nombre_paciente"]
+            or (_cita["relacion_paciente"] if _cita["es_tercero"] else nombre_cita)
+            or "Cliente"
         )
-    except ValueError:
-        # booking: la hora está ocupada (su contrato). No se crea nada.
+    # (v3.10) Tope de 2 citas por número, revisado al confirmar.
+    _ahora_real = datetime.now(timezone.utc)
+    if _citas_activas_telefono(deps, telefono, _ahora_real) + len(citas) > MAX_CITAS_POR_NUMERO:
         _borrar_propuesta(deps, telefono)
         mensaje = (
-            "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
-            "te vienen mejor? Te la agendo enseguida."
+            "Ya tienes 2 citas registradas con este número, para no "
+            "llenar la agenda. Si quieres cambiar alguna, dime cuál y "
+            "te ayudo con gusto."
         )
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
-        return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
-    except Exception:
-        # (v3.9) Falló el calendario (u otra cosa) al crear. ¿La hora
-        # está libre? Si sí, la solicitud queda PENDIENTE: se le dice
-        # al cliente con honestidad y se avisa al dueño. Si no está
-        # libre, es una hora ocupada normal.
-        _libre = True
-        try:
-            _libre = bool(deps.hora_libre(propuesta["fecha_cita"]))
-        except Exception:
-            _libre = True
-        _borrar_propuesta(deps, telefono)
-        if _libre:
-            mensaje = (
-                f"Me pasó algo al registrar tu cita del {propuesta['fecha_bonita']} "
-                f"y quedó pendiente, perdón. Ya avisé al equipo para que te la "
-                f"dejen lista en breve."
-            )
-            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-            deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cita pendiente")
-            _reg = getattr(deps, "registrar_cita_espejo", lambda f: None)
-            try:
-                _reg(_fila_espejo(propuesta, telefono, nombre_cita, duracion, "Pendiente", fecha))
-            except Exception:
-                pass
-            _avisa = getattr(deps, "alerta_cita_pendiente", lambda *a: None)
-            try:
-                _avisa(nombre_cita or "Cliente", telefono, propuesta["motivo"],
-                       propuesta["fecha_bonita"], fecha)
-            except Exception:
-                pass
-            return {"respondio": True, "motivo": "cita pendiente", "handoff": False}
-        mensaje = (
-            "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
-            "te vienen mejor? Te la agendo enseguida."
-        )
-        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
-        return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "tope de citas por numero")
+        return {"respondio": True, "motivo": "tope de citas", "handoff": False}
     _borrar_propuesta(deps, telefono)
+    # Crea cada cita por separado: si una hora se ocupó, la otra
+    # todavía puede quedar (se reporta honesto lo que pasó).
+    resultados = []  # (cita, "creada" | "ocupada" | "pendiente", duracion)
+    for _cita in citas:
+        _nombre_pac = _cita["nombre_cita"]
+        # (v3.9) Duración por servicio desde la hoja; si no hay dato, el default.
+        _dur = getattr(deps, "duracion_servicio", lambda m: None)(_cita["motivo"])
+        try:
+            _duracion = int(_dur) if _dur else settings.duracion_cita_minutos
+        except (TypeError, ValueError):
+            _duracion = settings.duracion_cita_minutos
+        _nota_partes = []
+        if _cita["nombre_paciente"]:
+            _nota_partes.append(f"Paciente: {_cita['nombre_paciente']}")
+        _num_reg = _cita["numero_paciente"] or telefono_registro
+        if _num_reg:
+            _nota_partes.append(f"Teléfono de registro: {_num_reg}")
+        try:
+            deps.crear_cita(
+                _nombre_pac or "Cliente", telefono, _cita["motivo"],
+                _cita["fecha_cita"], nota=". ".join(_nota_partes),
+            )
+            resultados.append((_cita, "creada", _duracion))
+        except ValueError:
+            # booking: la hora está ocupada (su contrato). No se crea nada.
+            resultados.append((_cita, "ocupada", _duracion))
+        except Exception:
+            # (v3.9) Falló el calendario (u otra cosa) al crear. ¿La hora
+            # está libre? Si sí, la solicitud queda PENDIENTE: se le dice
+            # al cliente con honestidad y se avisa al dueño. Si no está
+            # libre, es una hora ocupada normal.
+            _libre = True
+            try:
+                _libre = bool(deps.hora_libre(_cita["fecha_cita"]))
+            except Exception:
+                _libre = True
+            if _libre:
+                resultados.append((_cita, "pendiente", _duracion))
+                _reg = getattr(deps, "registrar_cita_espejo", lambda f: None)
+                try:
+                    _reg(_fila_espejo(
+                        {"motivo": _cita["motivo"], "fecha_cita": _cita["fecha_cita"],
+                         "fecha_bonita": _cita["fecha_bonita"]},
+                        telefono, _nombre_pac, _duracion, "Pendiente", fecha))
+                except Exception:
+                    pass
+                _avisa = getattr(deps, "alerta_cita_pendiente", lambda *a: None)
+                try:
+                    _avisa(_nombre_pac or "Cliente", telefono, _cita["motivo"],
+                           _cita["fecha_bonita"], fecha)
+                except Exception:
+                    pass
+            else:
+                resultados.append((_cita, "ocupada", _duracion))
+    creadas = [r for r in resultados if r[1] in ("creada", "pendiente")]
+    ocupadas = [r for r in resultados if r[1] == "ocupada"]
+    if not creadas:
+        # Ninguna quedó: el mensaje histórico de hora ocupada.
+        mensaje = (
+            "Uy, esa hora ya se ocupó, perdón. ¿Qué otro día y hora "
+            "te vienen mejor? Te la agendo enseguida."
+        )
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "hora ocupada")
+        return {"respondio": True, "motivo": "hora ocupada", "handoff": False}
+    if len(resultados) == 1 and resultados[0][1] == "pendiente":
+        # Una sola cita y quedó pendiente: el mensaje histórico, sin
+        # saludo ni confirmación (la cita NO se creó: nunca inventar).
+        _cita_p = resultados[0][0]
+        mensaje = (
+            f"Me pasó algo al registrar tu cita del {_cita_p['fecha_bonita']} "
+            f"y quedó pendiente, perdón. Ya avisé al equipo para que te la "
+            f"dejen lista en breve."
+        )
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cita pendiente")
+        return {"respondio": True, "motivo": "cita pendiente", "handoff": False}
     # (v3.4.11) Confirmación cálida, limpia y sin fricción: corta,
     # con la fecha en claro y una sola idea por línea. Es el momento
     # que el cliente recuerda (el final de la experiencia): debe
-    # sentirse bien y dar certeza total.
+    # sentirse bien y dar certeza total. (v3.10) Con dos citas, cada
+    # una lleva su bloque; si una se ocupó, se dice con honestidad.
+    # La pendiente NO se afirma como creada: se dice que quedó
+    # pendiente (nunca inventar una cita, v3.9).
     saludo = f"¡Perfecto, {nombre_cita}!" if nombre_cita else "¡Perfecto!"
-    mensaje = (
-        f"{saludo} Tu cita quedó para el {propuesta['fecha_bonita']}."
-        f"\n\nDura {duracion} minutos."
-    )
-    if telefono_registro:
-        mensaje += f"\n\nQuedó registrada al {telefono_registro}."
-    mensaje += "\n\nSi necesitas cambiarla, escríbeme y la reacomodamos con gusto."
+    bloques = []
+    for _cita, _estado, _duracion in resultados:
+        if _estado == "ocupada":
+            continue
+        _es_tercero = _cita["es_tercero"]
+        _rel = _cita["relacion_paciente"] or "la persona"
+        if _estado == "pendiente":
+            if _es_tercero:
+                bloques.append(
+                    f"Me pasó algo al registrar la cita de {_rel} del "
+                    f"{_cita['fecha_bonita']} y quedó pendiente, perdón. "
+                    f"Ya avisé al equipo para que la dejen lista en breve.")
+            else:
+                bloques.append(
+                    f"Me pasó algo al registrar tu cita del "
+                    f"{_cita['fecha_bonita']} y quedó pendiente, perdón. "
+                    f"Ya avisé al equipo para que te la dejen lista en breve.")
+            continue
+        if _es_tercero:
+            encabezado = f"La cita de {_rel} quedó para el {_cita['fecha_bonita']}."
+        else:
+            encabezado = f"Tu cita quedó para el {_cita['fecha_bonita']}."
+        bloque = f"{encabezado}\n\nDura {_duracion} minutos."
+        _num_reg = _cita["numero_paciente"] or telefono_registro
+        if _num_reg:
+            bloque += f"\n\nQuedó registrada al {_num_reg}."
+        bloques.append(bloque)
+    if len(resultados) == 1 and resultados[0][1] == "creada":
+        mensaje = f"{saludo} {bloques[0]}"
+        mensaje += "\n\nSi necesitas cambiarla, escríbeme y la reacomodamos con gusto."
+    else:
+        mensaje = f"{saludo} " + "\n\n".join(bloques)
+        if ocupadas:
+            mensaje += ("\n\nLa otra hora ya se ocupó, perdón. ¿Qué otro día y "
+                        "hora te vienen mejor para esa? Te la agendo enseguida.")
+        mensaje += "\n\nSi necesitas cambiar alguna, escríbeme y la reacomodamos con gusto."
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
     deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", propuesta["motivo"])
-    deps.registrar_cliente(
-        fecha, propuesta["nombre"], telefono, propuesta["motivo"],
-        propuesta["fecha_cita"], "whatsapp", "agendado", "no",
-    )
+    # Solo se marca "agendado" si alguna cita se creó de verdad: una
+    # pendiente no es una cita (nunca inventar, v3.9).
+    if any(r[1] == "creada" for r in resultados):
+        deps.registrar_cliente(
+            fecha, propuesta["nombre"], telefono, propuesta["motivo"],
+            propuesta["fecha_cita"], "whatsapp", "agendado", "no",
+        )
     # (v3.9) Espejo de citas: la pestaña Citas queda como vista de
     # solo lectura para el dueño. Best-effort: nunca rompe la confirmación.
     _reg = getattr(deps, "registrar_cita_espejo", lambda f: None)
-    try:
-        _reg(_fila_espejo(propuesta, telefono, nombre_cita, duracion, "Confirmada", fecha))
-    except Exception:
-        pass
+    for _cita, _estado, _duracion in creadas:
+        if _estado != "creada":
+            continue  # la pendiente ya escribió su fila
+        try:
+            _reg(_fila_espejo(
+                {"motivo": _cita["motivo"], "fecha_cita": _cita["fecha_cita"],
+                 "fecha_bonita": _cita["fecha_bonita"]},
+                telefono, _cita["nombre_cita"],
+                _duracion, "Confirmada", fecha))
+        except Exception:
+            pass
     # (v3.4.11) Después de confirmar (la cita YA quedó: pedir los
     # datos no bloquea nada), si falta el nombre completo o el número
     # de registro, se piden en un mensaje aparte y cálido. Primero el
     # compromiso, luego los datos: cero fricción al agendar. Se dice
     # para qué ("para dejarte bien registrado"): la gente da sus
-    # datos cuando entiende por qué.
-    _falta_nombre = not nombre_cita or nombre_cita == str(nombre or "").strip()
-    if _falta_nombre or not telefono_registro:
-        if _falta_nombre and not telefono_registro:
-            pregunta = ("Para dejarte bien registrado, ¿me das tu nombre "
-                        "completo y a qué número lo registro?")
-        elif _falta_nombre:
-            pregunta = "Para dejarte bien registrado, ¿me das tu nombre completo?"
+    # datos cuando entiende por qué. (v3.10) La pregunta cubre también
+    # a la otra persona (su nombre completo y su número).
+    info_datos = []
+    for _cita, _estado, _duracion in resultados:
+        if _estado != "creada":
+            continue  # la pendiente no lleva pregunta de datos
+        _es_tercero = _cita["es_tercero"]
+        _num = _cita["numero_paciente"] or telefono_registro
+        if _es_tercero:
+            falta_nombre = not _cita["nombre_paciente"]
         else:
-            pregunta = "¿A qué número lo registro?"
+            falta_nombre = not nombre_cita or nombre_cita == str(nombre or "").strip()
+        info_datos.append({
+            "es_tercero": _es_tercero,
+            "relacion": _cita["relacion_paciente"] or "la persona",
+            "falta_nombre": falta_nombre,
+            "falta_numero": not _num,
+        })
+    pregunta = _pregunta_datos_citas(info_datos)
+    if pregunta:
         enviar_con_ritmo(deps.enviar_texto, telefono, pregunta, dormir=con_ritmo)
         deps.registrar_conversacion(
             fecha, telefono, "robot", pregunta, "si", "pedir datos de registro")
@@ -551,12 +909,16 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     # la cita va en el correo semanal de 3 tipos y aquí no se manda
     # nada (sin avalancha de correos).
     if funcion_activa("alertas_instantaneas"):
-        _avisar_por_correo(
-            getattr(deps, "alerta_cita_confirmada", None),
-            propuesta["nombre"], telefono, propuesta["motivo"],
-            propuesta["fecha_bonita"], fecha,
-        )
-    return {"respondio": True, "handoff": False, "cita": cita}
+        for _cita, _estado, _duracion in creadas:
+            if _estado != "creada":
+                continue
+            _avisar_por_correo(
+                getattr(deps, "alerta_cita_confirmada", None),
+                _cita["nombre_paciente"] or propuesta["nombre"], telefono,
+                _cita["motivo"], _cita["fecha_bonita"], fecha,
+            )
+    return {"respondio": True, "handoff": False,
+            "cita": resultados[0][0] if resultados else None}
 
 
 # --- Cambiar / cancelar cita (v2.4) ---
@@ -772,6 +1134,35 @@ def _a_hora_local(ahora: datetime) -> datetime:
     if ahora.tzinfo is None:
         return ahora.replace(tzinfo=zona)
     return ahora.astimezone(zona)
+
+
+def _cita_es_futura(cliente: dict | None, ahora: datetime) -> bool:
+    """¿La cita registrada del cliente es a futuro (o de hoy)? (v3.10)
+
+    R8 la usa para no afirmar citas que no existen: una cita ya
+    pasada (estatus agendado pero fecha vieja) no justifica decir
+    "quedamos en que nos vemos...". Si la fecha no se puede leer,
+    se devuelve True: mejor no bloquear con una fecha rota.
+    """
+    if not cliente:
+        return False
+    fecha_cita = str(cliente.get("fecha_cita", "") or "").strip()
+    estatus = str(cliente.get("estatus", "") or "").strip().lower()
+    if not fecha_cita or estatus != "agendado":
+        return False
+    try:
+        dt = _parse_fecha_iso(fecha_cita)
+        if dt is None:
+            return True
+        zona = ZoneInfo(settings.timezone)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=zona)
+        else:
+            dt = dt.astimezone(zona)
+        ahora_local = _a_hora_local(ahora)
+        return dt >= ahora_local or dt.date() == ahora_local.date()
+    except Exception:
+        return True
 
 
 def horario_abierto(conocimiento: list[dict], ahora: datetime | None = None) -> tuple[bool, str]:
@@ -1002,8 +1393,17 @@ class Dependencias:
         """Agrega la cita a la pestaña Citas (espejo de solo lectura). Por defecto: nada."""
         ...
 
-    def actualizar_cita_espejo(self, telefono: str, fecha_cita: str, estado: str) -> None:
-        """Actualiza el estado de la cita espejo. Por defecto: nada."""
+    def actualizar_cita_espejo(self, telefono: str, fecha_cita: str, estado: str | None = None,
+                               notas: str | None = None) -> None:
+        """Actualiza el estado y/o las notas de la cita espejo. Por defecto: nada."""
+        ...
+
+    def leer_citas_espejo(self) -> list[dict]:
+        """Todas las filas de la pestaña Citas. Por defecto: []."""
+        return []
+
+    def actualizar_notas_cita(self, telefono: str, fecha_cita: str, notas: str) -> None:
+        """Pone las Notas de una cita espejo (datos de la otra persona). Por defecto: nada."""
         ...
 
     def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha) -> None:
@@ -1292,6 +1692,10 @@ def atender_mensaje(
     estado = estado_cliente(
         historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre
     )
+    # (v3.10) ¿La cita del cliente es a futuro? R8 la usa: una cita ya
+    # pasada no justifica afirmar una cita nueva. La fecha de Clientes
+    # viene en hora del negocio (naive); se compara en hora local.
+    estado["tiene_cita_futura"] = _cita_es_futura(fila_cliente, ahora)
     # (v3.2) Memoria del cliente: lo que el robot aprendió en
     # conversaciones pasadas (resumen, intereses, pendientes,
     # preferencias). Va ANTES de los últimos mensajes: así el robot
@@ -1353,7 +1757,11 @@ def atender_mensaje(
     # cuando el agente podría ofrecer (pregunto / oferta_pendiente):
     # un saludo no necesita huecos. Si la llamada falla (huecos=None),
     # no se dice nada: el agente actúa como antes, sin inventar.
-    if estado["etapa"] in ("pregunto", "oferta_pendiente"):
+    # (v3.10) También se calculan cuando el mensaje pide agendar con
+    # palabras claras, aunque sea el primer mensaje del cliente
+    # (etapa "nuevo"): sin huecos, la red de seguridad no puede
+    # proponer con botones.
+    if estado["etapa"] in ("pregunto", "oferta_pendiente") or _quiere_agendar_ya(texto):
         try:
             huecos = deps.proximos_huecos_libres(conocimiento, ahora)
         except Exception:
@@ -1469,6 +1877,15 @@ def atender_mensaje(
             _pendiente["telefono_registro"] = _num_registro
             _guardar_propuesta(deps, telefono, _pendiente)
 
+    # (v3.10) Datos de la otra persona: si el agente extrajo el nombre
+    # o el número de la persona de la cita (porque el robot lo pidió
+    # tras confirmar), se guardan en las Notas de la cita espejo, para
+    # que el dueño los vea. Best-effort: nunca rompe la respuesta.
+    _nombre_pac = str(getattr(respuesta, "nombre_paciente", "") or "").strip()
+    _numero_pac = str(getattr(respuesta, "numero_paciente", "") or "").strip()
+    if _nombre_pac or _numero_pac:
+        _guardar_datos_paciente(deps, telefono, _nombre_pac, _numero_pac)
+
     # (v3.2) Memoria de apartados: si la respuesta le aparta el lugar
     # y hay una propuesta activa, el apartado queda guardado en la
     # propuesta (memoria Y hoja), hasta mañana. Si el cliente vuelve,
@@ -1557,50 +1974,53 @@ def atender_mensaje(
     # horario o en el pasado (p. ej. de noche propuso para hoy), se
     # corrige sola a la próxima apertura. Si no hay próxima apertura,
     # no se propone nada: se contesta el texto del agente, sin botones.
+    # (v3.10) La validación vive en _corregir_fecha_propuesta para
+    # poder usarla también con la segunda cita.
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
-        fecha_dt = None
-        try:
-            fecha_dt = _parse_fecha_iso(respuesta.fecha_cita)
-            if fecha_dt is None:
-                raise ValueError(f"Fecha no legible: {respuesta.fecha_cita!r}")
-            local_dt = _a_hora_local(fecha_dt)
-            horarios = horarios_por_dia(conocimiento)
-            if not horarios:
-                # Sin filas de horario en la hoja, no hay contra qué
-                # validar: se confía en el agente (como siempre).
-                valida = local_dt > _a_hora_local(ahora)
-            else:
-                horas = horarios.get(local_dt.weekday())
-                valida = (
-                    horas is not None
-                    and horas[0] <= local_dt.hour * 60 + local_dt.minute < horas[1]
-                    and local_dt > _a_hora_local(ahora)
-                )
-        except (ValueError, TypeError):
-            valida = False
-        if not valida:
-            # (v3.4.10) La corrección busca la apertura en la fecha
-            # pedida o después, no desde ahora: pedir domingo y recibir
-            # "mañana jueves" no tiene sentido.
-            proxima_valida = proxima_apertura(conocimiento, ahora, desde=fecha_dt)
-            if proxima_valida is not None:
-                respuesta.fecha_cita = proxima_valida.isoformat()
-            else:
-                respuesta.quiere_agendar = "no"
-        # (v3.4.9) La fecha propuesta también se revisa contra el
-        # calendario: si esa hora ya está ocupada, se usa el primer
-        # hueco libre real. Así la confirmación no falla con "esa hora
-        # ya se ocupó" por una fecha que el agente calculó.
-        if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
-            try:
-                _verificar_libre = getattr(deps, "hora_libre", lambda f: True)
-                if not _verificar_libre(respuesta.fecha_cita):
-                    _huecos = locals().get("huecos")
-                    if _huecos:
-                        respuesta.fecha_cita = _huecos[0]
-            except Exception:
-                pass  # sin calendario no se bloquea la propuesta
+        _huecos = locals().get("huecos")
+        _fecha_ok = _corregir_fecha_propuesta(
+            respuesta.fecha_cita, conocimiento, ahora, deps, _huecos)
+        if _fecha_ok is None:
+            respuesta.quiere_agendar = "no"
+        else:
+            respuesta.fecha_cita = _fecha_ok
+    # (v3.10) Segunda cita (si el cliente pidió dos: la suya y la de
+    # otra persona, o dos servicios). Cada extra se valida igual; si
+    # no se puede corregir, se descarta y queda la primera sola.
+    citas_extra_validas = []
+    if respuesta.quiere_agendar == "si":
+        for _extra in (getattr(respuesta, "citas_extra", None) or []):
+            _fecha2 = _corregir_fecha_propuesta(
+                _extra.get("fecha_cita"), conocimiento, ahora, deps,
+                locals().get("huecos"))
+            if _fecha2:
+                try:
+                    _bonita2 = formatear_cita_bonita(_fecha2)
+                except (ValueError, TypeError):
+                    _bonita2 = _fecha2
+                citas_extra_validas.append({
+                    "motivo": _extra.get("motivo") or respuesta.motivo or texto,
+                    "fecha_cita": _fecha2,
+                    "fecha_bonita": _bonita2,
+                    "nombre_paciente": str(_extra.get("nombre_paciente") or "").strip(),
+                    "relacion_paciente": str(_extra.get("relacion_paciente") or "").strip(),
+                    "numero_paciente": str(_extra.get("numero_paciente") or "").strip(),
+                })
     if respuesta.quiere_agendar == "si" and respuesta.fecha_cita:
+        # (v3.10) Tope de 2 citas por número (la suya y la de otra
+        # persona): para que nadie inunde el calendario. Se revisa
+        # antes de proponer, no solo al confirmar.
+        _n_citas = 1 + len(citas_extra_validas)
+        if _citas_activas_telefono(deps, telefono, ahora) + _n_citas > MAX_CITAS_POR_NUMERO:
+            mensaje_tope = (
+                "Ya tienes 2 citas registradas con este número, para no "
+                "llenar la agenda. Si quieres cambiar alguna, dime cuál y "
+                "te ayudo con gusto."
+            )
+            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje_tope, dormir=con_ritmo)
+            deps.registrar_conversacion(
+                fecha, telefono, "robot", mensaje_tope, "si", "tope de citas por numero")
+            return {"respondio": True, "handoff": False, "cita_propuesta": False}
         # (v3.4.11) La propuesta NO pide nombre ni número: pedirlos
         # en el mismo mensaje que la confirmación crea fricción
         # (el cliente no sabe si contestar en texto o tocar el botón).
@@ -1612,9 +2032,14 @@ def atender_mensaje(
         # sigue viva. En vivo, dos mensajes seguidos generaron dos
         # "¿Confirmo tu cita...?" para la misma cita.
         previa = _CITAS_PENDIENTES.get(telefono)
+        _misma_cita2 = False
+        if previa and previa.get("cita2") and citas_extra_validas:
+            _misma_cita2 = _misma_fecha(
+                previa["cita2"].get("fecha_cita"), citas_extra_validas[0]["fecha_cita"])
         if (
             previa
             and _misma_fecha(previa.get("fecha_cita"), respuesta.fecha_cita)
+            and (not citas_extra_validas or _misma_cita2)
             and _propuesta_vigente(previa, ahora)
         ):
             enviar_con_ritmo(
@@ -1637,25 +2062,50 @@ def atender_mensaje(
             fecha_bonita = formatear_cita_bonita(respuesta.fecha_cita)
         except (ValueError, TypeError):
             fecha_bonita = respuesta.fecha_cita
-        # (v3.4.9) Si el agente preguntó "¿Te agendo...?" o
-        # "¿Confirmo...?" en su texto, esa pregunta se quita: el
-        # sistema agrega la confirmación con botones. Nunca dos
-        # preguntas de confirmación en el mismo mensaje.
-        texto_propuesta = re.sub(
-            r"¿(te (la )?agendo|confirmo|te reservo)[^?]*\?\s*",
-            "", respuesta.respuesta_texto, flags=re.IGNORECASE,
-        ).strip()
-        if texto_propuesta:
-            propuesta = f"{texto_propuesta}\n\n¿Confirmo tu cita para el {fecha_bonita}?"
+        cita2 = citas_extra_validas[0] if citas_extra_validas else None
+        if cita2:
+            # (v3.10) Dos citas en una propuesta: se listan las dos y
+            # un solo botón las confirma ("Confirmar ambas").
+            _rel2 = str(cita2.get("relacion_paciente") or "").strip()
+            _etiqueta2 = f"la cita de {_rel2}" if _rel2 else "tu segunda cita"
+            propuesta = (
+                "¡Con gusto! Te propongo:\n"
+                f"• Tu cita para el {fecha_bonita}.\n"
+                f"• {_etiqueta2.capitalize()} para el {cita2['fecha_bonita']}.\n"
+                "¿Confirmamos ambas?"
+            )
+            botones = [
+                ("confirmar_cita", "Confirmar ambas"),
+                ("cambiar_hora", "Cambiar hora"),
+                ("hablar_persona", "Hablar con persona"),
+            ]
         else:
-            propuesta = f"¿Confirmo tu cita para el {fecha_bonita}?"
-        _guardar_propuesta(deps, telefono, {
+            # (v3.4.9) Si el agente preguntó "¿Te agendo...?" o
+            # "¿Confirmo...?" en su texto, esa pregunta se quita: el
+            # sistema agrega la confirmación con botones. Nunca dos
+            # preguntas de confirmación en el mismo mensaje.
+            texto_propuesta = re.sub(
+                r"¿(te (la )?agendo|confirmo|te reservo)[^?]*\?\s*",
+                "", respuesta.respuesta_texto, flags=re.IGNORECASE,
+            ).strip()
+            if texto_propuesta:
+                propuesta = f"{texto_propuesta}\n\n¿Confirmo tu cita para el {fecha_bonita}?"
+            else:
+                propuesta = f"¿Confirmo tu cita para el {fecha_bonita}?"
+            botones = BOTONES_CITA
+        propuesta_dict = {
             "nombre": respuesta.nombre or nombre,
             "motivo": respuesta.motivo or texto,
             "fecha_cita": respuesta.fecha_cita,
             "fecha_bonita": fecha_bonita,
             "creado_en": ahora.isoformat(),
-        })
+            "nombre_paciente": str(getattr(respuesta, "nombre_paciente", "") or "").strip(),
+            "relacion_paciente": str(getattr(respuesta, "relacion_paciente", "") or "").strip(),
+            "numero_paciente": str(getattr(respuesta, "numero_paciente", "") or "").strip(),
+            "cita2": cita2,
+        }
+        propuesta_dict["extra_json"] = _extra_propuesta_json(propuesta_dict)
+        _guardar_propuesta(deps, telefono, propuesta_dict)
         # (v3.3) Lead caliente: si el cliente PIDIÓ agendar con sus
         # propias palabras ("quiero una cita"), el dueño se entera en
         # el momento, no el lunes. Si solo preguntó un precio y el
@@ -1669,7 +2119,7 @@ def atender_mensaje(
                 respuesta.motivo or texto, texto, fecha,
             )
         try:
-            deps.enviar_botones(telefono, propuesta, BOTONES_CITA)
+            deps.enviar_botones(telefono, propuesta, botones)
         except Exception:
             # Si los botones fallan, se manda el texto normal: el cliente
             # puede contestar "sí" escribiendo. Nunca se queda sin respuesta.
@@ -1760,8 +2210,27 @@ def atender_boton(
         return _confirmar_cita_propuesta(deps, telefono, nombre, fecha, con_ritmo)
 
     if boton_id == "cambiar_hora":
+        # (v3.10) Con dos citas en la propuesta, se pregunta cuál
+        # cambiar primero (la otra se retoma después).
+        _propuesta_cambio = _CITAS_PENDIENTES.get(telefono)
         _borrar_propuesta(deps, telefono)
-        mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor?"
+        if _propuesta_cambio and _propuesta_cambio.get("cita2"):
+            _rel_cambio = str(
+                (_propuesta_cambio.get("cita2") or {}).get("relacion_paciente") or ""
+            ).strip()
+            if _rel_cambio:
+                mensaje = (
+                    f"Claro, sin problema. ¿Cuál cambiamos primero: la tuya o la de "
+                    f"{_rel_cambio}? Dime el nuevo día y hora para esa, y la otra "
+                    f"la retomamos después."
+                )
+            else:
+                mensaje = (
+                    "Claro, sin problema. ¿Cuál cambiamos primero? Dime el nuevo "
+                    "día y hora para esa, y la otra la retomamos después."
+                )
+        else:
+            mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor?"
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambiar hora")
         return {"respondio": True, "handoff": False}

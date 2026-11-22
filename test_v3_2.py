@@ -374,10 +374,10 @@ def main():
             "fecha_bonita": "sábado 14 de noviembre a las 10:00",
             "creado_en": "2026-11-13T07:00:00+00:00",
             "apartado": "si", "aparta_hasta": "mañana sábado 14"})
-    caso("(b) guardar_propuesta escribe A:H con apartado y aparta_hasta",
+    caso("(b) guardar_propuesta escribe A:I con apartado y aparta_hasta",
          len(servicio.valores.updates) == 1
-         and servicio.valores.updates[0]["range"] == "Propuestas!A2:H2"
-         and servicio.valores.updates[0]["values"][0][6:] == ["si", "mañana sábado 14"],
+         and servicio.valores.updates[0]["range"] == "Propuestas!A2:I2"
+         and servicio.valores.updates[0]["values"][0][6:8] == ["si", "mañana sábado 14"],
          f"salió: {servicio.valores.updates}")
 
     # ---- (c) R7: no repetir el cierre ----

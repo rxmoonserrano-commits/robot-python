@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.9.2"
+VERSION = "3.10.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -136,9 +136,22 @@ class DependenciasReales(Dependencias):
         except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
             aviso(f"[citas-espejo] {exc}")
 
-    def actualizar_cita_espejo(self, telefono, fecha_cita, estado):
+    def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None):
         try:
-            sheets.actualizar_cita_espejo(telefono, fecha_cita, estado)
+            sheets.actualizar_cita_espejo(telefono, fecha_cita, estado, notas)
+        except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
+            aviso(f"[citas-espejo] {exc}")
+
+    def leer_citas_espejo(self):
+        try:
+            return sheets.leer_citas_espejo()
+        except Exception as exc:  # noqa: BLE001 - sin espejo, el tope usa Clientes
+            aviso(f"[citas-espejo] {exc}")
+            return []
+
+    def actualizar_notas_cita(self, telefono, fecha_cita, notas):
+        try:
+            sheets.actualizar_cita_espejo(telefono, fecha_cita, None, notas)
         except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
             aviso(f"[citas-espejo] {exc}")
 

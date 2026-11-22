@@ -5,6 +5,57 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.10.0 — Reservas para ti y para alguien más: tope 2 por número, confirmar ambas, sin afirmaciones falsas (2026-11-22)
+
+Jose probó en vivo (03:17–03:23 MST) y reportó cuatro cosas, todas
+corregidas aquí:
+
+1. **No aparecía el botón de confirmar.** El robot propuso horas en
+   texto ("¿Te parece bien?") sin botones. Causas: el agente no marcó
+   quiere_agendar, la red de seguridad no reconocía "¿qué días tienes
+   disponibles el martes para mí y el miércoles para mi hermana?", y
+   los huecos ni se calculaban para un cliente nuevo. Ahora:
+   `_PALABRAS_QUIERE_AGENDAR` incluye pedir disponibilidad y agendar
+   para otra persona; los huecos también se calculan cuando el
+   mensaje pide agendar con palabras claras; el guion dice que nunca
+   se propongan horas en texto sin botones.
+2. **Afirmaba citas que no existían.** Dijo "Quedamos en que nos
+   vemos el martes a las 09:00" sin crear ninguna cita (la propuesta
+   ni se guardó). R8 no la atrapó: el regex no cubría "quedamos en
+   que nos vemos" y `tiene_cita` era True por una cita ya pasada.
+   Ahora R8 cubre esas frases y mira la cita a FUTURO
+   (`tiene_cita_futura`): una cita vieja ya no justifica afirmar una
+   nueva.
+3. **Reserva para otra persona.** Cuando la cita es para alguien más
+   ("para mi hermana"), el robot ahora pide el nombre completo de esa
+   persona y el número para registrarla (antes ni lo pedía). El
+   agente trae `nombre_paciente`, `relacion_paciente` y
+   `numero_paciente`; la cita se crea con el nombre de la otra
+   persona, y su respuesta se guarda en las Notas del espejo.
+4. **Dos citas en una propuesta.** Si pide la suya y la de otra
+   persona (o dos servicios), el agente manda la segunda en
+   `citas_extra` y el robot las propone juntas con un solo botón:
+   **"Confirmar ambas"**. Al confirmar se crean las dos y el mensaje
+   lista cada una. "Cambiar hora" con dos citas pregunta cuál
+   cambiar primero (la otra se retoma después).
+5. **Tope de 2 citas por número (regla de Jose).** Máximo 2 citas
+   activas por teléfono (la suya y la de otra persona), para que
+   nadie inunde el calendario. Se revisa antes de proponer y al
+   confirmar; con 2 activas, el robot explica el límite y ofrece
+   cambiar alguna. Cuenta desde la pestaña Citas (Confirmada/
+   Pendiente a futuro), con respaldo en Clientes.
+
+Detalles técnicos: la pestaña Propuestas ganó la columna I
+`extra_json` (JSON con los datos de la otra persona y la segunda
+cita; vacío en propuestas simples — compatible con filas viejas).
+`_confirmar_cita_propuesta` crea cada cita por separado (si una hora
+se ocupó, la otra todavía puede quedar; la pendiente sigue sin
+afirmarse como creada). Los textos históricos de la pregunta de
+datos (v3.4.11) se conservan para una sola cita del dueño. Tests:
+nuevo `test_v3_10.py` 41/41; suite completa verde (26 archivos,
+508 pruebas). La batería dorada con Gemini real sigue pendiente
+en la Mac de Jose.
+
 ## v3.9.2 — Ritmo natural: la burbuja sale al instante y ya no dura lo que tarda la IA (2026-11-22)
 
 Jose probó en vivo y reportó: "las burbujas de chat cuando mando

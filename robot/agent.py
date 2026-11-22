@@ -308,6 +308,25 @@ Límites duros:
   exacta; si no hay ninguna, déjala vacía.
 - Si quiere agendar y ya tienes nombre, motivo y fecha: quiere_agendar
   = "si", fecha_cita en ISO. No agendes todavía: primero van los botones.
+- Nunca listes horas en texto como propuesta (v3.10): si el cliente
+  pregunta qué días u horas hay disponibles y quiere agendar, marca
+  quiere_agendar con el primer hueco libre. Toda cita se propone con
+  botones; nunca en texto suelto ni afirmada como ya hecha.
+- Dos citas en un mensaje (v3.10): si pide DOS citas (la suya y la de
+  otra persona, o dos servicios distintos), marca quiere_agendar con
+  la primera y pon la segunda en citas_extra (lista con un elemento:
+  motivo, fecha_cita, nombre_paciente, relacion_paciente). El sistema
+  las propone juntas con un solo botón de confirmar.
+- Cita para otra persona (v3.10): si la cita es para alguien que no
+  es quien escribe ("para mi hermana"), pon el nombre de esa persona
+  en nombre_paciente y cómo la llamó el cliente en relacion_paciente
+  ("tu hermana", "tu hijo"). NUNCA pongas el nombre de la otra persona
+  en 'nombre': 'nombre' es siempre quien escribe. Si no sabes el
+  nombre de la otra persona, deja nombre_paciente vacío.
+- Si en tu último mensaje pediste el nombre o número de la persona de
+  la cita y el cliente lo dio, extráelo en nombre_paciente y
+  numero_paciente y confirma breve ("¡Perfecto, gracias!"). Nunca
+  pongas el nombre de la otra persona en 'nombre'.
 - Memoria (v3.2): el contexto te dice lo que ya sabes de este cliente.
   Úsalo con naturalidad: si vuelve días después, recuérdale de qué
   hablaban en una frase cálida, sin listas ni la palabra "pendientes".
@@ -321,7 +340,12 @@ Límites duros:
 Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos campos:
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
-resumen_cliente, interes_cliente, proxima_accion, preferencias, partes.
+resumen_cliente, interes_cliente, proxima_accion, preferencias, partes,
+nombre_paciente, relacion_paciente, numero_paciente, citas_extra.
+"citas_extra" es una lista con máximo 1 elemento (la segunda cita:
+motivo, fecha_cita, nombre_paciente, relacion_paciente) o vacía si
+solo hay una cita. nombre_paciente/relacion_paciente/numero_paciente
+van vacíos cuando la cita es para quien escribe.
 "partes" es una lista de mensajes cortos en orden, máximo 2, solo si
 tu respuesta necesita ir en varios mensajes por temas realmente
 distintos: cada parte es su propio mensaje. Si dudas, déjala vacía
@@ -372,6 +396,21 @@ class RespuestaAgente:
     # normales de texto: en propuestas con botones y en handoffs se
     # usa respuesta_texto.
     partes: list[str] = field(default_factory=list)
+    # Cita para OTRA persona (v3.10): si la cita es para alguien que
+    # no es quien escribe ("para mi hermana"), nombre_paciente es el
+    # nombre de esa persona y relacion_paciente es cómo la llamó el
+    # cliente ("tu hermana"). Vacío = la cita es para quien escribe.
+    # 'nombre' es SIEMPRE quien escribe: nunca la otra persona.
+    nombre_paciente: str = ""
+    relacion_paciente: str = ""
+    # Número de registro de la otra persona, si el cliente lo dio
+    # ("regístralo al 667..."). Vacío si no lo dio.
+    numero_paciente: str = ""
+    # Segunda cita (v3.10): si el cliente pidió DOS citas (la suya y
+    # la de otra persona, o dos servicios), la segunda va aquí como
+    # lista con UN elemento: {motivo, fecha_cita, nombre_paciente,
+    # relacion_paciente}. Vacía = una sola cita, como siempre.
+    citas_extra: list[dict] = field(default_factory=list)
     # True cuando Gemini falló de verdad (clave, cuota, red). En ese caso
     # el robot NO se queda callado: le dice al cliente "dame un momento"
     # y avisa al dueño por correo (ver logic.py).
@@ -448,7 +487,40 @@ def _normalizar(datos: dict) -> RespuestaAgente:
         interes_cliente=str(datos.get("interes_cliente") or "").strip()[:150],
         proxima_accion=str(datos.get("proxima_accion") or "").strip()[:200],
         preferencias=str(datos.get("preferencias") or "").strip()[:150],
+        # Cita para otra persona y segunda cita (v3.10): todo con
+        # valores seguros. citas_extra: máximo 1 (total 2 citas) y
+        # solo entradas con fecha_cita; el resto se descarta.
+        nombre_paciente=str(datos.get("nombre_paciente") or "").strip()[:120],
+        relacion_paciente=str(datos.get("relacion_paciente") or "").strip()[:60],
+        numero_paciente=str(datos.get("numero_paciente") or "").strip()[:30],
+        citas_extra=_normalizar_citas_extra(datos.get("citas_extra")),
     )
+
+
+def _normalizar_citas_extra(crudo) -> list[dict]:
+    """Limpia la segunda cita (v3.10): lista con máximo 1 elemento.
+
+    Cada elemento: {motivo, fecha_cita, nombre_paciente,
+    relacion_paciente}. Solo se conserva si trae fecha_cita.
+    """
+    if not isinstance(crudo, list):
+        return []
+    salida: list[dict] = []
+    for item in crudo:
+        if not isinstance(item, dict):
+            continue
+        fecha_cita = str(item.get("fecha_cita") or "").strip()
+        if not fecha_cita:
+            continue
+        salida.append({
+            "motivo": str(item.get("motivo") or "").strip()[:150],
+            "fecha_cita": fecha_cita[:40],
+            "nombre_paciente": str(item.get("nombre_paciente") or "").strip()[:120],
+            "relacion_paciente": str(item.get("relacion_paciente") or "").strip()[:60],
+        })
+        if len(salida) >= 1:
+            break
+    return salida
 
 
 def preguntar_agente(
