@@ -52,7 +52,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.4.12"
+VERSION = "3.5.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -445,6 +445,58 @@ def verificar_webhook(
     if hub_mode == "subscribe" and hub_verify_token == settings.verify_token:
         return PlainTextResponse(hub_challenge)
     return PlainTextResponse("Token incorrecto", status_code=403)
+
+
+# --- Canales diseñados pero apagados (v3.5): Messenger e Instagram ---
+# Las rutas existen para que la capacidad esté pensada y lista. Por
+# ahora responden "activo: false" sin procesar nada: no se conecta
+# ningún canal hasta que Jose lo decida (ver robot/canales.py).
+
+
+@app.get("/webhook/messenger")
+def verificar_messenger(
+    hub_mode: str = Query("", alias="hub.mode"),
+    hub_challenge: str = Query("", alias="hub.challenge"),
+    hub_verify_token: str = Query("", alias="hub.verify_token"),
+):
+    """Verificación de Meta para Messenger (misma lógica que WhatsApp)."""
+    if hub_mode == "subscribe" and hub_verify_token == settings.verify_token:
+        return PlainTextResponse(hub_challenge)
+    return PlainTextResponse("Token incorrecto", status_code=403)
+
+
+@app.post("/webhook/messenger")
+async def recibir_messenger(request: Request):
+    """Messenger: diseñado, apagado. No procesa nada por ahora."""
+    from robot.canales import canal_activo
+
+    if not canal_activo("messenger"):
+        return {"ok": True, "canal": "messenger", "activo": False}
+    return {"ok": True, "canal": "messenger", "activo": True,
+            "pendiente": "procesamiento por conectar"}
+
+
+@app.get("/webhook/instagram")
+def verificar_instagram(
+    hub_mode: str = Query("", alias="hub.mode"),
+    hub_challenge: str = Query("", alias="hub.challenge"),
+    hub_verify_token: str = Query("", alias="hub.verify_token"),
+):
+    """Verificación de Meta para Instagram (misma lógica que WhatsApp)."""
+    if hub_mode == "subscribe" and hub_verify_token == settings.verify_token:
+        return PlainTextResponse(hub_challenge)
+    return PlainTextResponse("Token incorrecto", status_code=403)
+
+
+@app.post("/webhook/instagram")
+async def recibir_instagram(request: Request):
+    """Instagram: diseñado, apagado. No procesa nada por ahora."""
+    from robot.canales import canal_activo
+
+    if not canal_activo("instagram"):
+        return {"ok": True, "canal": "instagram", "activo": False}
+    return {"ok": True, "canal": "instagram", "activo": True,
+            "pendiente": "procesamiento por conectar"}
 
 
 @app.post("/webhook")

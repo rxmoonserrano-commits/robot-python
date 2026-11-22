@@ -5,6 +5,41 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.5.0 — Multi-negocio: la hoja manda + canales diseñados (2026-11-21)
+
+La evolución que Jose pidió: todo completo, Messenger e Instagram
+pensados y con capacidad, pero sin conectar nada por ahora.
+
+1. **Pestaña Configuración (clave | valor) por negocio.** El robot
+   la lee en cada mensaje (`sheets.leer_configuracion` +
+   `negocio.configuracion`). Prioridad: hoja > variables de entorno
+   > defaults. Si la hoja no tiene la pestaña, todo sigue igual que
+   siempre (compatibilidad total con la hoja actual).
+2. **Perfil desde la hoja:** nombre_asistente, nombre_negocio y
+   tipo_negocio ya no dependen solo de Render. El guion se
+   reconstruye en cada mensaje (`guion()`, no la constante), así
+   los cambios en la hoja aplican sin reiniciar.
+3. **Personalización:** tono (amigable/formal/breve/detallado),
+   saludo obligatorio y mensaje fuera de horario desde la hoja.
+4. **Interruptores SI/NO desde la hoja:** agendar (si NO, no hay
+   propuestas ni red de seguridad), enviar_fotos (si NO, no se
+   manda ninguna foto), responder_faqs y derivar_humano (instrucción
+   en el guion; urgencias y temas sensibles siempre se derivan).
+5. **Correo del dueño desde la hoja:** correo_dueno manda; si está
+   vacío, se usa OWNER_EMAIL de Render.
+6. **Canales diseñados, apagados (robot/canales.py):** un motor,
+   varias bocas. WhatsApp activo; Messenger e Instagram con rutas
+   /webhook/messenger y /webhook/instagram que responden
+   "activo: false" sin procesar nada. Adaptadores con el formato
+   único de mensaje ya escritos; se encienden con
+   CANAL_MESSENGER_ACTIVO / CANAL_INSTAGRAM_ACTIVO cuando Jose lo
+   decida. Nada se conecta por ahora.
+7. **Sheets multi-negocio:** documento maestro "Negocios" (Índice +
+   panel por negocio con link a su hoja operativa) y hoja plantilla
+   "Plantilla — Negocio" con todas las pestañas listas para clonar
+   por cliente. Apagado por contacto: ya existía (Clientes!P).
+8. **Pruebas:** test_v3_5.py (17 casos). Suite completa en verde.
+
 ## v3.4.12 — Bug de correos corregido + lifespan (2026-11-18)
 
 Incorpora los arreglos de higiene de Arena (revisados y probados):

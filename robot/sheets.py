@@ -153,6 +153,27 @@ def leer_conocimiento() -> list[dict]:
     return leer_pestana("Conocimiento")
 
 
+def leer_configuracion() -> dict[str, str]:
+    """Configuración por negocio (pestaña Configuración: clave | valor).
+
+    Interruptores y personalización que Jose (o el dueño, con permiso)
+    cambia desde la hoja sin tocar código: tono, saludo, agendar sí/no,
+    enviar fotos sí/no, etc. Si la pestaña no existe o está vacía
+    (la hoja actual, antes de esta versión), devuelve {} y el robot
+    usa sus valores por defecto: nada se rompe por agregar la pestaña.
+    """
+    try:
+        filas = leer_pestana("Configuración")
+    except Exception:  # noqa: BLE001 - sin pestaña, sin configuración
+        return {}
+    cfg: dict[str, str] = {}
+    for fila in filas:
+        clave = str(fila.get("clave", "")).strip()
+        if clave:
+            cfg[clave] = str(fila.get("valor", "")).strip()
+    return cfg
+
+
 def leer_fotos_oficiales() -> list[dict]:
     """Fotos oficiales: la lista blanca. Solo estas URLs existen para el robot."""
     return leer_pestana("Fotos oficiales")

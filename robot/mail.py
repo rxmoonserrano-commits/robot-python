@@ -25,6 +25,7 @@ import smtplib
 from email.message import EmailMessage
 
 from .config import settings
+from .negocio import correo_dueno
 
 
 class CorreoError(RuntimeError):
@@ -56,7 +57,7 @@ def alerta_error(motivo: str, telefono: str, ultimo_mensaje: str, fecha: str) ->
     """Correo al dueño: algo falló (Gemini, Sheets, Calendar) y el cliente
     recibió un "dame un momento". Para que no se pierda el caso."""
     enviar_correo(
-        settings.owner_email,
+        correo_dueno(),
         f"Robot: falló algo con {telefono}",
         "El robot no pudo atender bien a este cliente y le dijo que "
         "esperara un momento. Revísalo tú.\n\n"
@@ -75,7 +76,7 @@ def alerta_cita_confirmada(
     en su calendario (el robot agenda en el suyo propio), así que sin
     este correo se entera hasta el lunes."""
     enviar_correo(
-        settings.owner_email,
+        correo_dueno(),
         f"¡Nueva cita! {nombre or telefono} — {fecha_bonita}",
         "Se confirmó una cita por WhatsApp.\n\n"
         f"Nombre: {nombre}\n"
@@ -93,7 +94,7 @@ def alerta_lead_caliente(
     un precio). Es el momento de estar atento: si el robot le ofrece
     una hora y el cliente confirma, llega además la de cita confirmada."""
     enviar_correo(
-        settings.owner_email,
+        correo_dueno(),
         f"Lead caliente: {nombre or telefono} ({telefono}) quiere agendar",
         "Este cliente pidió una cita en este momento.\n\n"
         f"Nombre: {nombre}\n"
@@ -110,7 +111,7 @@ def alerta_handoff(
 ) -> None:
     """Correo al dueño: este cliente necesita una persona. El robot se calla."""
     enviar_correo(
-        settings.owner_email,
+        correo_dueno(),
         f"Handoff: {nombre or telefono} ({telefono}) necesita una persona",
         "Te paso este cliente para que lo atiendas tú.\n\n"
         f"Nombre: {nombre}\n"

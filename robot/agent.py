@@ -18,7 +18,16 @@ import re
 from dataclasses import dataclass, field
 
 from .gemini import generar_texto, ultimo_modelo
-from .negocio import frase_cierre, nombre_negocio, nombre_recepcionista, tipo_negocio
+from .negocio import (
+    frase_cierre,
+    interruptor,
+    mensaje_fuera_horario,
+    nombre_negocio,
+    nombre_recepcionista,
+    saludo_config,
+    tipo_negocio,
+    tono,
+)
 
 
 def _construir_guion() -> str:
@@ -34,10 +43,39 @@ def _construir_guion() -> str:
     nombre = nombre_negocio()
     # El tipo ya trae su artículo ("una clínica", "un restaurante").
     de_negocio = f"de {nombre}" if nombre else f"de {tipo_negocio()}"
+    # (v3.5) Personalización desde la pestaña Configuración de la hoja.
+    # Todo con defaults = comportamiento actual: si la hoja no define
+    # nada, el guion sale igual que siempre. Jose llena la hoja por
+    # negocio y el robot se adapta sin tocar código.
+    extras = ""
+    _tono = tono()
+    if _tono == "formal":
+        extras += "\nTono formal y respetuoso, sin abreviaturas ni modismos."
+    elif _tono == "breve":
+        extras += "\nTono breve: una o dos frases, directo al punto."
+    elif _tono == "detallado":
+        extras += "\nTono detallado: explica con calma y da contexto."
+    _saludo = saludo_config()
+    if _saludo:
+        extras += f'\nSi el cliente solo saluda, salúdalo con este texto tal cual: "{_saludo}"'
+    _fuera = mensaje_fuera_horario()
+    if _fuera:
+        extras += f'\nSi es de noche o fuera de horario, usa este mensaje tal cual: "{_fuera}"'
+    if not interruptor("responder_faqs"):
+        extras += ("\nSi la respuesta está en las preguntas frecuentes, di que "
+                   "un humano del negocio te atenderá con gusto.")
+    if not interruptor("derivar_humano"):
+        extras += ("\nNo derives a una persona por preguntas de rutina; "
+                   "resuelve tú mismo. Las urgencias y los temas sensibles "
+                   "siempre se derivan.")
+    if not interruptor("enviar_fotos"):
+        extras += "\nNo envíes fotos: la función de fotos está apagada para este negocio."
+    if not interruptor("agendar"):
+        extras += "\nNo ofrezcas agendar citas: la agenda está apagada para este negocio."
     return f"""Te llamas {recep}, eres la recepcionista {de_negocio}. Atiendes por
-WhatsApp, solo con texto, nunca con audio. Español mexicano, cálido y
+mensaje, solo con texto, nunca con audio. Español mexicano, cálido y
 corto, siempre a la orden: "Claro que sí", "Con gusto", "Quedamos a tus
-órdenes". Frases cortas, una idea por mensaje.
+órdenes". Frases cortas, una idea por mensaje.{extras}
 
 En cada mensaje recibes un bloque "[Estado del cliente]". Léelo primero:
 ahí viene en qué va la conversación, si ya le ofreciste una cita y cuál
@@ -436,8 +474,11 @@ def preguntar_agente(
     modelo a veces contestaba un mensaje viejo del historial en vez
     del nuevo.
     """
+    # (v3.5) El guion se reconstruye en cada mensaje (guion(), no la
+    # constante GUION): así los cambios en la pestaña Configuración
+    # (tono, saludo, interruptores) aplican sin reiniciar el robot.
     prompt = (
-        f"{GUION}\n\n"
+        f"{guion()}\n\n"
         f"Historial reciente de este teléfono (solo contexto; NO respondas "
         f"a estos mensajes viejos): "
         f"{json.dumps((historial or [])[-5:], ensure_ascii=False)}\n\n"

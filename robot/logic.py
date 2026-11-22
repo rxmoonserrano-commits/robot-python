@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
+from .negocio import interruptor
 from .revision import revisar_respuesta
 from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo, enviar_partes
@@ -1336,6 +1337,14 @@ def atender_mensaje(
         return {"respondio": True, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
+    # (v3.5) Interruptor de agenda desde Configuración: si el negocio
+    # apagó "agendar", el robot responde preguntas pero no propone
+    # citas (ni por red de seguridad). Vacío en la hoja = SI, como
+    # siempre.
+    _agendar_activo = interruptor("agendar")
+    if not _agendar_activo:
+        respuesta.quiere_agendar = "no"
+
     # (v3.4.7) Red de seguridad determinista: si el cliente pidió
     # agendar con sus propias palabras ("quiero agendar", "agéndame")
     # pero el agente no disparó la propuesta (listó los huecos en
@@ -1343,7 +1352,7 @@ def atender_mensaje(
     # con el primer hueco libre. El paso que vende no se deja al azar
     # del modelo. (v3.4.11) La propuesta NO pide nombre ni número:
     # se piden después de confirmar, para no frenar la reserva.
-    if respuesta.quiere_agendar != "si" and _quiere_agendar_ya(texto):
+    if _agendar_activo and respuesta.quiere_agendar != "si" and _quiere_agendar_ya(texto):
         _huecos = locals().get("huecos")
         if _huecos:
             respuesta.quiere_agendar = "si"
@@ -1483,7 +1492,9 @@ def atender_mensaje(
     # 10. Responder por WhatsApp, con ritmo humano: foto oficial primero
     # (si la hay), luego el texto. Si el agente decidió partes, cada
     # parte va como su propio mensaje, en orden (v3.4.8).
-    if foto:
+    # (v3.5) Interruptor de fotos desde Configuración: si está en NO,
+    # no se manda ninguna foto (el texto sale igual).
+    if foto and interruptor("enviar_fotos"):
         deps.enviar_foto(telefono, foto)
     if respuesta.partes:
         enviar_partes(deps.enviar_texto, telefono, respuesta.partes, dormir=con_ritmo)
