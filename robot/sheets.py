@@ -261,7 +261,7 @@ def leer_profesionales() -> list[dict]:
 # calendario: editar el espejo no agenda nada.
 _CITAS_COLUMNAS = ["ID_Cita", "ID_Paciente", "Teléfono", "Servicio", "Profesional", "Fecha",
                    "Hora_inicio", "Hora_fin", "Estado", "Origen", "Recordatorio_enviado",
-                   "Confirmado", "Notas", "Creado_por", "Última_actualización"]
+                   "Confirmado", "Notas", "Creado_por", "Última_actualización", "Urgencia"]
 
 
 def registrar_cita_espejo(fila: dict) -> None:
@@ -279,12 +279,14 @@ def registrar_cita_espejo(fila: dict) -> None:
 
 def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = None,
                            notas: str | None = None,
-                           recordatorio_enviado: str | None = None) -> None:
-    """Actualiza el Estado (columna I), las Notas (columna M) y/o el
-    Recordatorio_enviado (columna K, v3.12) de la última cita espejo
-    que coincida con teléfono + fecha (v3.9; las Notas se suman en
-    v3.10 para guardar los datos de la otra persona). Best-effort.
-    Sin estado, notas ni recordatorio, no hace nada."""
+                           recordatorio_enviado: str | None = None,
+                           urgencia: str | None = None) -> None:
+    """Actualiza el Estado (columna I), las Notas (columna M), el
+    Recordatorio_enviado (columna K, v3.12) y/o la Urgencia (columna
+    P, v3.13) de la última cita espejo que coincida con teléfono +
+    fecha (v3.9; las Notas se suman en v3.10 para guardar los datos
+    de la otra persona). Best-effort. Sin estado, notas,
+    recordatorio ni urgencia, no hace nada."""
     try:
         filas = leer_pestana("Citas")
         dia = str(fecha_cita or "")[:10]
@@ -317,6 +319,13 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = 
                 range=f"Citas!K{numero}",
                 valueInputOption="RAW",
                 body={"values": [[recordatorio_enviado]]},
+            ).execute()
+        if urgencia is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!P{numero}",
+                valueInputOption="RAW",
+                body={"values": [[urgencia]]},
             ).execute()
         _invalidar_cache("Citas")
     except Exception as exc:  # noqa: BLE001

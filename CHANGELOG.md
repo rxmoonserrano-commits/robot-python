@@ -5,6 +5,39 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.13.0 — Cita urgente: urgencia con oferta de cita, marca en el CRM y correo con el porqué (2026-11-22)
+
+Jose simuló una emergencia y pidió el paso completo: cuando el
+cliente suena urgente, el robot no solo pasa a una persona —también
+ofrece agendar y la cita sale marcada como urgente.
+
+- **Urgencia con oferta de cita.** Al detectar urgencia, además del
+  handoff (correo al dueño + caso en Clientes, como siempre), el
+  robot guarda una propuesta con botones para la primera hora
+  disponible (con profesional si hay agenda por profesional) y la
+  manda justo después del mensaje de handoff. Si la agenda está
+  apagada, ya hay una propuesta viva, hay tope de citas o no hay
+  huecos, no se ofrece nada: el handoff sale igual. La propuesta
+  viaja con la razón de la urgencia (también en `extra_json`, para
+  sobrevivir a un reinicio de Render).
+- **Fuera de horario con empatía.** Si el negocio está cerrado, el
+  mensaje de urgencia agrega que puede que tarden en responder
+  hasta que abran (texto personalizable con
+  `mensaje_urgencia_fuera_horario` en Configuración). La guía
+  médica y la promesa de persona inmediata se mantienen.
+- **Marca en el CRM.** Nueva columna `Urgencia` (P, SI/NO) en la
+  pestaña Citas: la cita confirmada desde una urgencia queda en SI
+  y las Notas llevan "URGENTE: {porqué}". El evento del calendario
+  también lleva la marca en su descripción. `actualizar_cita_espejo`
+  acepta el parámetro `urgencia` para marcar una fila existente.
+- **Correo de cita urgente.** Nueva alerta `alerta_cita_urgente`:
+  asunto "🚨 Cita con urgencia" y el porqué en el cuerpo. Sale
+  siempre en el momento, aunque `alertas_instantaneas` esté en NO
+  (una urgencia no espera al correo semanal), y reemplaza al correo
+  normal de cita confirmada para esa cita.
+- **Sin cambios para citas normales:** Urgencia queda en NO, el
+  correo y el espejo se comportan idénticos a v3.12.0.
+
 ## v3.12.0 — Sereno completo: agenda por profesional, recordatorios, urgencia con guía (2026-11-22)
 
 Jose adoptó el producto "Sereno" (recepción de clínica por

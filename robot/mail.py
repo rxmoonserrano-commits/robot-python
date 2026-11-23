@@ -91,6 +91,30 @@ def alerta_cita_confirmada(
     )
 
 
+def alerta_cita_urgente(
+    nombre: str, telefono: str, motivo: str, fecha_bonita: str, fecha: str,
+    razon: str = "",
+) -> None:
+    """Correo al dueño: se confirmó una cita marcada como URGENTE (v3.13).
+
+    El porqué va en el correo: el dueño sabe qué atender primero sin
+    buscar en la hoja. Esta alerta siempre sale en el momento (no
+    espera al correo semanal): una urgencia no puede esperar al lunes.
+    """
+    enviar_correo(
+        correo_dueno(),
+        f"🚨 Cita con urgencia — {nombre or telefono} — {fecha_bonita}",
+        "Se confirmó una cita marcada como URGENTE por WhatsApp.\n\n"
+        f"Nombre: {nombre}\n"
+        f"Teléfono: {telefono}\n"
+        f"Motivo: {motivo}\n"
+        f"Cita: {fecha_bonita}\n"
+        f"Fecha: {fecha}\n\n"
+        f"Por qué es urgente:\n{razon or motivo}\n\n"
+        "Atiende esta cita con prioridad.",
+    )
+
+
 def alerta_lead_caliente(
     nombre: str, telefono: str, motivo: str, ultimo_mensaje: str, fecha: str
 ) -> None:

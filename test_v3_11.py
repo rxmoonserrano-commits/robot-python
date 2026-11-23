@@ -22,7 +22,7 @@ sin fricción):
 (i) Contexto: con cita pasada, el agente recibe la línea "ya pasó"
     y el estado dice tiene_cita false.
 (j) Espejo de citas: el append de Sheets se ancla al ancho real de
-    la fila (Citas 15 → A:O), para que el panel resumen en Q:R no
+    la fila (Citas 16 → A:P), para que el panel resumen en Q:R no
     corra las filas a la derecha.
 
 Uso:  python test_v3_11.py
@@ -428,9 +428,9 @@ def test_ancho_append():
             return _Valores()
 
     with patch.object(sheets_mod, "_servicio_sheets", lambda: _Servicio()):
-        sheets_mod.agregar_fila("Citas", ["x"] * 15)
-        caso("(j) Citas (15 cols) ancla el append en A:O",
-             capturado.get("range") == "Citas!A:O",
+        sheets_mod.agregar_fila("Citas", ["x"] * 16)
+        caso("(j) Citas (16 cols) ancla el append en A:P",
+             capturado.get("range") == "Citas!A:P",
              f"range={capturado.get('range')!r}")
         sheets_mod.agregar_fila("Diagnóstico", ["x"] * 6)
         caso("(j) Diagnóstico (6 cols) ancla el append en A:F",

@@ -147,6 +147,7 @@ def cargar_propuestas(deps: Dependencias) -> int:
         propuesta["numero_paciente"] = extra.get("numero_paciente", "")
         propuesta["profesional"] = extra.get("profesional", "")
         propuesta["cita2"] = extra.get("cita2")
+        propuesta["urgencia"] = extra.get("urgencia", "")
         _CITAS_PENDIENTES[telefono] = propuesta
         n += 1
     return n
@@ -160,7 +161,8 @@ def _parse_extra_propuesta(crudo) -> dict:
     propuesta de una cita para quien escribe, como siempre.
     """
     vacio = {"nombre_paciente": "", "relacion_paciente": "",
-             "numero_paciente": "", "profesional": "", "cita2": None}
+             "numero_paciente": "", "profesional": "", "cita2": None,
+             "urgencia": ""}
     if not crudo:
         return vacio
     try:
@@ -188,6 +190,7 @@ def _parse_extra_propuesta(crudo) -> dict:
         "numero_paciente": str(datos.get("numero_paciente") or "").strip(),
         "profesional": str(datos.get("profesional") or "").strip(),
         "cita2": cita2_limpia,
+        "urgencia": str(datos.get("urgencia") or "").strip(),
     }
 
 
@@ -203,8 +206,12 @@ def _extra_propuesta_json(propuesta: dict) -> str:
         "numero_paciente": str(propuesta.get("numero_paciente") or "").strip(),
         "profesional": str(propuesta.get("profesional") or "").strip(),
         "cita2": propuesta.get("cita2"),
+        # (v3.13) La razón de urgencia viaja en la propuesta para que
+        # la cita se marque URGENTE al confirmarse, aunque Render se
+        # reinicie entre la oferta y la confirmación.
+        "urgencia": str(propuesta.get("urgencia") or "").strip(),
     }
-    if not any(datos.values()):
+    if not any(v for v in datos.values() if v is not None and v != ""):
         return ""
     return json.dumps(datos, ensure_ascii=False)
 
@@ -745,13 +752,15 @@ def _con_profesional(nombre: str) -> str:
 
 def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
                  duracion: int, estado: str, ahora: str,
-                 profesional: str = "") -> dict:
+                 profesional: str = "", urgencia: str = "") -> dict:
     """Fila para la pestaña Citas (espejo de solo lectura, v3.9).
 
     La fecha/hora salen de la fecha_cita ISO de la propuesta; si no
     se puede leer, quedan vacías y el resto de la fila se guarda igual.
     (v3.12) `profesional` viene de la agenda por profesional; sin
     dato queda "Equipo de la clínica", como siempre.
+    (v3.13) `urgencia` es la razón de la urgencia (o "" si no lo es):
+    la columna Urgencia queda en SI/NO y las Notas llevan el porqué.
     """
     fecha_iso = str(propuesta.get("fecha_cita", "") or "")
     try:
@@ -764,6 +773,10 @@ def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
     except (ValueError, TypeError):
         hora_inicio = hora_fin = ""
         fecha_dia = fecha_iso[:10]
+    _urg = str(urgencia or "").strip()
+    _notas = f"Paciente: {nombre_cita}" if nombre_cita else ""
+    if _urg:
+        _notas = f"{_notas} | URGENTE: {_urg}" if _notas else f"URGENTE: {_urg}"
     return {
         "ID_Cita": f"C-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(telefono)[-4:]}",
         "ID_Paciente": "",
@@ -777,9 +790,10 @@ def _fila_espejo(propuesta: dict, telefono: str, nombre_cita: str,
         "Origen": "WhatsApp",
         "Recordatorio_enviado": "-",
         "Confirmado": "Sí" if estado == "Confirmada" else "No",
-        "Notas": f"Paciente: {nombre_cita}" if nombre_cita else "",
+        "Notas": _notas,
         "Creado_por": "Asistente",
         "Última_actualización": str(ahora or "")[:10],
+        "Urgencia": "SI" if _urg else "NO",
     }
 
 
@@ -954,6 +968,98 @@ def _guardar_datos_paciente(deps, telefono: str, nombre_paciente: str,
         pass
 
 
+def _propuesta_cita_urgente(deps: Dependencias, telefono: str, nombre: str,
+                            texto: str, conocimiento: list[dict],
+                            ahora: datetime, razon: str) -> dict | None:
+    """(v3.13) Guarda la propuesta de cita urgente con botones.
+
+    Al detectar una urgencia, el robot además del handoff ofrece
+    agendar la primera hora disponible. La propuesta viaja marcada
+    con `urgencia` (la razón): al confirmarse, la cita queda
+    catalogada como URGENTE en el CRM y el dueño recibe el correo
+    con el porqué. Devuelve la propuesta guardada, o None si no se
+    pudo ofrecer (agenda apagada, ya hay propuesta, tope de citas o
+    sin huecos): en esos casos el handoff sale igual, sin botones.
+    """
+    if not funcion_activa("agendar"):
+        return None
+    if _CITAS_PENDIENTES.get(telefono):
+        return None  # ya hay una propuesta viva: no se pisa
+    if _citas_activas_telefono(deps, telefono, ahora) + 1 > MAX_CITAS_POR_NUMERO:
+        return None
+    try:
+        huecos = deps.proximos_huecos_libres(conocimiento, ahora)
+    except Exception:
+        huecos = None
+    huecos_pro = []
+    try:
+        huecos_pro = deps.proximos_huecos_profesionales(conocimiento, ahora) or []
+    except Exception:
+        huecos_pro = []
+    prof_por_iso = {
+        h["inicio"]: str(h.get("profesional") or "")
+        for h in huecos_pro if h.get("inicio")
+    }
+    if huecos_pro:
+        huecos = [h["inicio"] for h in huecos_pro]
+    if not huecos:
+        return None
+    fecha_cita = huecos[0]
+    try:
+        fecha_bonita = formatear_cita_bonita(fecha_cita)
+    except (ValueError, TypeError):
+        return None
+    profesional = _profesional_de_fecha(fecha_cita, prof_por_iso)
+    propuesta_dict = {
+        "nombre": nombre,
+        "motivo": texto[:120],
+        "fecha_cita": fecha_cita,
+        "fecha_bonita": fecha_bonita,
+        "creado_en": ahora.isoformat(),
+        "profesional": profesional,
+        "nombre_paciente": "",
+        "relacion_paciente": "",
+        "numero_paciente": "",
+        "cita2": None,
+        "urgencia": razon,
+    }
+    propuesta_dict["extra_json"] = _extra_propuesta_json(propuesta_dict)
+    _guardar_propuesta(deps, telefono, propuesta_dict)
+    return propuesta_dict
+
+
+def _enviar_propuesta_urgente(deps: Dependencias, telefono: str, fecha: str,
+                              con_ritmo: bool = True) -> None:
+    """(v3.13) Manda la oferta de cita urgente con botones.
+
+    Sale después del mensaje de handoff (paso 8): primero la
+    empatía y la promesa de persona, luego la cita lista para
+    confirmar con un toque. Si los botones fallan, va el texto y
+    la propuesta guardada sigue valiendo para un "sí" escrito.
+    """
+    propuesta = _CITAS_PENDIENTES.get(telefono)
+    if not propuesta or not str(propuesta.get("urgencia") or "").strip():
+        return
+    _con_pro = _con_profesional(str(propuesta.get("profesional") or "").strip())
+    mensaje = (
+        f"¡Con gusto! Te propongo tu cita para el {propuesta['fecha_bonita']}{_con_pro}. "
+        "¿La confirmamos?"
+    )
+    try:
+        deps.enviar_botones(telefono, mensaje, BOTONES_CITA)
+    except Exception as exc:
+        try:
+            deps.registrar_diagnostico(
+                fecha, "whatsapp", "FALLO",
+                f"Botones no enviados: {str(exc)[:250]}",
+                telefono, "propuesta urgente con botones",
+            )
+        except Exception:
+            pass
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cita urgente")
+
+
 def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                               fecha: str, con_ritmo: bool = True) -> dict:
     """Crea la cita de una propuesta guardada y manda la confirmación bonita.
@@ -975,6 +1081,10 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         return {"respondio": True, "motivo": "sin propuesta", "handoff": False}
     nombre_cita = str(propuesta.get("nombre") or "").strip()
     telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
+    # (v3.13) Urgencia: si la propuesta viene de una urgencia, todas
+    # sus citas se marcan URGENTE (CRM, calendario y correo con el
+    # porqué). Vacío = cita normal, como siempre.
+    urgencia_razon = str(propuesta.get("urgencia") or "").strip()
     # (v3.10) Citas a crear: la primera + la segunda si la hay.
     citas = [{
         "motivo": propuesta["motivo"],
@@ -984,6 +1094,7 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         "nombre_paciente": str(propuesta.get("nombre_paciente") or "").strip(),
         "relacion_paciente": str(propuesta.get("relacion_paciente") or "").strip(),
         "numero_paciente": str(propuesta.get("numero_paciente") or "").strip(),
+        "urgencia": urgencia_razon,
     }]
     if propuesta.get("cita2"):
         _c2 = propuesta["cita2"]
@@ -995,6 +1106,7 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
             "nombre_paciente": str(_c2.get("nombre_paciente") or "").strip(),
             "relacion_paciente": str(_c2.get("relacion_paciente") or "").strip(),
             "numero_paciente": str(_c2.get("numero_paciente") or "").strip(),
+            "urgencia": urgencia_razon,
         })
     # (v3.10) Es cita para OTRA persona si trae nombre o relación
     # (aunque el nombre aún no se sepa: la relación ya lo dice).
@@ -1031,6 +1143,8 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         except (TypeError, ValueError):
             _duracion = settings.duracion_cita_minutos
         _nota_partes = []
+        if _cita.get("urgencia"):
+            _nota_partes.append(f"URGENTE: {_cita['urgencia']}")
         if _cita["nombre_paciente"]:
             _nota_partes.append(f"Paciente: {_cita['nombre_paciente']}")
         if _cita.get("profesional"):
@@ -1065,7 +1179,8 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                         {"motivo": _cita["motivo"], "fecha_cita": _cita["fecha_cita"],
                          "fecha_bonita": _cita["fecha_bonita"]},
                         telefono, _nombre_pac, _duracion, "Pendiente", fecha,
-                        profesional=_cita.get("profesional", "")))
+                        profesional=_cita.get("profesional", ""),
+                        urgencia=_cita.get("urgencia", "")))
                 except Exception:
                     pass
                 _avisa = getattr(deps, "alerta_cita_pendiente", lambda *a: None)
@@ -1166,7 +1281,8 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
                  "fecha_bonita": _cita["fecha_bonita"]},
                 telefono, _cita["nombre_cita"],
                 _duracion, "Confirmada", fecha,
-                profesional=_cita.get("profesional", "")))
+                profesional=_cita.get("profesional", ""),
+                urgencia=_cita.get("urgencia", "")))
         except Exception:
             pass
     # (v3.4.11) Después de confirmar (la cita YA quedó: pedir los
@@ -1202,11 +1318,20 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     # se entera hasta el lunes. Best-effort: si el correo falla, la
     # cita ya quedó creada igual. (v3.7) Con alertas_instantaneas=NO
     # la cita va en el correo semanal de 3 tipos y aquí no se manda
-    # nada (sin avalancha de correos).
-    if funcion_activa("alertas_instantaneas"):
-        for _cita, _estado, _duracion in creadas:
-            if _estado != "creada":
-                continue
+    # nada (sin avalancha de correos). (v3.13) Excepción: la cita
+    # urgente SIEMPRE avisa en el momento, con el porqué — una
+    # urgencia no espera al lunes.
+    for _cita, _estado, _duracion in creadas:
+        if _estado != "creada":
+            continue
+        if _cita.get("urgencia"):
+            _avisar_por_correo(
+                getattr(deps, "alerta_cita_urgente", None),
+                _cita["nombre_paciente"] or propuesta["nombre"], telefono,
+                _cita["motivo"], _cita["fecha_bonita"], fecha,
+                razon=_cita["urgencia"],
+            )
+        elif funcion_activa("alertas_instantaneas"):
             _avisar_por_correo(
                 getattr(deps, "alerta_cita_confirmada", None),
                 _cita["nombre_paciente"] or propuesta["nombre"], telefono,
@@ -1697,6 +1822,9 @@ class Dependencias:
         return True
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha): ...
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
+    def alerta_cita_urgente(self, nombre, telefono, motivo, fecha_bonita, fecha, razon=""):
+        """Avisa al dueño de una cita confirmada marcada como URGENTE (v3.13). Por defecto: nada."""
+        ...
 
     # --- Nuevos en la v3.9 (vacío = no hacer nada, el robot sigue) ---
     def duracion_servicio(self, motivo: str):
@@ -1709,8 +1837,9 @@ class Dependencias:
 
     def actualizar_cita_espejo(self, telefono: str, fecha_cita: str, estado: str | None = None,
                                notas: str | None = None,
-                               recordatorio_enviado: str | None = None) -> None:
-        """Actualiza el estado, las notas y/o el recordatorio de la cita espejo. Por defecto: nada."""
+                               recordatorio_enviado: str | None = None,
+                               urgencia: str | None = None) -> None:
+        """Actualiza el estado, las notas, el recordatorio y/o la urgencia de la cita espejo. Por defecto: nada."""
         ...
 
     def leer_citas_espejo(self) -> list[dict]:
@@ -2210,6 +2339,14 @@ def atender_mensaje(
     # diagnósticos: solo orientar y pasar a una persona. La clínica
     # puede personalizar el texto con `mensaje_urgencia`.
     if _es_urgencia(texto):
+        # (v3.13) Urgencia con cita: además del handoff, el robot
+        # ofrece agendar la primera hora disponible con botones. La
+        # cita que salga de aquí se marca URGENTE en el CRM y avisa
+        # por correo con el porqué. Fuera de horario, el mensaje lo
+        # dice con empatía: puede que tarden en responder hasta que
+        # abran. La propuesta se guarda aquí y sus botones salen en
+        # el paso 8, después del mensaje de handoff.
+        _razon = f"{_MOTIVO_URGENCIA}: {texto[:120]}"
         try:
             _mensaje_urgencia = (configuracion().get("mensaje_urgencia") or "").strip()
         except Exception:
@@ -2220,13 +2357,26 @@ def atender_mensaje(
                 "inmediata. Claro, es urgente. Te paso con una persona "
                 "del negocio de inmediato, te atienden lo antes posible."
             )
+        if not abierto:
+            try:
+                _aviso_fuera = (configuracion().get("mensaje_urgencia_fuera_horario") or "").strip()
+            except Exception:
+                _aviso_fuera = ""
+            if not _aviso_fuera:
+                _aviso_fuera = (
+                    "Estamos fuera de horario, así que puede que tarden "
+                    "un poco en responderte; en cuanto abran, te atenderán."
+                )
+            _mensaje_urgencia = _mensaje_urgencia.rstrip() + " " + _aviso_fuera
         respuesta = RespuestaAgente(
             respuesta_texto=_mensaje_urgencia,
             necesita_handoff="si",
-            motivo_handoff=f"{_MOTIVO_URGENCIA}: {texto[:120]}",
+            motivo_handoff=_razon,
             nombre=nombre,
             motivo=texto[:120],
         )
+        _propuesta_cita_urgente(
+            deps, telefono, nombre, texto, conocimiento, ahora, _razon)
     else:
         respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
 
@@ -2355,6 +2505,11 @@ def atender_mensaje(
                 respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
                 resumen=str(fila_cliente.get("resumen_conversacion", "") or ""),
             )
+            # (v3.13) Urgencia con cita: después del mensaje de
+            # handoff, la oferta de cita urgente con botones (la
+            # propuesta se guardó al detectar la urgencia).
+            if str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA):
+                _enviar_propuesta_urgente(deps, telefono, fecha, con_ritmo)
         deps.registrar_cliente(
             fecha, respuesta.nombre or nombre, telefono,
             respuesta.motivo or texto, "", "whatsapp", "en conversacion", "si",

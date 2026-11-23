@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.12.0"
+VERSION = "3.13.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -141,10 +141,10 @@ class DependenciasReales(Dependencias):
             aviso(f"[citas-espejo] {exc}")
 
     def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None,
-                               recordatorio_enviado=None):
+                               recordatorio_enviado=None, urgencia=None):
         try:
             sheets.actualizar_cita_espejo(telefono, fecha_cita, estado, notas,
-                                          recordatorio_enviado)
+                                          recordatorio_enviado, urgencia)
         except Exception as exc:  # noqa: BLE001 - el espejo nunca rompe WhatsApp
             aviso(f"[citas-espejo] {exc}")
 
@@ -225,6 +225,12 @@ class DependenciasReales(Dependencias):
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):
         try:
             mail.alerta_cita_confirmada(nombre, telefono, motivo, fecha_bonita, fecha)
+        except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
+            aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
+
+    def alerta_cita_urgente(self, nombre, telefono, motivo, fecha_bonita, fecha, razon=""):
+        try:
+            mail.alerta_cita_urgente(nombre, telefono, motivo, fecha_bonita, fecha, razon)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
