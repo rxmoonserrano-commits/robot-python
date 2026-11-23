@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.18.0"
+VERSION = "3.19.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event

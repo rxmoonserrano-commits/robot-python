@@ -3479,11 +3479,15 @@ def atender_mensaje(
             ).strip()
             _prof2 = str(cita2.get("profesional") or "").strip()
             _con_pro2 = _con_profesional(_prof2)
+            # (v3.19) fecha_bonita con respaldo: una cita2 sin ese
+            # campo (p. ej. restaurada de una hoja vieja) no debe
+            # tumbar el mensaje con un KeyError.
+            _bonita2 = str(cita2.get("fecha_bonita") or cita2.get("fecha_cita") or "")
             if _rel1:
                 propuesta = (
                     "¡Con gusto! Te propongo:\n"
                     f"• La cita de {_rel1} para el {fecha_bonita}{_con_pro}.\n"
-                    f"• Tu cita para el {cita2['fecha_bonita']}{_con_pro2}.\n"
+                    f"• Tu cita para el {_bonita2}{_con_pro2}.\n"
                     "¿Confirmamos ambas?"
                 )
             else:
@@ -3492,7 +3496,7 @@ def atender_mensaje(
                 propuesta = (
                     "¡Con gusto! Te propongo:\n"
                     f"• Tu cita para el {fecha_bonita}{_con_pro}.\n"
-                    f"• {_etiqueta2.capitalize()} para el {cita2['fecha_bonita']}{_con_pro2}.\n"
+                    f"• {_etiqueta2.capitalize()} para el {_bonita2}{_con_pro2}.\n"
                     "¿Confirmamos ambas?"
                 )
             botones = [

@@ -5,6 +5,38 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.19.0 — Simulación conversacional: 24 viajes completos (2026-11-23)
+
+Jose pidió una corrida puramente conversacional para adelantarse a
+los bugs y asegurar calidad. Nueva `test_simulacion_conversacional.py`:
+24 viajes multi-turno (5 a 9 turnos cada uno) contra el código real,
+verificando al final citas, correos, handoffs, propuesta viva o
+consumida, y que la IA recibió el contexto (días desde el último
+mensaje, memoria del cliente, cuánto falta para su cita). Viajes:
+cliente nuevo completo, duda y regreso tras días, dos citas en una
+charla, cambiar de idea a mitad, cancelar y volver, urgencia en
+medio de la charla, enojado en el embudo, 5 preguntas antes de
+agendar, pedir persona en el embudo, tope y mover, confirma
+asistencia, spam y basura en medio, "lo voy a pensar", adelanto por
+urgencia, pregunta con propuesta viva, cita inminente, despedida y
+regreso, cambiar con dos citas (retomar), dos urgencias seguidas,
+cita para otra persona, confirma→cancela→sin cita, memoria al final
+del viaje, "no" pelón, dos preguntas con propuesta viva.
+
+**Bug real encontrado y corregido:**
+1. **KeyError en propuesta de dos citas**: el texto de la propuesta
+   leía `cita2['fecha_bonita']` con acceso directo; una cita2 sin
+   ese campo (p. ej. restaurada de una hoja vieja) tumbaba el
+   mensaje entero. Ahora usa `.get()` con respaldo a la fecha ISO.
+   (La corrida también obligó a corregir 3 errores del propio
+   arnés: la cancelación por texto necesita la cita en Clientes
+   como en producción, la memoria se guarda cuando la IA manda
+   resumen, y el retomar viaja por los botones cambiar_mia.)
+
+Nota: la corrida es con agente falso (mecánica conversacional);
+el tono de la IA real se valida con la batería dorada en la Mac
+de Jose (necesita su GEMINI_API_KEY) y con la prueba en vivo.
+
 ## v3.18.0 — Simulación profunda: 99 escenarios adversariales (2026-11-23)
 
 Jose pidió una corrida profunda para encontrar bugs conversacionales
