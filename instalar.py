@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import getpass
 import os
-import re
 import secrets
 import subprocess
 import sys
@@ -84,7 +83,12 @@ def revisar_python() -> bool:
 def revisar_archivos() -> bool:
     """¿Están los archivos que el robot necesita?"""
     faltan = []
-    for nombre in ("requirements.txt", ".env.example", "app.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_v3_3.py", "test_v3_4.py", "test_conversaciones_doradas.py", "robot/estado.py", "robot/revision.py", "robot/negocio.py", "robot/salud.py", "robot/seguridad.py", "robot/registro.py", "robot/vigilancia.py", "robot/abuso.py", "robot/estado_servidor.py"):
+    esperados = ["requirements.txt", ".env.example", "app.py", "reporte_semanal.py"]
+    esperados += sorted(f for f in os.listdir(RAIZ)
+                        if f.startswith("test_") and f.endswith(".py"))
+    esperados += sorted("robot/" + f for f in os.listdir(os.path.join(RAIZ, "robot"))
+                        if f.endswith(".py"))
+    for nombre in esperados:
         if not os.path.exists(os.path.join(RAIZ, nombre)):
             faltan.append(nombre)
     if faltan:
@@ -124,15 +128,12 @@ def revisar_env_example() -> bool:
 
 def probar_todo() -> bool:
     """py_compile + pruebas simuladas + el servidor arranca e importa."""
-    ok, salida = correr([sys.executable, "-m", "py_compile", "app.py", "instalar.py",
-                         "reporte_semanal.py", "test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_v3_3.py", "test_v3_4.py", "test_conversaciones_doradas.py",
-                         "robot/config.py", "robot/logic.py", "robot/whatsapp.py",
-                         "robot/agrupar.py", "robot/ritmo.py", "robot/agent.py",
-                         "robot/gemini.py", "robot/sheets.py", "robot/booking.py",
-                         "robot/mail.py", "robot/report.py", "robot/estado.py",
-                         "robot/revision.py", "robot/negocio.py", "robot/salud.py",
-                         "robot/seguridad.py", "robot/registro.py",
-                         "robot/vigilancia.py", "robot/abuso.py", "robot/estado_servidor.py"],
+    archivos_py = ["app.py", "instalar.py", "reporte_semanal.py"]
+    archivos_py += sorted(f for f in os.listdir(RAIZ)
+                          if f.startswith("test_") and f.endswith(".py"))
+    archivos_py += sorted("robot/" + f for f in os.listdir(os.path.join(RAIZ, "robot"))
+                          if f.endswith(".py"))
+    ok, salida = correr([sys.executable, "-m", "py_compile"] + archivos_py,
                         "compilar")
     if not ok:
         decir("❌ Hay un error en el código (py_compile). El error fue:")
@@ -154,7 +155,10 @@ def probar_todo() -> bool:
         decir("   Cambia GEMINI_MODEL a gemini-4-hydrogen y GEMINI_MODEL_FALLBACK a gemini-3.8-flash.")
         return False
     decir("✓ " + salida.strip().splitlines()[-1])
-    for prueba in ("test_simulado.py", "test_v2.py", "test_v2_2.py", "test_v2_3.py", "test_v2_4.py", "test_v2_5.py", "test_v2_6.py", "test_v2_7.py", "test_v2_8.py", "test_v2_9.py", "test_v2_10.py", "test_v2_11.py", "test_v2_12.py", "test_v2_13.py", "test_v3.py", "test_v3_1.py", "test_v3_2.py", "test_v3_3.py", "test_v3_4.py"):
+    pruebas = sorted(f for f in os.listdir(RAIZ)
+                   if f.startswith("test_") and f.endswith(".py")
+                   and f != "test_conversaciones_doradas.py")
+    for prueba in pruebas:
         ok, salida = correr([sys.executable, prueba], f"correr {prueba}")
         ultima = salida.strip().splitlines()[-1] if salida.strip() else ""
         if not ok:
@@ -318,8 +322,10 @@ def main() -> int:
     decir("\nPara arrancar el robot en tu computadora (pruebas):")
     decir("  uvicorn app:app --port 8000")
     decir("  y abre http://localhost:8000/health — debes ver {\"ok\": true}")
-    decir("\nY recuerda: no hay recordatorios por WhatsApp en este robot.")
-    decir("El reporte semanal llega solo por correo, los lunes a las 08:00.")
+    decir("\nY recuerda: los recordatorios de cita salen por plantilla")
+    decir("aprobada de WhatsApp (interruptor `recordatorios` en")
+    decir("Configuración). El reporte semanal llega por correo, los")
+    decir("lunes a las 08:00.")
     return 0
 
 
