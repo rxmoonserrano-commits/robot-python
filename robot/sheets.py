@@ -280,13 +280,17 @@ def registrar_cita_espejo(fila: dict) -> None:
 def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = None,
                            notas: str | None = None,
                            recordatorio_enviado: str | None = None,
-                           urgencia: str | None = None) -> None:
+                           urgencia: str | None = None,
+                           nueva_fecha: str | None = None,
+                           nueva_hora_inicio: str | None = None,
+                           nueva_hora_fin: str | None = None) -> None:
     """Actualiza el Estado (columna I), las Notas (columna M), el
-    Recordatorio_enviado (columna K, v3.12) y/o la Urgencia (columna
-    P, v3.13) de la última cita espejo que coincida con teléfono +
-    fecha (v3.9; las Notas se suman en v3.10 para guardar los datos
-    de la otra persona). Best-effort. Sin estado, notas,
-    recordatorio ni urgencia, no hace nada."""
+    Recordatorio_enviado (columna K, v3.12), la Urgencia (columna P,
+    v3.13) y/o la Fecha/Hora (columnas F/G/H, v3.15: mover la cita
+    al adelantarla por urgencia) de la última cita espejo que
+    coincida con teléfono + fecha (v3.9; las Notas se suman en v3.10
+    para guardar los datos de la otra persona). Best-effort. Sin
+    ningún dato, no hace nada."""
     try:
         filas = leer_pestana("Citas")
         dia = str(fecha_cita or "")[:10]
@@ -326,6 +330,30 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = 
                 range=f"Citas!P{numero}",
                 valueInputOption="RAW",
                 body={"values": [[urgencia]]},
+            ).execute()
+        # (v3.15) Mover la cita (adelantar por urgencia): Fecha,
+        # Hora_inicio y Hora_fin de la misma fila. La fila se buscó
+        # por la fecha VIEJA, así que el cambio es seguro.
+        if nueva_fecha is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!F{numero}",
+                valueInputOption="RAW",
+                body={"values": [[str(nueva_fecha)[:10]]]},
+            ).execute()
+        if nueva_hora_inicio is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!G{numero}",
+                valueInputOption="RAW",
+                body={"values": [[nueva_hora_inicio]]},
+            ).execute()
+        if nueva_hora_fin is not None:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Citas!H{numero}",
+                valueInputOption="RAW",
+                body={"values": [[nueva_hora_fin]]},
             ).execute()
         _invalidar_cache("Citas")
     except Exception as exc:  # noqa: BLE001

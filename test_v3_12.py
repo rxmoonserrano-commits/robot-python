@@ -199,10 +199,15 @@ class DepsV312(Dependencias):
         self.mirror.append(fila)
 
     def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None,
-                               recordatorio_enviado=None):
+                               recordatorio_enviado=None, urgencia=None,
+                               nueva_fecha=None, nueva_hora_inicio=None,
+                               nueva_hora_fin=None):
         self.actualizaciones.append({"telefono": telefono, "fecha_cita": fecha_cita,
                                      "estado": estado, "notas": notas,
-                                     "recordatorio_enviado": recordatorio_enviado})
+                                     "recordatorio_enviado": recordatorio_enviado,
+                                     "urgencia": urgencia, "nueva_fecha": nueva_fecha,
+                                     "nueva_hora_inicio": nueva_hora_inicio,
+                                     "nueva_hora_fin": nueva_hora_fin})
 
     def leer_citas_espejo(self):
         return list(self.espejo)

@@ -100,6 +100,8 @@ class DepsV313(Dependencias):
         self.huecos = huecos if huecos is not None else [MARTES, MIERCOLES]
         self.huecos_pro = huecos_pro if huecos_pro is not None else []
         self.espejo = espejo if espejo is not None else []
+        self.actualizaciones = []
+        self.citas_canceladas = []
 
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
@@ -195,8 +197,16 @@ class DepsV313(Dependencias):
         self.mirror.append(fila)
 
     def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None,
-                               recordatorio_enviado=None, urgencia=None):
-        pass
+                               recordatorio_enviado=None, urgencia=None,
+                               nueva_fecha=None, nueva_hora_inicio=None,
+                               nueva_hora_fin=None):
+        self.actualizaciones.append({
+            "telefono": telefono, "fecha_cita": fecha_cita, "estado": estado,
+            "notas": notas, "recordatorio_enviado": recordatorio_enviado,
+            "urgencia": urgencia, "nueva_fecha": nueva_fecha,
+            "nueva_hora_inicio": nueva_hora_inicio,
+            "nueva_hora_fin": nueva_hora_fin,
+        })
 
     def leer_citas_espejo(self):
         return list(self.espejo)
@@ -224,6 +234,7 @@ class DepsV313(Dependencias):
                                      "motivo": motivo, "resumen": resumen})
 
     def cancelar_cita(self, telefono, fecha_cita):
+        self.citas_canceladas.append({"telefono": telefono, "fecha_cita": fecha_cita})
         return True
 
     def cancelar_cita_cliente(self, telefono):
@@ -258,8 +269,9 @@ def test_a_urgencia_fuera_de_horario():
     caso("(a) Urgencia: botones de cita enviados después del handoff",
          len(d.botones) == 1 and d.botones[0][2][0][0] == "confirmar_cita",
          f"{d.botones}")
-    caso("(a) Urgencia: la oferta propone la primera hora",
-         d.botones and "Te propongo tu cita" in d.botones[0][1], f"{d.botones}")
+    caso("(a) Urgencia: la oferta trae la fecha en tono sobrio",
+         d.botones and "Te dejo lista tu cita" in d.botones[0][1]
+         and "¡Con gusto!" not in d.botones[0][1], f"{d.botones}")
     limpiar()
 
 
@@ -533,13 +545,15 @@ def test_n_urgencia_ia_caida():
 
 
 # ------------------------------------------------------------------
-# (o) Urgencia con 2 citas: la urgencia salta el tope y propone
+# (o) Urgencia con 2 citas de otros: salta el tope y propone nueva
 # ------------------------------------------------------------------
 
 def test_o_urgencia_con_tope():
     espejo = [
-        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-24"},
-        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-25"},
+        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-24",
+         "Hora_inicio": "09:00", "Notas": "Paciente: su hermana"},
+        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-25",
+         "Hora_inicio": "09:00", "Notas": "Paciente: otra persona"},
     ]
     d = DepsV313(espejo=espejo)
     r = _urgencia(d)
@@ -552,6 +566,27 @@ def test_o_urgencia_con_tope():
          d.mensajes_al_agente
          and "ya tiene 2 citas registradas" in d.mensajes_al_agente[0],
          f"{d.mensajes_al_agente}")
+    limpiar()
+
+
+# ------------------------------------------------------------------
+# (p) Urgencia larga: sale en UNA burbuja (sin dividir)
+# ------------------------------------------------------------------
+
+def test_p_urgencia_una_burbuja():
+    texto_largo = (
+        "Ay, qué mal rato, lo siento mucho. Te paso con una persona de inmediato "
+        "para que te atiendan lo antes posible. Estamos fuera de horario, así que "
+        "puede que tarden un poco en responderte; en cuanto abran, te atenderán. "
+        "Si sientes que es grave, busca atención de inmediato. "
+        "Cuídate mucho y gracias por escribirnos."
+    )
+    assert len(texto_largo) > 300
+    d = DepsV313(agente_cola=[RespuestaAgente(respuesta_texto=texto_largo)])
+    r = _urgencia(d)
+    caso("(p) Urgencia larga: una sola burbuja, texto completo",
+         r.get("handoff") is True and len(d.textos) == 1
+         and d.textos[0][1] == texto_largo, f"{d.textos}")
     limpiar()
 
 
@@ -571,6 +606,7 @@ def main():
     test_m_urgencia_con_profesional()
     test_n_urgencia_ia_caida()
     test_o_urgencia_con_tope()
+    test_p_urgencia_una_burbuja()
     print(f"\n{TOTAL[0] - len(FALLOS)}/{TOTAL[0]} casos ok")
     if FALLOS:
         print("FALLARON:", ", ".join(FALLOS))

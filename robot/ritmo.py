@@ -95,15 +95,23 @@ def enviar_partes(enviar_texto, telefono: str, partes: list[str], dormir: bool =
     return enviados
 
 
-def enviar_con_ritmo(enviar_texto, telefono: str, texto: str, dormir: bool = True) -> list[str]:
+def enviar_con_ritmo(enviar_texto, telefono: str, texto: str, dormir: bool = True,
+                     sin_dividir: bool = False) -> list[str]:
     """Manda un texto con ritmo humano. Devuelve los pedazos que mandó.
 
     Espera la demora humana, manda el primer pedazo, y si hay más,
     espera 1.5 segundos entre pedazo y pedazo. `enviar_texto` es la
     función que realmente manda (en producción: whatsapp.enviar_texto;
     en pruebas: una falsa que guarda en memoria).
+
+    (v3.14.2) Con `sin_dividir=True` el texto sale en UNA sola
+    burbuja aunque pase de 300 caracteres: la respuesta de urgencia
+    es un mensaje que se lee completo, no dos pedazos sueltos.
     """
-    partes = dividir_mensaje(texto)
+    if sin_dividir and (texto or "").strip():
+        partes = [texto.strip()]
+    else:
+        partes = dividir_mensaje(texto)
     if dormir and partes:
         time.sleep(demora_humana(texto))
     for i, parte in enumerate(partes):

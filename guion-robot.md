@@ -172,7 +172,10 @@ El agente decide si su respuesta va en 1 solo mensaje o en varios
   cita sale marcada como URGENTE en la hoja y el dueño recibe un
   correo con el porqué. (v3.14) La respuesta la compone la IA con
   el guion y el contexto; el código fuerza el handoff. (v3.14.1) La
-  urgencia siempre propone fecha: salta el tope de 2 citas.
+  urgencia siempre propone fecha: salta el tope de 2 citas. (v3.14.2)
+  Una burbuja, protocolo con palabras propias, oferta sobria.
+  (v3.15) Si ya tiene una cita propia, propone adelantarla; si no,
+  cita nueva urgente.
 - **Escribe de noche:** atiende igual, cita para la próxima
   apertura. Nunca digas "ya cerramos".
 - **Sin huecos libres:** agenda llena por ahora, ofrece avisar

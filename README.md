@@ -356,7 +356,11 @@ siguiente cierra distinto.
   plantilla fija: la piensa la IA con el guion y el contexto; si la
   IA falla, texto fijo de respaldo. (v3.14.1) La urgencia siempre
   propone fecha: salta el tope de 2 citas por número (el tope sigue
-  para el flujo normal).
+  para el flujo normal). (v3.14.2) La respuesta sale en una sola
+  burbuja, el protocolo se dice con palabras propias (no copiado) y
+  la oferta va en tono sobrio. (v3.15) Si el cliente ya tiene una
+  cita propia, la urgencia propone ADELANTAla (moverla a la primera
+  hora libre) en vez de crear otra; si no tiene, cita nueva.
 - **Resumen de la mañana.** Todos los días a las 08:00, un correo al
   dueño con lo de las últimas 24 h: mensajes atendidos, clientes
   nuevos, citas agendadas, quién necesita una persona, propuestas

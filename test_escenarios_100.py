@@ -222,9 +222,15 @@ class Deps100(Dependencias):
     def registrar_cita_espejo(self, fila):
         self.espejo_reg.append(dict(fila))
 
-    def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None):
+    def actualizar_cita_espejo(self, telefono, fecha_cita, estado=None, notas=None,
+                               recordatorio_enviado=None, urgencia=None,
+                               nueva_fecha=None, nueva_hora_inicio=None,
+                               nueva_hora_fin=None):
         self.espejo_act.append({"telefono": telefono, "fecha_cita": fecha_cita,
-                                "estado": estado, "notas": notas})
+                                "estado": estado, "notas": notas,
+                                "urgencia": urgencia, "nueva_fecha": nueva_fecha,
+                                "nueva_hora_inicio": nueva_hora_inicio,
+                                "nueva_hora_fin": nueva_hora_fin})
 
     def leer_citas_espejo(self):
         return list(self.espejo)

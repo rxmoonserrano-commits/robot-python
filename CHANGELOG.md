@@ -5,6 +5,54 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.15.0 — Urgencia inteligente: adelantar o nueva cita (2026-11-22)
+
+Jose pidió que la inteligencia entienda si adelanta la cita que el
+cliente ya tiene o hace una nueva ("como que evolucione el pedo").
+La decisión la toma el código ANTES de llamar a la IA, con datos
+reales del espejo de Citas; la IA solo lo dice con naturalidad.
+
+- **El plan de urgencia** (`_plan_urgencia`): si el cliente tiene
+  una cita propia futura (Confirmada/Pendiente, paciente coincide
+  por nombre en las Notas; las citas de otros pacientes, como la
+  de su hermana, se saltan) y la primera hora libre es ANTES de
+  esa cita → **adelanto**: se propone moverla. Si no tiene cita
+  propia → **cita nueva** urgente (salta el tope, v3.14.1). Si su
+  cita ya está en la primera hora disponible → **sin propuesta**:
+  el handoff sale igual y la IA lo explica.
+- **Botones de adelanto:** "Adelantar cita" / "Dejarla como está" /
+  "Hablar con persona", con el mensaje "Vi que ya tienes una cita
+  el {vieja}. Te la adelanto a {nueva} por la urgencia. ¿La
+  adelantamos?". El "sí" por texto también adelanta.
+- **Al adelantar:** se crea la cita nueva PRIMERO (si falla, la
+  vieja queda intacta), se cancela la vieja del calendario, la
+  fila del espejo se mueve (Fecha/Hora nuevas, Urgencia=SI, Notas
+  "Adelantada por urgencia: {porqué}") y el dueño recibe el correo
+  de urgencia con el movimiento. `actualizar_cita_espejo` acepta
+  `nueva_fecha`/`nueva_hora_inicio`/`nueva_hora_fin` (columnas F/G/H).
+- **Persistencia:** el adelanto viaja completo en extra_json (tipo,
+  cita_id, fecha vieja/nueva, servicio, horas, notas) y se recupera
+  al arrancar. Pruebas: test_v3_15.py (17 casos).
+
+## v3.14.2 — Urgencia en una burbuja, tono sobrio (2026-11-22)
+
+Jose reprobó el formato de la urgencia en vivo ("¿qué clase de
+formatos son esos?"): la respuesta salía partida en 2 burbujas,
+abría copiando el protocolo literal y la oferta decía "¡Con
+gusto!" (demasiado alegre para una urgencia).
+
+- **Una sola burbuja.** `enviar_con_ritmo` acepta `sin_dividir`:
+  la respuesta de urgencia sale completa en un mensaje aunque pase
+  de 300 caracteres (la regla de partir sigue para todo lo demás).
+  El marco le pide a la IA máximo 2 frases.
+- **El protocolo es guía, no copia.** El marco y el guion le piden
+  a la IA decir el protocolo de urgencias con sus propias
+  palabras, integrado a la respuesta, nunca copiado literal; y no
+  decir "como te comenté" (decir las cosas directamente).
+- **Oferta sobria.** El mensaje de la propuesta urgente cambió de
+  "¡Con gusto! Te propongo tu cita para el..." a "Te dejo lista tu
+  cita para el... ¿La confirmamos?".
+
 ## v3.14.1 — La urgencia siempre propone fecha (2026-11-22)
 
 Jose probó la urgencia en vivo y no vio ninguna fecha propuesta:
