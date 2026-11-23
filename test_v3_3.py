@@ -7,9 +7,9 @@ Lo nuevo de la v3.3:
 (b) Preguntar el nombre: el guion lo pide una sola vez, cuando encaje
     con naturalidad (al saludar o al agendar). El contexto ya no lo
     fuerza antes de responder (v3.4.2: sonaba a robot).
-(c) Urgencias a humano: "me duele", "urgente", "sangrando"... van
-    directo a una persona, sin llamar a la IA. "¿duele la limpieza?"
-    NO es urgencia: es una pregunta.
+(c) Urgencias a humano: "me duele", "urgente", "sangrando"... la IA
+    compone la respuesta y el código fuerza el handoff (v3.14).
+    "¿duele la limpieza?" NO es urgencia: es una pregunta.
 (d) Resumen de la mañana: cada día 08:00, por correo: qué pasó en las
     últimas 24 h, quién necesita una persona, propuestas sin contestar
     y las citas de hoy.
@@ -335,19 +335,19 @@ def main():
          "Me das tu nombre completo" not in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
-    # ---- (c) Urgencias a humano, sin llamar a la IA ----
+    # ---- (c) Urgencias a humano: la IA compone, el código fuerza el handoff ----
     for texto_urgente in ("me duele mucho la muela",
                           "es una urgencia, me estoy sangrando",
                           "me duele horrible, es urgente"):
         d = DepsV33(
             respuesta_agente=RespuestaAgente(
-                respuesta_texto="La limpieza cuesta $600.",
+                respuesta_texto="Ay, qué mal rato. Te paso con una persona de inmediato.",
                 quiere_agendar="no", nombre="Jose Ramon", motivo="Limpieza"))
         r = atender_mensaje(d, TELEFONO, "Jose Ramon", texto_urgente,
                             con_ritmo=False, ahora=VIERNES)
-        caso(f"(c) Urgencia: {texto_urgente!r} → handoff, sin llamar al agente",
+        caso(f"(c) Urgencia: {texto_urgente!r} → la IA compone, handoff forzado",
              r.get("handoff") is True
-             and len(d.mensajes_al_agente) == 0
+             and len(d.mensajes_al_agente) == 1
              and len(d.alertas_handoff) == 1
              and "persona" in (d.textos_enviados[0][1] if d.textos_enviados else ""),
              f"resultado={r} agente={len(d.mensajes_al_agente)} alertas={d.alertas_handoff}")

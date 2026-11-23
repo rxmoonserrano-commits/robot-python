@@ -968,6 +968,39 @@ def _guardar_datos_paciente(deps, telefono: str, nombre_paciente: str,
         pass
 
 
+def _texto_urgencia_fijo(abierto: bool) -> str:
+    """Texto de urgencia de respaldo (v3.14): solo si la IA falla.
+
+    La respuesta normal la compone la IA (pensada para ese cliente);
+    este texto existe para que una urgencia nunca se quede sin
+    respuesta por una falla de Gemini. Personalizable con
+    `mensaje_urgencia` y `mensaje_urgencia_fuera_horario` en
+    Configuración.
+    """
+    try:
+        _mensaje = (configuracion().get("mensaje_urgencia") or "").strip()
+    except Exception:
+        _mensaje = ""
+    if not _mensaje:
+        _mensaje = (
+            "Si sientes que es una urgencia médica, busca atención "
+            "inmediata. Claro, es urgente. Te paso con una persona "
+            "del negocio de inmediato, te atienden lo antes posible."
+        )
+    if not abierto:
+        try:
+            _aviso = (configuracion().get("mensaje_urgencia_fuera_horario") or "").strip()
+        except Exception:
+            _aviso = ""
+        if not _aviso:
+            _aviso = (
+                "Estamos fuera de horario, así que puede que tarden "
+                "un poco en responderte; en cuanto abran, te atenderán."
+            )
+        _mensaje = _mensaje.rstrip() + " " + _aviso
+    return _mensaje
+
+
 def _propuesta_cita_urgente(deps: Dependencias, telefono: str, nombre: str,
                             texto: str, conocimiento: list[dict],
                             ahora: datetime, razon: str) -> dict | None:
@@ -2339,42 +2372,44 @@ def atender_mensaje(
     # diagnósticos: solo orientar y pasar a una persona. La clínica
     # puede personalizar el texto con `mensaje_urgencia`.
     if _es_urgencia(texto):
-        # (v3.13) Urgencia con cita: además del handoff, el robot
-        # ofrece agendar la primera hora disponible con botones. La
-        # cita que salga de aquí se marca URGENTE en el CRM y avisa
-        # por correo con el porqué. Fuera de horario, el mensaje lo
-        # dice con empatía: puede que tarden en responder hasta que
-        # abran. La propuesta se guarda aquí y sus botones salen en
-        # el paso 8, después del mensaje de handoff.
+        # (v3.14) La respuesta de urgencia la COMPOSE LA IA, no una
+        # plantilla: el cliente merece una respuesta pensada, no un
+        # copy-paste. El código fuerza el handoff (la detección es
+        # por palabras, sin depender de que la IA lo marque) y la
+        # oferta de cita con botones. Si la IA falla, texto fijo de
+        # respaldo: una urgencia nunca se queda sin respuesta.
         _razon = f"{_MOTIVO_URGENCIA}: {texto[:120]}"
-        try:
-            _mensaje_urgencia = (configuracion().get("mensaje_urgencia") or "").strip()
-        except Exception:
-            _mensaje_urgencia = ""
-        if not _mensaje_urgencia:
-            _mensaje_urgencia = (
-                "Si sientes que es una urgencia médica, busca atención "
-                "inmediata. Claro, es urgente. Te paso con una persona "
-                "del negocio de inmediato, te atienden lo antes posible."
-            )
-        if not abierto:
-            try:
-                _aviso_fuera = (configuracion().get("mensaje_urgencia_fuera_horario") or "").strip()
-            except Exception:
-                _aviso_fuera = ""
-            if not _aviso_fuera:
-                _aviso_fuera = (
-                    "Estamos fuera de horario, así que puede que tarden "
-                    "un poco en responderte; en cuanto abran, te atenderán."
-                )
-            _mensaje_urgencia = _mensaje_urgencia.rstrip() + " " + _aviso_fuera
-        respuesta = RespuestaAgente(
-            respuesta_texto=_mensaje_urgencia,
-            necesita_handoff="si",
-            motivo_handoff=_razon,
-            nombre=nombre,
-            motivo=texto[:120],
+        _n_citas_activas = _citas_activas_telefono(deps, telefono, ahora)
+        _hecho_citas = (
+            f"El cliente ya tiene {_n_citas_activas} citas registradas con este número."
+            if _n_citas_activas else ""
         )
+        _marco_urgencia = (
+            "[URGENTE] El cliente expresa urgencia o dolor. Responde como una buena "
+            "recepcionista: reconoce lo que siente con empatía, dile que lo pasas con "
+            "una persona de inmediato y que lo atenderán lo antes posible. "
+            + ("El negocio está CERRADO ahora: dilo con empatía, puede que tarden en "
+               "responder hasta que abran. " if not abierto else "")
+            + "Si parece una urgencia médica grave, oriéntalo a buscar atención inmediata. "
+            "Nunca des diagnósticos ni indicaciones médicas, nunca hagas preguntas "
+            "innecesarias. No ofrezcas la cita tú: el sistema la propone con botones "
+            "justo después de tu mensaje. "
+            + _hecho_citas
+        )
+        try:
+            respuesta = deps.preguntar_agente(
+                f"{_marco_urgencia}\n{mensaje_agente}", conocimiento, fotos, historial)
+        except Exception:
+            respuesta = None
+        if (respuesta is None or respuesta.falla_tecnica
+                or not (respuesta.respuesta_texto or "").strip()):
+            respuesta = RespuestaAgente(
+                respuesta_texto=_texto_urgencia_fijo(abierto),
+                nombre=nombre, motivo=texto[:120])
+        respuesta.necesita_handoff = "si"
+        respuesta.motivo_handoff = _razon
+        respuesta.nombre = nombre
+        respuesta.motivo = texto[:120]
         _propuesta_cita_urgente(
             deps, telefono, nombre, texto, conocimiento, ahora, _razon)
     else:
@@ -2384,11 +2419,11 @@ def atender_mensaje(
     # repite una oferta pendiente, ofrece cita en un saludo o dice
     # "ya cerramos", se corrige aquí, no en el teléfono del cliente.
     # La falla técnica ("dame un momento") no se toca: es honesta.
-    # (v3.3) La respuesta de urgencia tampoco se toca: es un texto
-    # fijo del robot, no de la IA.
+    # (v3.14) La respuesta de urgencia TAMBIÉN pasa por el revisor:
+    # ahora la compone la IA, así que merece la misma segunda mirada
+    # que cualquier otra respuesta.
     # Lo corregido queda en Diagnóstico, para ver qué se atrapó.
-    if (not respuesta.falla_tecnica
-            and not str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA)):
+    if not respuesta.falla_tecnica:
         texto_revisado, violaciones = revisar_respuesta(
             respuesta.respuesta_texto, estado, nombre,
             ahora=local_ahora, telefono=telefono,

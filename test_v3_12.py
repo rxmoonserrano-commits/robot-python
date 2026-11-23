@@ -9,8 +9,8 @@ sin evasión y confirmaciones en el reporte).
 (c) Flujo completo con profesional: la propuesta dice "con la Dra.
     Ruiz", la cita lleva el profesional en la nota y el espejo.
 (d) Sin agenda por profesional: todo igual que siempre (fallback).
-(e) Urgencia: el cliente recibe la guía de buscar atención
-    inmediata + handoff.
+(e) Urgencia: la IA compone la respuesta, el código fuerza el
+    handoff y ofrece la cita con botones.
 (f) Correo de handoff con resumen de la conversación.
 (g) Recordatorios: manda solo las citas en ventana ~24 h, marca
     Recordatorio_enviado, y el fallo queda en Diagnóstico.
@@ -430,12 +430,14 @@ def test_e_urgencia_con_guia():
     r = atender_mensaje(d, TEL, "Jose Ramon", "me duele mucho la muela, es urgente",
                         con_ritmo=False, ahora=AHORA)
     texto = d.textos[0][1] if d.textos else ""
-    caso("(e) Urgencia: handoff sin llamar al agente",
-         r.get("handoff") is True and len(d.mensajes_al_agente) == 0, f"{r}")
-    caso("(e) Urgencia: orienta a buscar atención inmediata",
-         "busca atención inmediata" in texto, texto)
+    caso("(e) Urgencia: la IA compone la respuesta",
+         len(d.mensajes_al_agente) == 1 and texto == "Claro, te ayudo.", f"{texto}")
+    caso("(e) Urgencia: handoff forzado por código",
+         r.get("handoff") is True, f"{r}")
     caso("(e) Urgencia: avisa al dueño",
          len(d.alertas_handoff) == 1, f"{d.alertas_handoff}")
+    caso("(e) Urgencia: ofrece la cita con botones",
+         len(d.botones) == 1, f"{d.botones}")
     limpiar()
 
 

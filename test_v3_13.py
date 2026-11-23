@@ -1,10 +1,10 @@
 """Pruebas de la v3.13 (Cita urgente: urgencia con oferta de cita,
 marca URGENTE en el CRM y correo con el porqué).
 
-(a) Urgencia fuera de horario: mensaje con empatía + advertencia de
-    horario, propuesta urgente guardada con la razón, botones
-    después del handoff, agente no llamado.
-(b) Urgencia en horario: sin advertencia de fuera de horario, la
+(a) Urgencia fuera de horario: la IA compone la respuesta con
+    empatía + advertencia de horario, propuesta urgente guardada
+    con la razón, botones después del handoff.
+(b) Urgencia en horario: respuesta de la IA sin advertencia, la
     propuesta también se ofrece.
 (c) Confirmar la cita urgente: espejo con Urgencia=SI y URGENTE en
     Notas, nota del calendario con URGENTE, correo urgente con el
@@ -84,7 +84,7 @@ def limpiar():
 class DepsV313(Dependencias):
     """Servicios de mentira para el flujo de cita urgente."""
 
-    def __init__(self, huecos=None, huecos_pro=None, agente_cola=None):
+    def __init__(self, huecos=None, huecos_pro=None, agente_cola=None, espejo=None):
         self.agente_cola = list(agente_cola or [])
         self.textos = []
         self.botones = []
@@ -99,6 +99,7 @@ class DepsV313(Dependencias):
         self.mensajes_al_agente = []
         self.huecos = huecos if huecos is not None else [MARTES, MIERCOLES]
         self.huecos_pro = huecos_pro if huecos_pro is not None else []
+        self.espejo = espejo if espejo is not None else []
 
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
@@ -125,6 +126,17 @@ class DepsV313(Dependencias):
         self.mensajes_al_agente.append(mensaje)
         if self.agente_cola:
             return self.agente_cola.pop(0)
+        if "[URGENTE]" in mensaje:
+            # La IA compone la respuesta de urgencia (v3.14): con
+            # empatía, y con la advertencia si el marco dice CERRADO.
+            if "CERRADO" in mensaje:
+                return RespuestaAgente(respuesta_texto=(
+                    "Ay, qué mal rato, lo siento mucho. Te paso con una persona "
+                    "de inmediato. Estamos fuera de horario, así que pueden tardar "
+                    "un poco; en cuanto abran, te atenderán."))
+            return RespuestaAgente(respuesta_texto=(
+                "Ay, qué mal rato, lo siento mucho. Te paso con una persona "
+                "de inmediato para que te atiendan lo antes posible."))
         return RespuestaAgente(respuesta_texto="Claro, te ayudo.")
 
     def enviar_texto(self, telefono, texto):
@@ -187,7 +199,7 @@ class DepsV313(Dependencias):
         pass
 
     def leer_citas_espejo(self):
-        return []
+        return list(self.espejo)
 
     def actualizar_notas_cita(self, telefono, fecha_cita, notas):
         pass
@@ -232,10 +244,9 @@ def test_a_urgencia_fuera_de_horario():
     d = DepsV313()
     r = _urgencia(d)
     texto = d.textos[0][1] if d.textos else ""
-    caso("(a) Urgencia: handoff sin llamar al agente",
-         r.get("handoff") is True and len(d.mensajes_al_agente) == 0, f"{r}")
-    caso("(a) Urgencia: guía de atención inmediata",
-         "busca atención inmediata" in texto, texto)
+    caso("(a) Urgencia: la IA compone la respuesta (no plantilla)",
+         r.get("handoff") is True and len(d.mensajes_al_agente) == 1
+         and "Ay, qué mal rato" in texto, f"{r} {texto}")
     caso("(a) Urgencia fuera de horario: advierte con empatía",
          "fuera de horario" in texto and "en cuanto abran" in texto, texto)
     caso("(a) Urgencia: avisa al dueño por handoff",
@@ -260,8 +271,8 @@ def test_b_urgencia_en_horario():
     d = DepsV313()
     _urgencia(d, ahora=AHORA_ABIERTO)
     texto = d.textos[0][1] if d.textos else ""
-    caso("(b) Urgencia en horario: sin advertencia de fuera de horario",
-         "fuera de horario" not in texto, texto)
+    caso("(b) Urgencia en horario: respuesta de la IA sin advertencia",
+         "Ay, qué mal rato" in texto and "fuera de horario" not in texto, texto)
     caso("(b) Urgencia en horario: propuesta ofrecida igual",
          len(d.botones) == 1 and TEL in _CITAS_PENDIENTES, f"{d.botones}")
     limpiar()
@@ -504,6 +515,45 @@ def test_m_urgencia_con_profesional():
     limpiar()
 
 
+# ------------------------------------------------------------------
+# (n) Urgencia con la IA caída: texto fijo de respaldo
+# ------------------------------------------------------------------
+
+def test_n_urgencia_ia_caida():
+    d = DepsV313(agente_cola=[
+        RespuestaAgente(respuesta_texto="", falla_tecnica=True,
+                        motivo_handoff="Gemini no contestó")])
+    r = _urgencia(d)
+    texto = d.textos[0][1] if d.textos else ""
+    caso("(n) IA caída: texto fijo de respaldo con guía",
+         "busca atención inmediata" in texto and "fuera de horario" in texto, texto)
+    caso("(n) IA caída: handoff igual y propuesta ofrecida",
+         r.get("handoff") is True and len(d.botones) == 1, f"{r} {d.botones}")
+    limpiar()
+
+
+# ------------------------------------------------------------------
+# (o) Urgencia con tope de citas: sin botones, respuesta pensada
+# ------------------------------------------------------------------
+
+def test_o_urgencia_con_tope():
+    espejo = [
+        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-24"},
+        {"Teléfono": TEL, "Estado": "Confirmada", "Fecha": "2026-11-25"},
+    ]
+    d = DepsV313(espejo=espejo)
+    r = _urgencia(d)
+    texto = d.textos[0][1] if d.textos else ""
+    caso("(o) Tope de citas: respuesta de la IA y handoff, sin botones",
+         r.get("handoff") is True and len(d.botones) == 0
+         and "Ay, qué mal rato" in texto, f"{r} {d.botones} {texto}")
+    caso("(o) Tope de citas: el marco le avisa a la IA del tope",
+         d.mensajes_al_agente
+         and "ya tiene 2 citas registradas" in d.mensajes_al_agente[0],
+         f"{d.mensajes_al_agente}")
+    limpiar()
+
+
 def main():
     test_a_urgencia_fuera_de_horario()
     test_b_urgencia_en_horario()
@@ -518,6 +568,8 @@ def main():
     test_k_correo_urgente()
     test_l_columnas()
     test_m_urgencia_con_profesional()
+    test_n_urgencia_ia_caida()
+    test_o_urgencia_con_tope()
     print(f"\n{TOTAL[0] - len(FALLOS)}/{TOTAL[0]} casos ok")
     if FALLOS:
         print("FALLARON:", ", ".join(FALLOS))

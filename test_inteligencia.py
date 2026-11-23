@@ -401,14 +401,15 @@ def main():
     print("C. HANDOFF")
     print("=" * 60)
 
-    # C1. Urgencia → handoff inmediato, sin llamar al agente.
+    # C1. Urgencia → la IA compone la respuesta y el código fuerza
+    # el handoff (v3.14: ya no hay plantilla fija).
     logic_mod._CITAS_PENDIENTES.clear()
     d = DepsI()
     r = atender_mensaje(d, TEL, "Ana", "me duele mucho la muela", con_ritmo=False, ahora=AHORA)
-    caso("C1 Urgencia: handoff inmediato sin agente",
-         r.get("handoff") is True and len(d.llamadas) == 0
-         and len(d.alertas_handoff) == 1
-         and any("Te paso con una persona" in t for _, t in d.textos),
+    caso("C1 Urgencia: la IA compone y el código fuerza el handoff",
+         r.get("handoff") is True and len(d.llamadas) == 1
+         and "[URGENTE]" in d.llamadas[0][0]
+         and len(d.alertas_handoff) == 1,
          f"r={r} llamadas={len(d.llamadas)} textos={d.textos}")
 
     # C2. Agente pide handoff (cliente enojado) → texto + alerta + registro.

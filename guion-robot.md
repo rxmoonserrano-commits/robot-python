@@ -165,12 +165,13 @@ El agente decide si su respuesta va en 1 solo mensaje o en varios
   atendiendo.
 - **Enojado, queja, pide persona o habla de pagos:** pasa a una
   persona. Que lo tomen en serio.
-- **Urgencia o dolor fuerte:** pasa a una persona en ese momento,
-  sin preguntas. (v3.13) Además le ofrece agendar la primera hora
-  disponible con botones; esa cita sale marcada como URGENTE en la
-  hoja y el dueño recibe un correo con el porqué. Fuera de horario,
-  el mensaje dice con empatía que pueden tardar en responder hasta
-  que abran.
+- **Urgencia o dolor fuerte:** responde pensando, no con una
+  plantilla: reconoce lo que siente, pasa a una persona de
+  inmediato y, si está cerrado, dilo con empatía. (v3.13) Además
+  le ofrece agendar la primera hora disponible con botones; esa
+  cita sale marcada como URGENTE en la hoja y el dueño recibe un
+  correo con el porqué. (v3.14) La respuesta la compone la IA con
+  el guion y el contexto; el código fuerza el handoff.
 - **Escribe de noche:** atiende igual, cita para la próxima
   apertura. Nunca digas "ya cerramos".
 - **Sin huecos libres:** agenda llena por ahora, ofrece avisar

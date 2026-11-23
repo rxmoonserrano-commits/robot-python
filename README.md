@@ -345,15 +345,16 @@ siguiente cierra distinto.
   (R8, ampliado en v3.10) nunca deja que el robot afirme una cita
   que no existe (mira la cita a futuro, no una ya pasada).
 - **Urgencias a humano.** Si el cliente dice que es urgente o que le
-  duele, el robot no llama a la IA: le dice en ese momento que lo
-  pasa con una persona y avisa al dueño por correo. "¿Duele la
-  limpieza?" no es urgencia: es una pregunta y va al agente normal.
-  (v3.13) Además ofrece agendar la primera hora disponible con
-  botones: la cita que sale de una urgencia se marca URGENTE en la
-  pestaña Citas (columna Urgencia) y el dueño recibe un correo de
-  "cita con urgencia" con el porqué. Fuera de horario, el mensaje
-  advierte con empatía que pueden tardar en responder hasta que
-  abran.
+  duele, la IA compone la respuesta pensada (empatía, handoff
+  inmediato, fuera de horario con empatía) y el código fuerza el
+  handoff y avisa al dueño por correo. "¿Duele la limpieza?" no es
+  urgencia: es una pregunta y va al agente normal. (v3.13) Además
+  ofrece agendar la primera hora disponible con botones: la cita
+  que sale de una urgencia se marca URGENTE en la pestaña Citas
+  (columna Urgencia) y el dueño recibe un correo de "cita con
+  urgencia" con el porqué. (v3.14) La respuesta ya no es una
+  plantilla fija: la piensa la IA con el guion y el contexto; si la
+  IA falla, texto fijo de respaldo.
 - **Resumen de la mañana.** Todos los días a las 08:00, un correo al
   dueño con lo de las últimas 24 h: mensajes atendidos, clientes
   nuevos, citas agendadas, quién necesita una persona, propuestas

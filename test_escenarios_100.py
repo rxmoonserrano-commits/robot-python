@@ -926,8 +926,8 @@ def test_g_handoff():
     r = msg(d, t, "me duele mucho la muela")
     caso("G65 urgencia: handoff", r.get("handoff") is True)
     caso("G65 urgencia: alerta", "handoff" in d.alertas)
-    caso("G65 urgencia: agente no llamado",
-         d.ultimo_mensaje_agente == "")
+    caso("G65 urgencia: la IA compone la respuesta",
+         "[URGENTE]" in d.ultimo_mensaje_agente)
     limpiar(t)
 
     t = tel()

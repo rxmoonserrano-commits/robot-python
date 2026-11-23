@@ -5,6 +5,38 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.14.0 — Urgencia pensada: la IA compone la respuesta (2026-11-22)
+
+Jose probó la urgencia en vivo y rechazó el texto fijo: "parecen
+copy and paste, necesito que la IA piense la respuesta bien, no
+responda por responder". La respuesta de urgencia ya no sale de
+una plantilla: la compone la IA con el guion, el protocolo del
+negocio y el contexto real (horario, citas registradas).
+
+- **La IA compone, el código manda.** La detección sigue siendo
+  por palabras (rápida y segura), pero la respuesta la escribe el
+  agente con un marco de urgencia (empatía, handoff inmediato,
+  fuera de horario con empatía, guía a atención inmediata si es
+  grave, nunca diagnósticos, nunca preguntas innecesarias, no
+  ofrecer la cita: el sistema la propone con botones). El código
+  FUERZA el handoff y la oferta de cita sin depender de que la IA
+  lo marque. Si la IA falla o viene vacía, texto fijo de respaldo
+  (`mensaje_urgencia` / `mensaje_urgencia_fuera_horario` en
+  Configuración): una urgencia nunca se queda sin respuesta.
+- **El revisor también revisa la urgencia** (antes se saltaba por
+  ser texto fijo; ahora es texto de la IA, misma segunda mirada).
+- **Guion reforzado:** la regla de urgencia del playbook pide
+  responder pensando (reconocer lo que siente, decir lo del
+  horario cerrado con empatía, orientar a atención inmediata si
+  es grave, mencionar con naturalidad las citas ya registradas) y
+  se agregó un ejemplo de urgencia en "Cómo hablas".
+- **Diagnóstico de la prueba en vivo:** los botones no salieron en
+  la prueba de Jose porque su número de prueba ya tenía 2 citas
+  activas (el tope es 2 por número, v3.10): el código omitió la
+  oferta en silencio. Ahora el marco le pasa a la IA el dato
+  ("ya tiene 2 citas registradas") para que lo diga con naturalidad
+  en vez de quedarse callado.
+
 ## v3.13.0 — Cita urgente: urgencia con oferta de cita, marca en el CRM y correo con el porqué (2026-11-22)
 
 Jose simuló una emergencia y pidió el paso completo: cuando el
