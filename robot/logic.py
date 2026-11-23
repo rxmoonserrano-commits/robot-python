@@ -27,7 +27,7 @@ from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
 from .negocio import canal_negocio_activo, configuracion, funcion_activa
-from .revision import revisar_respuesta
+from .revision import precios_de_conocimiento, revisar_respuesta
 from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo, enviar_partes
 
@@ -392,6 +392,11 @@ _AFIRMACION_PALABRAS = {
     "que", "ese", "esa", "fecha", "listo", "dale", "sip", "simon",
     "yes", "estoy", "queda", "bueno", "buena", "venga", "orale",
     "aja", "ya", "super", "excelente", "parece", "buenisimo",
+    # (v3.17) Cortesía: "me va por favor" / "sí por favor" también
+    # son un sí (la batería dinámica lo encontró). "gracias" NO
+    # entra: el incidente del 12 de noviembre fue un "sí gracias"
+    # que confirmó de más.
+    "por", "favor", "vale",
 }
 
 
@@ -1345,6 +1350,15 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
     """
     propuesta = _CITAS_PENDIENTES.get(telefono)
     if not propuesta or propuesta.get("tipo") != "adelanto":
+        # (v3.17) Un toque viejo en "Adelantar cita" (la propuesta ya
+        # cambió de tipo o ya no está) no se queda en silencio: el
+        # cliente recibe una respuesta, nunca aire muerto.
+        if propuesta:
+            mensaje = "Tu cita propuesta sigue en pie. ¿Te la confirmo?"
+        else:
+            mensaje = "Esa opción ya no está disponible. ¿Te ayudo con algo más?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "sin adelanto")
         return {"respondio": True, "motivo": "sin adelanto", "handoff": False}
     ahora = ahora or datetime.now(timezone.utc)
     nueva_fecha = propuesta["fecha_cita"]
@@ -1463,6 +1477,14 @@ def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
     """
     propuesta = _CITAS_PENDIENTES.get(telefono)
     if not propuesta or propuesta.get("tipo") != "mover":
+        # (v3.17) Igual que en el adelanto: un toque viejo no se
+        # queda en silencio.
+        if propuesta:
+            mensaje = "Tu cita propuesta sigue en pie. ¿Te la confirmo?"
+        else:
+            mensaje = "Esa opción ya no está disponible. ¿Te ayudo con algo más?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "sin mover")
         return {"respondio": True, "motivo": "sin mover", "handoff": False}
     ahora = ahora or datetime.now(timezone.utc)
     nueva_fecha = propuesta["fecha_cita"]
@@ -3061,9 +3083,13 @@ def atender_mensaje(
     # que cualquier otra respuesta.
     # Lo corregido queda en Diagnóstico, para ver qué se atrapó.
     if not respuesta.falla_tecnica:
+        # (v3.17) R9: precios conocidos del Conocimiento, para que el
+        # revisor deseche cualquier precio inventado antes de mandar.
+        _precios_conocidos = precios_de_conocimiento(conocimiento)
         texto_revisado, violaciones = revisar_respuesta(
             respuesta.respuesta_texto, estado, nombre,
             ahora=local_ahora, telefono=telefono,
+            precios_conocidos=_precios_conocidos,
         )
         if violaciones:
             _diagnostico(
@@ -3082,6 +3108,7 @@ def atender_mensaje(
         for parte in respuesta.partes:
             texto_p, viol_p = revisar_respuesta(
                 parte, estado, nombre, ahora=local_ahora, telefono=telefono,
+                precios_conocidos=_precios_conocidos,
             )
             partes_revisadas.append(texto_p)
             violaciones_partes.extend(viol_p)

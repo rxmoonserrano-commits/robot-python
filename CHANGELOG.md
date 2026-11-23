@@ -5,6 +5,45 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.17.0 — Batería dinámica: la inteligencia se prueba sola (2026-11-23)
+
+Jose pidió una batería "demasiado completa" y luego explicó su
+visión: que la respuesta de la IA tenga inteligencia de verdad
+(coherencia, contexto, memoria, circunstancias, tiempo), sin una
+base de datos gigante. Esta versión da el primer paso verificable
+en esa dirección:
+
+1. **Batería dinámica (`test_bateria_dinamica.py`)**: en vez de
+   escenarios escritos a mano, un generador arma estados (sin cita,
+   1-2 citas, propuestas, memoria, fuera de horario...) y mensajes
+   por categoría, y un explorador adaptativo va por las
+   combinaciones que faltan (matriz estado×categoría completa +
+   sondas a propuestas + botones + pasada aleatoria con mutaciones).
+   Todo se juzga contra INVARIANTES: nunca crear cita sin sí de
+   verdad, nunca más de 2 citas sin urgencia, nunca cancelar con
+   "no quiero cancelar", la urgencia siempre pasa a una persona en
+   una burbuja, nunca inventar un precio, nunca decir "ya
+   cerramos", nunca dejar aire muerto, respetar terminar/no
+   responder, confianza baja ×2 → persona. Dos pisos: mecánico con
+   agente falso (gratis, miles de casos) y muestra de tono con IA
+   real (`--real`, solo si hay GEMINI_API_KEY). Reproducible por
+   semilla. En su primera corrida encontró 2 cosas reales: un
+   toque viejo en "Adelantar cita" se quedaba en silencio, y "me va
+   por favor" no confirmaba.
+2. **R9 en el revisor — ningún precio inventado**: si la respuesta
+   trae un monto ("$650" o "650 pesos") que no está en el
+   Conocimiento, se desecha entera y se contesta con la frase
+   segura del guion. La IA ya no puede inventar precios.
+3. **Cortesía en el sí**: "me va por favor", "sí por favor" y
+   "vale" ahora confirman. "gracias" sigue fuera (el incidente del
+   12 de noviembre fue un "sí gracias").
+4. **Toque viejo sin silencio**: "Adelantar cita"/"Mover cita" con
+   propuesta ya cambiada responde "tu cita propuesta sigue en pie"
+   en vez de callar.
+- Pruebas: nueva `test_v3_17.py` (11 casos: R9 ×5, cortesía ×4,
+  toque viejo, humo de la batería dinámica). Batería dinámica
+  verificada en 4 semillas × 847 casos sin violaciones.
+
 ## v3.16.0 — Parche robusto: comunicación y fricciones (2026-11-22)
 
 Jose probó la urgencia en vivo y encontró dos cosas: "me duele es

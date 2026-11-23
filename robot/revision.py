@@ -49,6 +49,15 @@ R8. NUNCA AFIRMAR UNA CITA QUE NO EXISTE (v3.4.11, ampliada v3.10):
     "¿Te la confirmo con botones para dejarla lista?". En vivo dijo
     "ya estás apuntado" sin que existiera ninguna cita, y después
     "quedamos en que nos vemos el martes" con una cita ya pasada.
+R9. NINGÚN PRECIO INVENTADO (v3.17): si la respuesta trae un monto
+    ("$650" o "650 pesos") que NO está en el Conocimiento del
+    negocio, se desecha ENTERA y se contesta con la frase segura
+    ("Déjame confirmarlo con el encargado y te aviso"). La IA no
+    puede inventar precios: es la confianza del negocio. Solo se
+    revisan montos escritos con $ o con "pesos" (un "600" suelto no
+    se toca, para no confundir horas o direcciones). Sin la lista
+    de precios conocidos, R9 no se aplica (compatibilidad con
+    llamadas viejas).
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -268,12 +277,50 @@ def _partir_oraciones(texto: str) -> list[str]:
     return [p.strip() for p in partes if p.strip()]
 
 
+# (v3.17) Montos escritos como "$600" / "$1,800" o "600 pesos".
+_MONTO_RE = re.compile(r"\$\s*(\d[\d,]*)|(\d[\d,]*)\s*(?:pesos|mxn)\b", re.IGNORECASE)
+
+# (v3.17) Respuesta segura cuando la IA inventa un precio: misma
+# frase del guion para lo que no está en Conocimiento.
+_RESPUESTA_PRECIO_INVENTADO = (
+    "Déjame confirmarlo con el encargado y te aviso en un momento."
+)
+
+
+def _montos_en_texto(texto: str) -> list[int]:
+    """Montos escritos con $ o con 'pesos' en un texto (v3.17)."""
+    montos = []
+    for m in _MONTO_RE.finditer(texto or ""):
+        crudo = (m.group(1) or m.group(2) or "").replace(",", "").strip()
+        if crudo.isdigit():
+            montos.append(int(crudo))
+    return montos
+
+
+def precios_de_conocimiento(conocimiento: list[dict]) -> set[int]:
+    """Precios conocidos del negocio, desde el Conocimiento (v3.17).
+
+    Saca todos los montos escritos con $ o con 'pesos' de las filas
+    de Conocimiento. Es la fuente de verdad contra la que R9 revisa
+    que la IA no invente precios.
+    """
+    precios: set[int] = set()
+    for fila in conocimiento or []:
+        if not isinstance(fila, dict):
+            continue
+        for valor in fila.values():
+            if isinstance(valor, str):
+                precios.update(_montos_en_texto(valor))
+    return precios
+
+
 def revisar_respuesta(
     texto: str,
     estado: dict | None = None,
     nombre: str = "",
     ahora: datetime | None = None,
     telefono: str = "",
+    precios_conocidos: set[int] | None = None,
 ) -> tuple[str, list[str]]:
     """Revisa una respuesta del agente y la corrige si viola una regla.
 
@@ -281,7 +328,9 @@ def revisar_respuesta(
     Si no viene, solo se aplica R3 (la de "ya cerramos").
     `ahora`: la fecha real, para R4 (corregir el día). Sin ella, R4
     no se aplica. `telefono`: el teléfono del cliente, para R6 (un
-    número distinto es una filtración).
+    número distinto es una filtración). `precios_conocidos`: los
+    precios del Conocimiento, para R9 (ningún precio inventado);
+    sin ellos, R9 no se aplica.
     """
     estado = estado or {}
     etapa = str(estado.get("etapa", "") or "")
@@ -294,6 +343,14 @@ def revisar_respuesta(
     # respuesta que suelta el prompt ya está comprometida.
     if _contiene_filtracion(texto, telefono):
         return _NEGATIVA_SEGURIDAD, ["R6"]
+
+    # R9 (v3.17): ningún precio inventado. Si la respuesta trae un
+    # monto que no está en el Conocimiento, se desecha ENTERA (como
+    # R6): un precio falso es lo que más confianza rompe. Se
+    # contesta con la frase segura del guion.
+    if precios_conocidos is not None:
+        if any(m not in precios_conocidos for m in _montos_en_texto(texto)):
+            return _RESPUESTA_PRECIO_INVENTADO, ["R9"]
 
     # R3: la frase de cierre, se cambie lo que se cambie después.
     if _CERRAMOS_RE.search(texto):
