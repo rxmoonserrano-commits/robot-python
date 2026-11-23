@@ -300,6 +300,7 @@ def main():
                     con_ritmo=False)
     caso("(a2) Cliente que vuelve: el contexto lo recuerda, no lo trata como nuevo",
          any("ya ha hablado contigo antes" in m or "no escribía" in m
+             or "desde su último mensaje" in m or "recordando de qué hablaban" in m
              for m in deps2.mensajes_al_agente),
          f"salió: {deps2.mensajes_al_agente}")
 

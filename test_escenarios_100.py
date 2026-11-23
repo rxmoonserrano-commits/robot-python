@@ -648,9 +648,26 @@ def test_d_dos_citas():
     ]
     d = Deps100(espejo=espejo)
     proponer(d, t, fecha=JUEVES)
-    caso("D38 tope 2: no propone",
+    # (v3.16) El tope ya no es un muro: ofrece mover la cita propia
+    # a la primera hora libre, con botones.
+    caso("D38 tope 2: ofrece mover en vez del muro",
+         (_CITAS_PENDIENTES.get(t) or {}).get("tipo") == "mover")
+    caso("D38 tope 2: mensaje de mover con botones",
+         any("Te la muevo" in x[1] for x in d.botones), f"{d.botones}")
+    limpiar(t)
+
+    t = tel()
+    espejo_ajenas = [
+        {"Estado": "Confirmada", "Fecha": "2026-11-24", "Teléfono": t,
+         "Notas": "Paciente: su hermana"},
+        {"Estado": "Confirmada", "Fecha": "2026-11-25", "Teléfono": t,
+         "Notas": "Paciente: su hermana"},
+    ]
+    d = Deps100(espejo=espejo_ajenas)
+    proponer(d, t, fecha=JUEVES)
+    caso("D38b tope 2 sin cita propia: no propone",
          t not in _CITAS_PENDIENTES)
-    caso("D38 tope 2: mensaje de tope",
+    caso("D38b tope 2 sin cita propia: mensaje de tope",
          "Ya tienes 2 citas" in textos(d), textos(d))
     limpiar(t)
 

@@ -365,11 +365,29 @@ Límites duros:
   preferencias (lo que prefiere: días, horas, o "" — solo si el
   cliente lo dijo). Nunca inventes nada: si no sabes, deja el campo
   vacío.
+Acción y confianza (v3.16): además del texto, elige UNA acción:
+- responder: lo normal, contestas y listo (usa esta si dudas).
+- agendar: el cliente quiere cita (también marca quiere_agendar).
+- mover: quiere cambiar su cita de día u hora.
+- pedir_info: necesitas un dato para avanzar (nombre, día, servicio,
+  número): ponlo en info_faltante en una palabra corta y pregúntalo
+  en tu respuesta, una cosa a la vez.
+- terminar: la conversación quedó resuelta y el cliente se despide
+  o agradece: cierra cálido y deja la puerta abierta.
+- pasar_persona: necesita una persona (también marca
+  necesita_handoff).
+- no_responder: SOLO si el mensaje es spam, no es para el negocio o
+  una persona ya lo está atendiendo: no digas nada. Úsalo con
+  cuidado: ante la duda, responde.
+Confianza: alta/media/baja. Si no entiendes bien qué quiere el
+cliente, marca baja y pregunta UNA cosa concreta para aclarar; no
+adivines. Dos veces sin entender y el sistema pasa a una persona.
 Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos campos:
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
 resumen_cliente, interes_cliente, proxima_accion, preferencias, partes,
-nombre_paciente, relacion_paciente, numero_paciente, citas_extra.
+nombre_paciente, relacion_paciente, numero_paciente, citas_extra,
+accion, confianza, info_faltante.
 "citas_extra" es una lista con máximo 1 elemento (la segunda cita:
 motivo, fecha_cita, nombre_paciente, relacion_paciente) o vacía si
 solo hay una cita. nombre_paciente/relacion_paciente/numero_paciente
@@ -439,6 +457,14 @@ class RespuestaAgente:
     # lista con UN elemento: {motivo, fecha_cita, nombre_paciente,
     # relacion_paciente}. Vacía = una sola cita, como siempre.
     citas_extra: list[dict] = field(default_factory=list)
+    # Acción y confianza (v3.16): la IA elige qué hacer, no solo
+    # responder. accion: responder/agendar/mover/pedir_info/
+    # terminar/pasar_persona/no_responder. confianza: alta/media/
+    # baja (baja dos veces seguidas pasa a una persona). info_faltante:
+    # el dato que necesita para avanzar, o "".
+    accion: str = ""
+    confianza: str = ""
+    info_faltante: str = ""
     # True cuando Gemini falló de verdad (clave, cuota, red). En ese caso
     # el robot NO se queda callado: le dice al cliente "dame un momento"
     # y avisa al dueño por correo (ver logic.py).
@@ -496,12 +522,32 @@ def _normalizar(datos: dict) -> RespuestaAgente:
     texto_principal = str(datos.get("respuesta_texto") or "").strip()
     if partes and not texto_principal:
         texto_principal = "\n\n".join(partes)
+    # (v3.16) Acción y confianza: valores desconocidos quedan vacíos
+    # (comportamiento de siempre). La acción manda sobre los flags:
+    # agendar = quiere_agendar, pasar_persona = handoff, así un
+    # modelo que solo manda la acción igual dispara la mecánica.
+    _acciones = {"responder", "agendar", "mover", "pedir_info", "terminar",
+                 "pasar_persona", "no_responder"}
+    accion = str(datos.get("accion") or "").strip().lower()
+    if accion not in _acciones:
+        accion = ""
+    _confs = {"alta", "media", "baja"}
+    confianza = str(datos.get("confianza") or "").strip().lower()
+    if confianza not in _confs:
+        confianza = ""
+    info_faltante = str(datos.get("info_faltante") or "").strip()[:80]
+    quiere = si_no(datos.get("quiere_agendar"))
+    handoff = si_no(datos.get("necesita_handoff"))
+    if accion == "agendar":
+        quiere = "si"
+    elif accion == "pasar_persona":
+        handoff = "si"
     return RespuestaAgente(
         modelo=ultimo_modelo(),
         respuesta_texto=texto_principal or "Claro. ¿Me cuentas qué necesitas?",
         partes=partes,
-        quiere_agendar=si_no(datos.get("quiere_agendar")),
-        necesita_handoff=si_no(datos.get("necesita_handoff")),
+        quiere_agendar=quiere,
+        necesita_handoff=handoff,
         motivo_handoff=str(datos.get("motivo_handoff") or "").strip(),
         foto_oficial_url_or_null=str(
             datos.get("foto_oficial_url_or_null") or ""
@@ -522,6 +568,9 @@ def _normalizar(datos: dict) -> RespuestaAgente:
         relacion_paciente=str(datos.get("relacion_paciente") or "").strip()[:60],
         numero_paciente=str(datos.get("numero_paciente") or "").strip()[:30],
         citas_extra=_normalizar_citas_extra(datos.get("citas_extra")),
+        accion=accion,
+        confianza=confianza,
+        info_faltante=info_faltante,
     )
 
 

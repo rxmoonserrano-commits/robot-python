@@ -54,6 +54,12 @@ _CITAS_PENDIENTES: dict[str, dict] = {}
 # y solo si su fecha sigue en el futuro.
 _RETOMAR: dict[str, dict] = {}
 
+# (v3.16) Confianza baja consecutiva por teléfono: si la IA marca
+# confianza baja dos veces seguidas, el robot no está entendiendo
+# al cliente y pasa a una persona en vez de adivinar. Se reinicia
+# con cualquier respuesta de confianza normal. Solo en memoria.
+_BAJA_CONFIANZA: dict[str, int] = {}
+
 def _contiene_aparto(texto: str) -> bool:
     """¿La respuesta le aparta el lugar al cliente?
 
@@ -376,12 +382,31 @@ def _dias_desde_ultimo_mensaje(
         return None
 
 
+# (v3.16) Vocabulario de afirmación: TODAS las palabras del mensaje
+# deben estar aquí para que cuente como "sí" a una propuesta. Es la
+# corrección del falso sí: "me duele es urgente" trae "duele" y
+# "urgente", que no están aquí, así que ya no confirma nada.
+_AFIRMACION_PALABRAS = {
+    "si", "claro", "perfecto", "perfecta", "ok", "okay", "confirmo",
+    "confirmado", "va", "sale", "me", "bien", "esta", "acuerdo",
+    "que", "ese", "esa", "fecha", "listo", "dale", "sip", "simon",
+    "yes", "estoy", "queda", "bueno", "buena", "venga", "orale",
+    "aja", "ya", "super", "excelente", "parece", "buenisimo",
+}
+
+
 def _es_afirmacion(texto: str) -> bool:
     """¿El cliente está diciendo que sí a la cita propuesta?
 
     Solo frases cortas y claras ("sí", "sí, me va", "claro", "perfecto",
     "confirmo"). Un "sí, mejor el sábado" NO es afirmación: tiene
     "mejor" y pide otro día, así que va al agente, no a confirmar.
+
+    (v3.16) Antes bastaba la PRIMERA palabra ("me", "si", "de") para
+    confirmar: "me duele es urgente" (4 palabras, empieza con "me")
+    se tomaba como un sí y chocaba con el tope de citas. Ahora TODAS
+    las palabras tienen que ser de afirmación: "me duele...", "me
+    urge...", "me puedes ayudar" ya no confirman nada.
     """
     # Se quitan comas y puntos: "Sí, me va" debe leerse como "si me va".
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
@@ -398,12 +423,18 @@ def _es_afirmacion(texto: str) -> bool:
     if normal.startswith("no"):
         return False
     palabras = normal.split()
+    # (v3.16) Las frases exactas se revisan ANTES del límite de
+    # palabras: "si me va esa fecha" (5 palabras) es un sí claro y
+    # antes quedaba fuera por el límite, aunque estaba en la lista.
+    if normal in ("si me va", "si me va esa fecha", "si esta bien", "estoy de acuerdo",
+                  "de acuerdo", "me va", "me parece bien", "esta bien"):
+        return True
     if len(palabras) > 4:
         return False
-    if palabras[0] in ("si", "claro", "perfecto", "ok", "confirmo", "va", "sale", "de", "me"):
-        return True
-    return normal in ("si me va", "si me va esa fecha", "si esta bien", "estoy de acuerdo",
-                       "de acuerdo", "me va", "me parece bien", "esta bien")
+    # (v3.16) Lista blanca: cada palabra debe ser de afirmación. Si
+    # alguna no lo es ("duele", "urge", "puedes"...), no es un sí:
+    # va al agente, que entiende el contexto.
+    return all(p in _AFIRMACION_PALABRAS for p in palabras)
 
 
 # (v3.12, Sereno función 03) Confirmación de asistencia: el paciente
@@ -535,9 +566,26 @@ def _es_urgencia(texto: str) -> bool:
 
     "¿duele la limpieza?" NO es urgencia (pregunta si duele, no dice
     que le duela); "me duele la muela" SÍ lo es.
+
+    (v3.16) Las negaciones no son urgencias: "no me duele nada" o
+    "no es urgente, solo quiero agendar" no disparan el flujo de
+    urgencia. Si además hay otra señal (otra palabra de urgencia o
+    un intensificador como "mucho"), sigue siendo urgencia: ante la
+    duda, la urgencia gana (es un tema médico).
     """
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
     normal = re.sub(r"\s+", " ", normal)
+    _NEGACIONES = ("no me duele", "no es urgente", "no es una urgencia",
+                   "no es emergencia", "sin urgencia", "sin dolor")
+    if any(n in normal for n in _NEGACIONES):
+        resto = normal
+        for n in _NEGACIONES:
+            resto = resto.replace(n, "")
+        _INTENSIFICADORES = ("mucho", "muchisimo", "demasiado", "fuerte",
+                             "horrible", "insoportable")
+        if (not any(p in resto for p in _PALABRAS_URGENCIA)
+                and not any(i in normal for i in _INTENSIFICADORES)):
+            return False
     return any(p in normal for p in _PALABRAS_URGENCIA)
 
 
@@ -1382,14 +1430,174 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
 
 def _dejar_cita_igual(deps: Dependencias, telefono: str, nombre: str,
                       fecha: str, con_ritmo: bool = True,
-                      ahora: datetime | None = None) -> dict:
-    """El cliente prefirió dejar su cita como está (v3.15)."""
+                      ahora: datetime | None = None,
+                      mover: bool = False) -> dict:
+    """El cliente prefirió dejar su cita como está (v3.15).
+
+    (v3.16) Con mover=True (oferta por tope, sin urgencia) no se
+    promete pasar a una persona: la cita simplemente queda igual.
+    """
     _borrar_propuesta(deps, telefono)
-    mensaje = ("Perfecto, tu cita queda como está. Te paso con una persona de "
-               "inmediato para que te atiendan lo antes posible.")
+    if mover:
+        mensaje = "Perfecto, tu cita queda como está."
+        _motivo = "mover rechazado"
+    else:
+        mensaje = ("Perfecto, tu cita queda como está. Te paso con una persona de "
+                   "inmediato para que te atiendan lo antes posible.")
+        _motivo = "adelanto rechazado"
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "adelanto rechazado")
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", _motivo)
     return {"respondio": True, "handoff": False, "cita_sin_cambio": True}
+
+
+def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
+                     fecha: str, con_ritmo: bool = True,
+                     ahora: datetime | None = None) -> dict:
+    """Mueve la cita existente a la hora nueva por el tope (v3.16).
+
+    Igual que el adelanto (v3.15) pero sin urgencia: la cita queda
+    marcada normal (Urgencia=NO) y el correo es el normal. La usan
+    el botón "Mover cita" y el "sí" por texto. Primero crea la cita
+    nueva (si falla, la vieja queda intacta), luego cancela la vieja
+    y mueve la fila del espejo.
+    """
+    propuesta = _CITAS_PENDIENTES.get(telefono)
+    if not propuesta or propuesta.get("tipo") != "mover":
+        return {"respondio": True, "motivo": "sin mover", "handoff": False}
+    ahora = ahora or datetime.now(timezone.utc)
+    nueva_fecha = propuesta["fecha_cita"]
+    servicio = str(propuesta.get("servicio") or propuesta.get("motivo") or "")
+    try:
+        libre = deps.hora_libre(nueva_fecha)
+    except Exception:
+        libre = True
+    if not libre:
+        _borrar_propuesta(deps, telefono)
+        mensaje = ("Esa hora ya se ocupó. Te paso con una persona para "
+                   "acomodarte lo antes posible.")
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "mover ocupado")
+        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, "mover por tope",
+                           "(mover ocupado)", fecha)
+        return {"respondio": True, "motivo": "hora ocupada", "handoff": True}
+    nota = f"Movida desde {propuesta.get('fecha_bonita_vieja', '')}".strip()
+    try:
+        resultado = deps.crear_cita(nombre, telefono, servicio, nueva_fecha, nota=nota)
+    except Exception as exc:
+        resultado = {"error": str(exc)}
+    if not resultado or resultado.get("error"):
+        _borrar_propuesta(deps, telefono)
+        mensaje = ("No pude mover tu cita por un problema técnico; tu cita "
+                   "queda como está. Te paso con una persona de inmediato.")
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "mover fallido")
+        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, "mover por tope",
+                           "(mover fallido)", fecha)
+        return {"respondio": True, "motivo": "mover fallido", "handoff": True}
+    try:
+        deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
+    except Exception:
+        pass
+    try:
+        inicio_nuevo = _parse_fecha_iso(nueva_fecha)
+        duracion = _duracion_entre(propuesta.get("hora_inicio_vieja"),
+                                   propuesta.get("hora_fin_vieja"))
+        hora_inicio_nueva = inicio_nuevo.strftime("%H:%M")
+        hora_fin_nueva = (inicio_nuevo + timedelta(minutes=duracion)).strftime("%H:%M")
+        fecha_dia_nueva = inicio_nuevo.strftime("%Y-%m-%d")
+    except (ValueError, TypeError, AttributeError):
+        hora_inicio_nueva = hora_fin_nueva = ""
+        fecha_dia_nueva = str(nueva_fecha)[:10]
+    notas_vieja = str(propuesta.get("notas_vieja") or "")
+    if notas_vieja:
+        notas_nueva = f"{notas_vieja} | Movida por tope de citas"
+    else:
+        notas_nueva = "Movida por tope de citas"
+    try:
+        deps.actualizar_cita_espejo(
+            telefono, propuesta["fecha_vieja"], estado="Confirmada",
+            notas=notas_nueva, urgencia="NO",
+            nueva_fecha=fecha_dia_nueva, nueva_hora_inicio=hora_inicio_nueva,
+            nueva_hora_fin=hora_fin_nueva)
+    except Exception:
+        pass
+    try:
+        leer_cliente = getattr(deps, "leer_cliente", lambda t: None)
+        cliente = leer_cliente(telefono) or {}
+        if str(cliente.get("fecha_cita", "") or "")[:10] == str(propuesta["fecha_vieja"])[:10]:
+            deps.registrar_cliente(
+                fecha, nombre, telefono,
+                str(cliente.get("motivo", "") or servicio),
+                nueva_fecha, "whatsapp", "agendado", "no")
+    except Exception:
+        pass
+    _borrar_propuesta(deps, telefono)
+    _con_pro = _con_profesional(str(propuesta.get("profesional") or "").strip())
+    mensaje = f"¡Listo! Tu cita quedó para el {propuesta['fecha_bonita']}{_con_pro}."
+    enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cita movida por tope")
+    _avisar_por_correo(
+        deps.alerta_cita_confirmada, nombre, telefono, servicio,
+        propuesta["fecha_bonita"], fecha)
+    return {"respondio": True, "handoff": False, "cita_movida": True,
+            "fecha_cita": nueva_fecha}
+
+
+def _intentar_mover_por_tope(deps: Dependencias, telefono: str, nombre: str,
+                             fecha: str, ahora: datetime, con_ritmo: bool,
+                             conocimiento: list[dict]) -> bool:
+    """(v3.16) En vez del muro del tope, ofrece MOVER la cita que ya
+    tiene a la primera hora libre, con botones. Devuelve True si
+    mandó la oferta (el muro no se manda). Si no hay cita propia
+    que mover o el primer hueco no es antes, devuelve False y el
+    llamador manda el mensaje del tope de siempre.
+    """
+    plan = _plan_urgencia(deps, telefono, nombre, conocimiento, ahora)
+    if plan.get("tipo") != "adelanto":
+        return False
+    cita = plan["cita"]
+    propuesta = {
+        "nombre": nombre,
+        "motivo": str(cita.get("Servicio") or ""),
+        "fecha_cita": plan["fecha_cita"],
+        "fecha_bonita": plan["fecha_bonita"],
+        "creado_en": ahora.isoformat(),
+        "profesional": plan.get("profesional", ""),
+        "nombre_paciente": "",
+        "relacion_paciente": "",
+        "numero_paciente": "",
+        "cita2": None,
+        "urgencia": "",
+        "tipo": "mover",
+        "cita_id": str(cita.get("ID_Cita") or ""),
+        "fecha_vieja": plan["fecha_vieja"],
+        "fecha_bonita_vieja": plan["fecha_bonita_vieja"],
+        "servicio": str(cita.get("Servicio") or ""),
+        "hora_inicio_vieja": str(cita.get("Hora_inicio") or ""),
+        "hora_fin_vieja": str(cita.get("Hora_fin") or ""),
+        "notas_vieja": str(cita.get("Notas") or ""),
+    }
+    _CITAS_PENDIENTES[telefono] = propuesta
+    deps.guardar_propuesta(telefono, propuesta)
+    mensaje = (
+        f"Ya tienes 2 citas con este número. Vi que tienes una el "
+        f"{plan['fecha_bonita_vieja']}. Te la muevo a {plan['fecha_bonita']}. "
+        "¿La movemos?"
+    )
+    botones = [
+        ("adelantar_cita", "Mover cita"),
+        ("dejar_cita_igual", "Dejarla como está"),
+        ("hablar_persona", "Hablar con persona"),
+    ]
+    try:
+        deps.enviar_botones(telefono, mensaje, botones)
+    except Exception:
+        try:
+            deps.enviar_texto(telefono, mensaje)
+        except Exception:
+            pass
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "tope de citas con mover")
+    return True
 
 
 def _enviar_propuesta_urgente(deps: Dependencias, telefono: str, fecha: str,
@@ -1460,6 +1668,9 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
     # (v3.15) Un "sí" por texto a un adelanto mueve la cita, no crea otra.
     if propuesta.get("tipo") == "adelanto":
         return _confirmar_adelanto(deps, telefono, nombre, fecha, con_ritmo)
+    # (v3.16) Igual para un mover por tope (sin urgencia).
+    if propuesta.get("tipo") == "mover":
+        return _confirmar_mover(deps, telefono, nombre, fecha, con_ritmo)
     nombre_cita = str(propuesta.get("nombre") or "").strip()
     telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
     # (v3.13) Urgencia: si la propuesta viene de una urgencia, todas
@@ -1500,8 +1711,11 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
             or "Cliente"
         )
     # (v3.10) Tope de 2 citas por número, revisado al confirmar.
+    # (v3.16) Una propuesta URGENTE no se bloquea aquí: la urgencia
+    # ya pasó el filtro al proponerse (v3.14.1) y si el tope la
+    # frena al confirmar, la cita urgente nunca se crea.
     _ahora_real = datetime.now(timezone.utc)
-    if _citas_activas_telefono(deps, telefono, _ahora_real) + len(citas) > MAX_CITAS_POR_NUMERO:
+    if not urgencia_razon and _citas_activas_telefono(deps, telefono, _ahora_real) + len(citas) > MAX_CITAS_POR_NUMERO:
         _borrar_propuesta(deps, telefono)
         mensaje = (
             "Ya tienes 2 citas registradas con este número, para no "
@@ -1744,6 +1958,16 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
     """
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto))
     normal = re.sub(r"\s+", " ", normal).strip()
+    # (v3.16) Negaciones: "no quiero cancelar" NO cancela (antes
+    # cancelaba la cita de verdad) y "no quiero cambiar" no cambia.
+    # Son mensajes para la IA, no para la mecánica.
+    _NEG_CANCELAR = ("no quiero cancelar", "no quiero cancela", "no cancelar",
+                     "no lo canceles", "no la canceles", "no anules",
+                     "no lo anules", "no quiero anular", "sin cancelar")
+    _NEG_CAMBIAR = ("no quiero cambiar", "no cambiar", "no lo cambies",
+                    "no la cambies", "dejalo", "dejala")
+    if any(n in normal for n in _NEG_CANCELAR + _NEG_CAMBIAR):
+        return None
     if any(p in normal for p in _PALABRAS_CANCELAR):
         return "cancelar"
     if any(p in normal for p in _PALABRAS_CAMBIAR):
@@ -2537,6 +2761,40 @@ def atender_mensaje(
     # pasada no justifica afirmar una cita nueva. La fecha de Clientes
     # viene en hora del negocio (naive); se compara en hora local.
     estado["tiene_cita_futura"] = _cita_es_futura(fila_cliente, ahora)
+    # (v3.16) Cuánto falta para su cita: la IA ajusta el tono según
+    # si es inminente (hoy), próxima (esta semana) o lejana.
+    if estado.get("tiene_cita"):
+        try:
+            _fc_txt = str(fila_cliente.get("fecha_cita", "") or "").strip()
+            _fc = _parse_fecha_iso(_fc_txt) if _fc_txt else None
+            if _fc is not None:
+                if _fc.tzinfo is None:
+                    _fc = _fc.replace(tzinfo=timezone.utc)
+                _fc_local = _a_hora_local(_fc)
+                _horas_cita = (
+                    _fc_local - _a_hora_local(ahora)
+                ).total_seconds() / 3600
+                _bonita_cita = formatear_cita_bonita(_fc_txt)
+                if 0 <= _horas_cita < 24:
+                    contexto.append(
+                        f"Su cita es hoy a las {_fc_local:%H:%M} "
+                        f"(en {int(_horas_cita)} hora(s)): es inminente, "
+                        "trátala como 'te veo en un rato'."
+                    )
+                elif _horas_cita >= 24:
+                    _dias_cita = int(_horas_cita // 24)
+                    if _dias_cita < 7:
+                        contexto.append(
+                            f"Su cita es el {_bonita_cita} (en {_dias_cita} día(s)): "
+                            "está cerca, trátala como próxima."
+                        )
+                    else:
+                        contexto.append(
+                            f"Su cita es el {_bonita_cita} (en {_dias_cita} días): "
+                            "está lejos, trátala como plan futuro."
+                        )
+        except Exception:
+            pass
     # (v3.11) Memoria: una cita ya pasada no es vigente. Se le dice
     # al agente para que no ofrezca cambiarla ni la trate como viva
     # (en vivo el 2026-11-22 el robot ofreció cambiar "tus horas" por
@@ -2581,12 +2839,19 @@ def atender_mensaje(
     # saludo recuerda de qué hablaban en vez de tratarlo como nuevo.
     # Si pasaron días desde el último mensaje, se dice explícitamente
     # para que el saludo suene a regreso, no a arranque en frío.
+    # (v3.16) El tiempo desde el último mensaje se dice SIEMPRE,
+    # no solo en saludos: la IA ajusta el tono (regreso tras días
+    # vs. conversación viva) en cualquier etapa.
+    _dias_ultimo = _dias_desde_ultimo_mensaje(historial, texto, ahora)
+    if _dias_ultimo is not None and _dias_ultimo >= 1:
+        contexto.append(
+            f"Hace {_dias_ultimo} día(s) desde su último mensaje: si lo "
+            "saludas, suena a regreso, no a arranque en frío."
+        )
     if _mensajes_previos(historial, texto) or memoria:
         if estado["etapa"] == "saludo":
-            dias = _dias_desde_ultimo_mensaje(historial, texto, ahora)
-            if dias is not None and dias >= 1:
+            if _dias_ultimo is not None and _dias_ultimo >= 1:
                 contexto.append(
-                    f"Hace {dias} día(s) que este cliente no escribía. "
                     "Salúdalo con gusto recordando de qué hablaban la última "
                     "vez; no lo trates como nuevo ni le preguntes el nombre "
                     "otra vez."
@@ -2773,6 +3038,20 @@ def atender_mensaje(
     else:
         respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
 
+    # (v3.16) Confianza baja dos veces seguidas: el robot no está
+    # entendiendo al cliente. La primera vez deja pasar su pregunta
+    # de aclaración; la segunda, pasa a una persona (no adivina).
+    if not respuesta.falla_tecnica:
+        if str(getattr(respuesta, "confianza", "") or "").strip().lower() == "baja":
+            _n_baja = _BAJA_CONFIANZA.get(telefono, 0) + 1
+            _BAJA_CONFIANZA[telefono] = _n_baja
+            if _n_baja >= 2:
+                _BAJA_CONFIANZA.pop(telefono, None)
+                respuesta.necesita_handoff = "si"
+                respuesta.motivo_handoff = "No se entendió dos veces seguidas"
+        else:
+            _BAJA_CONFIANZA.pop(telefono, None)
+
     # (v2.13) Revisor: segunda mirada antes de mandar. Si la respuesta
     # repite una oferta pendiente, ofrece cita en un saludo o dice
     # "ya cerramos", se corrige aquí, no en el teléfono del cliente.
@@ -2916,6 +3195,20 @@ def atender_mensaje(
         return {"respondio": True, "motivo": "handoff",
                 "handoff": True, "falla_tecnica": respuesta.falla_tecnica}
 
+    # (v3.16) Acciones de la IA: terminar (cierra cálido y marca la
+    # memoria), no responder (silencio total: spam o mensaje ajeno),
+    # pedir_info (la memoria guarda qué falta).
+    _accion = str(getattr(respuesta, "accion", "") or "").strip().lower()
+    if _accion == "no_responder":
+        deps.registrar_conversacion(fecha, telefono, "robot", "(sin respuesta)", "no", "sin respuesta por agente")
+        return {"respondio": False, "motivo": "sin respuesta", "handoff": False}
+    if _accion == "terminar":
+        respuesta.proxima_accion = "cerrada"
+    elif _accion == "pedir_info" and not str(respuesta.proxima_accion or "").strip():
+        _falta = str(getattr(respuesta, "info_faltante", "") or "").strip()
+        if _falta:
+            respuesta.proxima_accion = f"falta: {_falta}"
+
     # (v3.5) Interruptor de agenda desde Configuración: si el negocio
     # apagó "agendar", el robot responde preguntas pero no propone
     # citas (ni por red de seguridad). Vacío en la hoja = SI, como
@@ -3043,6 +3336,12 @@ def atender_mensaje(
         # antes de proponer, no solo al confirmar.
         _n_citas = 1 + len(citas_extra_validas)
         if _citas_activas_telefono(deps, telefono, ahora) + _n_citas > MAX_CITAS_POR_NUMERO:
+            # (v3.16) Antes: muro. Ahora: primero se intenta mover
+            # la cita que ya tiene (con botones); solo si no hay
+            # nada que mover va el mensaje del tope de siempre.
+            if _intentar_mover_por_tope(
+                    deps, telefono, nombre, fecha, ahora, con_ritmo, conocimiento):
+                return {"respondio": True, "handoff": False, "cita_propuesta": True}
             mensaje_tope = (
                 "Ya tienes 2 citas registradas con este número, para no "
                 "llenar la agenda. Si quieres cambiar alguna, dime cuál y "
@@ -3301,11 +3600,18 @@ def atender_boton(
 
     if boton_id == "adelantar_cita":
         # (v3.15) Mover la cita existente a la hora propuesta.
+        # (v3.16) Si es un mover por tope, va por el camino normal.
+        _prop = _CITAS_PENDIENTES.get(telefono) or {}
+        if _prop.get("tipo") == "mover":
+            return _confirmar_mover(deps, telefono, nombre, fecha, con_ritmo, ahora)
         return _confirmar_adelanto(deps, telefono, nombre, fecha, con_ritmo, ahora)
 
     if boton_id == "dejar_cita_igual":
         # (v3.15) El cliente prefirió dejar su cita como está.
-        return _dejar_cita_igual(deps, telefono, nombre, fecha, con_ritmo, ahora)
+        _prop = _CITAS_PENDIENTES.get(telefono) or {}
+        return _dejar_cita_igual(
+            deps, telefono, nombre, fecha, con_ritmo, ahora,
+            mover=_prop.get("tipo") == "mover")
 
     if boton_id == "cambiar_hora":
         # (v3.10) Con dos citas en la propuesta, se pregunta cuál

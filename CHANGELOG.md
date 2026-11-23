@@ -5,6 +5,45 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.16.0 — Parche robusto: comunicación y fricciones (2026-11-22)
+
+Jose probó la urgencia en vivo y encontró dos cosas: "me duele es
+urgente" chocó con el muro del tope en vez de correr la urgencia, y
+"???" recibió un "¡Gracias! ¿En qué te ayudo hoy?". La simulación
+contra el código real (test_simulacion_escenarios.py, 37 escenarios)
+encontró las causas y esta versión las corrige, más las fricciones
+que la caza proactiva destapó:
+
+- Falso sí corregido: `_es_afirmacion` ya no toma cualquier mensaje
+  corto que empieza con "me"/"sí"/"de" como confirmación. Ahora
+  TODAS las palabras deben ser de afirmación (lista blanca):
+  "me duele es urgente", "me urge una cita" y "me puedes ayudar"
+  ya no confirman nada. El caso de Jose ahora corre la urgencia.
+- Negaciones: "no me duele nada" y "no es urgente" ya no disparan
+  el flujo de urgencia; "no quiero cancelar" ya no cancela la cita
+  de verdad y "no quiero cambiar" no cambia. Ante la duda, la
+  urgencia gana (es un tema médico).
+- La cita urgente nueva SÍ se confirma con 2 citas registradas:
+  el tope ya no la bloquea al confirmar (la urgencia ya pasó el
+  filtro al proponerse).
+- El tope de citas ya no es un muro: si el cliente tiene una cita
+  propia y hay una hora libre antes, le ofrece MOVERLA con botones
+  ("Mover cita" / "Dejarla como está" / "Hablar con persona").
+  Confirmar mueve la cita (Urgencia=NO, correo normal). Sin cita
+  propia, el mensaje del tope de siempre.
+- Tiempo completo para la IA: "hace N días desde su último
+  mensaje" en cualquier etapa (antes solo en saludos) y "su cita
+  es hoy a las HH:MM / en N días" según cuánto falta.
+- Acción y confianza para la IA (campos nuevos accion, confianza,
+  info_faltante): la IA elige responder/agendar/mover/pedir_info/
+  terminar/pasar_persona/no_responder. "terminar" cierra cálido y
+  marca la memoria; "no_responder" calla (spam); confianza baja
+  dos veces seguidas pasa a una persona en vez de adivinar.
+- Pruebas: test_v3_16.py (25 casos) + simulación adversarial
+  permanente (37 escenarios) que se corre en cada cambio.
+  test_escenarios_100 D38 actualizado al nuevo mover; test_v3_2
+  (a2) al nuevo contexto de tiempo.
+
 ## v3.15.0 — Urgencia inteligente: adelantar o nueva cita (2026-11-22)
 
 Jose pidió que la inteligencia entienda si adelanta la cita que el
