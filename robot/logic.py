@@ -559,11 +559,24 @@ def _extraer_telefono(texto: str, telefono_propio: str = "") -> str:
 # seguro). La lista es de una clínica, pero las palabras de urgencia
 # ("urgente", "emergencia") valen para cualquier negocio.
 _MOTIVO_URGENCIA = "Urgencia del cliente"
-_PALABRAS_URGENCIA = (
-    "urgente", "urgencia", "emergencia", "me duele", "dolor fuerte",
-    "sangrando", "sangre", "hinchado", "hinchada", "se me cayo un diente",
-    "se me rompio", "no puedo esperar",
+# (v3.18) Urgencia en dos niveles: señales médicas claras siempre
+# son urgencia; "urgente/urgencia" a secas es ambiguo (puede ser
+# "es urgente que me digas el precio") y solo dispara el protocolo
+# si el mensaje NO es una simple petición de información.
+_PALABRAS_MEDICAS = (
+    "me duele", "dolor", "sangrando", "sangre", "hinchado", "hinchada",
+    "se me cayo", "se me rompio", "no puedo esperar", "emergencia",
+    "accidente", "fractura",
 )
+_PALABRAS_AMBIGUAS = ("urgente", "urgencia")
+_PALABRAS_INFO = (
+    "precio", "cuesta", "cuestan", "cuanto", "vale", "valen", "costo",
+    "horario", "abren", "cierran", "donde", "direccion", "ubicacion",
+    "informacion", "foto", "fotos",
+)
+# Compatibilidad: la tupla original (la usa la revisión de
+# negaciones para ver si queda otra señal tras quitar la negación).
+_PALABRAS_URGENCIA = _PALABRAS_MEDICAS + _PALABRAS_AMBIGUAS
 
 
 def _es_urgencia(texto: str) -> bool:
@@ -577,6 +590,13 @@ def _es_urgencia(texto: str) -> bool:
     urgencia. Si además hay otra señal (otra palabra de urgencia o
     un intensificador como "mucho"), sigue siendo urgencia: ante la
     duda, la urgencia gana (es un tema médico).
+
+    (v3.18) "Es urgente que me digas el precio" no es una
+    emergencia: si la única señal es "urgente/urgencia" y el
+    mensaje es una petición de información (precio, horario,
+    ubicación, foto...), va al agente y se responde normal. Sin
+    señal médica ni petición de información, "urgente" sí dispara
+    el protocolo (seguridad primero).
     """
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
     normal = re.sub(r"\s+", " ", normal)
@@ -591,7 +611,13 @@ def _es_urgencia(texto: str) -> bool:
         if (not any(p in resto for p in _PALABRAS_URGENCIA)
                 and not any(i in normal for i in _INTENSIFICADORES)):
             return False
-    return any(p in normal for p in _PALABRAS_URGENCIA)
+    if any(p in normal for p in _PALABRAS_MEDICAS):
+        return True
+    if any(p in normal for p in _PALABRAS_AMBIGUAS):
+        if any(p in normal for p in _PALABRAS_INFO):
+            return False
+        return True
+    return False
 
 
 # (v3.8) Con el interruptor por cliente apagado ("robot apagado para
@@ -1965,6 +1991,12 @@ _PALABRAS_CAMBIAR = (
     "cambiar", "reprogramar", "reagendar", "mover la cita", "mejor no",
     "prefiero otra", "otra hora", "otro dia", "otro día", "no quiero",
     "no me va", "no me sirve",
+    # (v3.18) Formas conjugadas: "cambia mi cita" / "que cambie" no
+    # se reconocían (la simulación profunda lo encontró: caía al
+    # agente y proponía una cita NUEVA en vez de cambiar la que ya
+    # tiene). "cambia" cubre "cambiar/cambiala/cambialo" por
+    # substring.
+    "cambia", "cambie",
 )
 
 

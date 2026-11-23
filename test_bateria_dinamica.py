@@ -218,6 +218,11 @@ class DepsDinamica(Dependencias):
         return fecha_iso in HUECOS
 
     def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
+        # Contrato de producción (booking.crear_cita): si la hora no
+        # está libre, lanza ValueError. El fake lo simula con los
+        # huecos: fuera de huecos = hora ocupada.
+        if fecha_cita not in HUECOS:
+            raise ValueError("hora ocupada")
         cita = {"nombre": nombre, "telefono": telefono, "motivo": motivo,
                 "fecha_cita": fecha_cita, "nota": nota}
         self.citas.append(cita)
