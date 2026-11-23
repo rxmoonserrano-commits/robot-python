@@ -5,6 +5,27 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.14.1 — La urgencia siempre propone fecha (2026-11-22)
+
+Jose probó la urgencia en vivo y no vio ninguna fecha propuesta:
+su número de prueba ya tenía 2 citas activas (la del martes y la
+de su hermana del miércoles) y el tope de 2 citas por número
+bloqueó la oferta en silencio. Decisión de Jose: "necesito que la
+función esté bien estipulada de calidad" — una urgencia siempre
+recibe una propuesta de cita con fecha, si hay hueco.
+
+- **La urgencia salta el tope de 2 citas.** `_propuesta_cita_urgente`
+  ya no revisa el tope: propone la primera hora disponible con
+  botones aunque el cliente ya tenga 2 citas. El tope sigue
+  vigente para el flujo normal. La oferta solo se omite si la
+  agenda está apagada, ya hay una propuesta pendiente (nunca se
+  pisa) o no hay huecos libres. El dueño ve el correo de urgencia
+  al confirmar y puede reagendar.
+- **La IA lo dice con naturalidad:** el marco de urgencia le pasa
+  el dato ("ya tiene 2 citas registradas") y el guion le pide
+  decirlo con naturalidad: el sistema propone una cita adicional
+  por la urgencia.
+
 ## v3.14.0 — Urgencia pensada: la IA compone la respuesta (2026-11-22)
 
 Jose probó la urgencia en vivo y rechazó el texto fijo: "parecen

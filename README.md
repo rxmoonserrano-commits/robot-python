@@ -354,7 +354,9 @@ siguiente cierra distinto.
   (columna Urgencia) y el dueño recibe un correo de "cita con
   urgencia" con el porqué. (v3.14) La respuesta ya no es una
   plantilla fija: la piensa la IA con el guion y el contexto; si la
-  IA falla, texto fijo de respaldo.
+  IA falla, texto fijo de respaldo. (v3.14.1) La urgencia siempre
+  propone fecha: salta el tope de 2 citas por número (el tope sigue
+  para el flujo normal).
 - **Resumen de la mañana.** Todos los días a las 08:00, un correo al
   dueño con lo de las últimas 24 h: mensajes atendidos, clientes
   nuevos, citas agendadas, quién necesita una persona, propuestas

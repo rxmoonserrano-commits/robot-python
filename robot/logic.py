@@ -1011,15 +1011,17 @@ def _propuesta_cita_urgente(deps: Dependencias, telefono: str, nombre: str,
     con `urgencia` (la razón): al confirmarse, la cita queda
     catalogada como URGENTE en el CRM y el dueño recibe el correo
     con el porqué. Devuelve la propuesta guardada, o None si no se
-    pudo ofrecer (agenda apagada, ya hay propuesta, tope de citas o
-    sin huecos): en esos casos el handoff sale igual, sin botones.
+    pudo ofrecer (agenda apagada, ya hay propuesta o sin huecos): en
+    esos casos el handoff sale igual, sin botones.
+
+    (v3.14.1) La urgencia SIEMPRE propone fecha si hay hueco: salta
+    el tope de citas por número. Un cliente con dolor no se queda
+    sin oferta; el dueño ve el correo de urgencia y puede reagendar.
     """
     if not funcion_activa("agendar"):
         return None
     if _CITAS_PENDIENTES.get(telefono):
         return None  # ya hay una propuesta viva: no se pisa
-    if _citas_activas_telefono(deps, telefono, ahora) + 1 > MAX_CITAS_POR_NUMERO:
-        return None
     try:
         huecos = deps.proximos_huecos_libres(conocimiento, ahora)
     except Exception:

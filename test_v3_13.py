@@ -533,7 +533,7 @@ def test_n_urgencia_ia_caida():
 
 
 # ------------------------------------------------------------------
-# (o) Urgencia con tope de citas: sin botones, respuesta pensada
+# (o) Urgencia con 2 citas: la urgencia salta el tope y propone
 # ------------------------------------------------------------------
 
 def test_o_urgencia_con_tope():
@@ -544,10 +544,11 @@ def test_o_urgencia_con_tope():
     d = DepsV313(espejo=espejo)
     r = _urgencia(d)
     texto = d.textos[0][1] if d.textos else ""
-    caso("(o) Tope de citas: respuesta de la IA y handoff, sin botones",
-         r.get("handoff") is True and len(d.botones) == 0
+    caso("(o) Urgencia con 2 citas: propone con botones igual",
+         r.get("handoff") is True and len(d.botones) == 1
+         and TEL in _CITAS_PENDIENTES
          and "Ay, qué mal rato" in texto, f"{r} {d.botones} {texto}")
-    caso("(o) Tope de citas: el marco le avisa a la IA del tope",
+    caso("(o) Urgencia con 2 citas: el marco le avisa a la IA del tope",
          d.mensajes_al_agente
          and "ya tiene 2 citas registradas" in d.mensajes_al_agente[0],
          f"{d.mensajes_al_agente}")
