@@ -72,10 +72,18 @@ def _precio_servicio(motivo: str, conocimiento: list[dict]) -> int | None:
     """Precio de un servicio desde Conocimiento, o None si no hay
     coincidencia clara (sin servicio, sin precio, o precio ambiguo
     con varios montos distintos en la fila). Determinista: nunca
-    adivina."""
+    adivina.
+
+    (v3.20.6) Si el motivo cruza con VARIOS servicios de precios
+    distintos (p. ej. "dental" cruza con "Limpieza dental" y con
+    "Blanqueamiento dental"), no hay coincidencia clara: None.
+    Antes se tomaba el primer servicio y el reporte sumaba un
+    precio que podía no ser el de esa cita.
+    """
     objetivo = _normalizar(motivo)
     if not objetivo:
         return None
+    precios: set[int] = set()
     for f in conocimiento or []:
         if not isinstance(f, dict):
             continue
@@ -87,9 +95,12 @@ def _precio_servicio(motivo: str, conocimiento: list[dict]) -> int | None:
         montos = set(_montos_en_texto(" ".join(
             str(v) for v in f.values() if isinstance(v, str))))
         if len(montos) == 1:
-            return next(iter(montos))
-        return None  # ambiguo o sin precio: no se adivina
-    return None
+            precios.add(next(iter(montos)))
+        # Fila ambigua (varios montos) o sin precio: no aporta,
+        # pero no descarta las demás coincidencias.
+    if len(precios) == 1:
+        return next(iter(precios))
+    return None  # sin coincidencia clara: no se adivina
 
 
 def valor_estimado_citas(citas: list[dict],

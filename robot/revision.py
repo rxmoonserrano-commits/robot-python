@@ -339,6 +339,27 @@ _MONTO_PALABRA_RE = re.compile(
     re.IGNORECASE,
 )
 
+# (v3.20.6) Precios "pelados" sin $ ni pesos: "te lo dejo en 400",
+# "cuesta cuatrocientos". Solo cuentan tras un verbo de precio y
+# con el número al final de la frase (punto, coma o fin), para no
+# confundirlos con cantidades normales ("son 400 pacientes",
+# "en 3 días", "a las 9").
+_PRECIO_PELADO_VERBOS = r"(?:cuesta|vale|sale|dejo|queda|precio|total|costo)"
+_MONTO_PELADO_DIGITOS_RE = re.compile(
+    rf"\b{_PRECIO_PELADO_VERBOS}\s+(?:en\s+|de\s+|es\s+)?(\d[\d,]*)(?=[.,!?]|$)",
+    re.IGNORECASE,
+)
+_MONTO_PELADO_PALABRA_RE = re.compile(
+    rf"\b{_PRECIO_PELADO_VERBOS}\s+(?:en\s+|de\s+|es\s+)?"
+    r"(dos mil|tres mil|cuatro mil|cinco mil|"
+    r"(?:cien|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|"
+    r"setecientos|ochocientos|novecientos|mil)"
+    r"(?:\s+(?:cien|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|"
+    r"setecientos|ochocientos|novecientos))?)"
+    r"(?=[.,!?]|$)",
+    re.IGNORECASE,
+)
+
 # (v3.17) Respuesta segura cuando la IA inventa un precio: misma
 # frase del guion para lo que no está en Conocimiento.
 _RESPUESTA_PRECIO_INVENTADO = (
@@ -352,6 +373,11 @@ def _montos_en_texto(texto: str) -> list[int]:
     (v3.20.5) También reconoce los escritos con palabra ("mil
     pesos", "quinientos pesos"): en español casual la IA puede
     escribir el precio así y R9 debe verlo igual que "$1,000".
+
+    (v3.20.6) También reconoce los "pelados" tras verbo de precio
+    ("te lo dejo en 400", "cuesta cuatrocientos"): sin $ ni pesos,
+    pero con el número al final de la frase, no son cantidades
+    normales ("son 400 pacientes", "en 3 días").
     """
     montos = []
     for m in _MONTO_RE.finditer(texto or ""):
@@ -359,6 +385,18 @@ def _montos_en_texto(texto: str) -> list[int]:
         if crudo.isdigit():
             montos.append(int(crudo))
     for m in _MONTO_PALABRA_RE.finditer(texto or ""):
+        total = sum(
+            _PALABRA_A_MONTO[w]
+            for w in m.group(1).lower().split()
+            if w in _PALABRA_A_MONTO
+        )
+        if total:
+            montos.append(total)
+    for m in _MONTO_PELADO_DIGITOS_RE.finditer(texto or ""):
+        crudo = (m.group(1) or "").replace(",", "").strip()
+        if crudo.isdigit():
+            montos.append(int(crudo))
+    for m in _MONTO_PELADO_PALABRA_RE.finditer(texto or ""):
         total = sum(
             _PALABRA_A_MONTO[w]
             for w in m.group(1).lower().split()
@@ -402,10 +440,13 @@ _DESCUENTO_PALABRAS = (
 # mitad de precio", igualar al competidor... Cuestan dinero al
 # negocio igual que un porcentaje, así que R11 las trata igual:
 # solo valen si la frase está LITERAL en el Conocimiento.
+# (v3.20.6) Se suman "barato" (raíz "barat": barato/barata/
+# baratos...) y "sin intereses" (meses sin intereses es una
+# promesa de financiamiento, igual de dinero que un descuento).
 _DESCUENTO_EXTRA = (
     "gratis", "sin costo", "de regalo", "te regalo", "cortesia",
     "precio de amigo", "precio de cliente", "mitad de precio",
-    "mejoro el precio", "igualo el precio",
+    "mejoro el precio", "igualo el precio", "barat", "sin intereses",
 )
 
 
@@ -436,12 +477,19 @@ def _es_negacion_descuento(normal: str) -> bool:
     palabra ("descuentos no manejamos", "tampoco hacemos
     descuentos", "jamás damos descuentos") y cubre las promesas
     sin la palabra "descuento" ("no es gratis").
+
+    (v3.20.6) La ventana entre la negación y la palabra clave se
+    estrechó de 30 a 12 caracteres: con 30, "No te preocupes, te
+    hago un descuento" y "Sin problema, te dejo el 2x1" se tomaban
+    como negación honesta y la oferta pasaba. Las negaciones
+    honestas reales ("no manejamos descuentos", "jamás damos
+    descuentos", "no es gratis") quedan dentro de 12.
     """
     if re.search(
-        r"\b(no|sin|nunca|jamas|tampoco)\b[^.]{0,30}(descuento|promocion|rebaja|"
+        r"\b(no|sin|nunca|jamas|tampoco)\b[^.]{0,12}(descuento|promocion|rebaja|"
         r"precio especial|precio de amigo|precio de cliente|oferta especial|"
         r"2x1|gratis|sin costo|de regalo|te regalo|cortesia|mitad de precio|"
-        r"mejoro el precio|igualo el precio)",
+        r"mejoro el precio|igualo el precio|barat|sin intereses)",
         normal,
     ):
         return True

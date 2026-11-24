@@ -5,6 +5,44 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.6 — Corrida profunda: blindaje reforzado (negación lejana, "barato"/"sin intereses", precios pelados), urgencia sin falsos positivos y ROI sin ambigüedad (2026-11-24)
+
+Jose ordenó "sube la última versión y haz la corrida profunda" +
+"optimízalo en calidad". Corrida adversarial contra el código
+real (test_corrida_profunda.py, 26 casos nuevos; suite 48/48 en
+verde). 21 bugs reales reproducidos con test primero y corregidos:
+
+- **R11 negación lejana (robot/revision.py):** la ventana de
+  negación bajó de 30 a 12 caracteres. Antes "No te preocupes, te
+  hago un descuento del 20%" y "Sin problema, te dejo el 2x1" se
+  tomaban como negación honesta y la oferta llegaba al cliente.
+  Las negaciones honestas ("no manejamos descuentos", "jamás
+  damos descuentos", "no es gratis") siguen pasando intactas.
+- **R11 palabras nuevas:** "barato" (raíz "barat") y "sin
+  intereses" (meses sin intereses = promesa de financiamiento)
+  ahora se tratan como descuentos: solo valen si están literales
+  en el Conocimiento. "No es barato" / "no es sin intereses"
+  siguen pasando.
+- **R9 precios pelados:** "te lo dejo en 400", "cuesta 400",
+  "te lo dejo en cuatrocientos", "el precio es cuatrocientos" se
+  detectan (verbo de precio + número al final de la frase).
+  Cantidades normales ("son 400 pacientes", "en 3 días") no se
+  tocan.
+- **Urgencia sin falsos positivos (robot/logic.py):** "¿el
+  blanqueamiento causa dolor?", "¿da dolor?", "tengo una duda
+  sobre el dolor" ya no disparan el protocolo de urgencia; se
+  responden normal. Síntomas propios ("tengo dolor de muela",
+  "me duele") siguen siendo urgencia.
+- **ROI sin ambigüedad (robot/report.py):** un motivo que cruza
+  con varios servicios de precios distintos ("dental" cruza con
+  Limpieza $600 y Blanqueamiento $1,800) ya no suma el primer
+  precio: no suma nada. El reporte nunca inventa pesos.
+
+Calidad: las correcciones anteriores son la optimización segura
+(menos handoffs falsos, ningún descuento inventado llega al
+cliente). Lo demás (tono con IA real, adelgazar el guion) queda
+como propuesta: requiere la batería dorada en la Mac de Jose.
+
 ## v3.20.5 — Auditoría de negocio: reportes con retorno, blindaje de precios/descuentos y diseño de consentimiento (2026-11-24)
 
 Jose pidió tres auditorías de negocio antes de vender. Dos archivos

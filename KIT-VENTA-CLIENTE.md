@@ -1,12 +1,12 @@
 # Kit de venta — Sereno (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24. v3.20.5 "Auditoría de negocio: reportes con retorno, blindaje de precios/descuentos y diseño de consentimiento" construida y probada en local (suite verde 47/47, zip fresco listo); v3.20.3 ya está en vivo en Render. No digas "en vivo v3.20.5" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24. v3.20.6 "Corrida profunda: blindaje reforzado, urgencia sin falsos positivos y ROI sin ambigüedad" construida y probada en local (suite verde 48/48, zip fresco listo); v3.20.5 ya está en vivo en Render. No digas "en vivo v3.20.6" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Sereno (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.20.5 (ya probado: suite completa 47/47 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 17/17)
+## Lo que trae la v3.20.6 (ya probado: suite completa 48/48 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 17/17 + corrida profunda 26/26)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
@@ -91,11 +91,11 @@ Después comparte la copia con el correo de la cuenta de servicio de Google (el 
 
 - [ ] Aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp Manager → Plantillas, tipo utilidad, es_MX, cuerpo con {{1}} y {{2}}). Sin ella los recordatorios se rechazan y no cuestan nada, pero el paciente no recibe nada.
 - [ ] Contraseña de aplicación de Gmail en Render (`GMAIL_USER` + `GMAIL_APP_PASSWORD`): sin ella no salen los correos del dueño ni el reporte semanal.
-- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.5).
+- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.6).
 - [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): ya está el guion listo en `~/workspace/prueba-conversacional-en-vivo.md` (3 conversaciones cortas, ~10 min) — dos citas, cambio de hora, handoff, urgencia.
 - [ ] Elegir nicho y probar la oferta con 5 negocios: si 3 de 5 dicen que sí o lo piensan en serio, el precio está en buen lugar.
 
 ## Qué NO hace falta
 
-- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.5 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.20.3), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos y los reportes con retorno en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
+- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.6 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.20.5), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos, los reportes con retorno y la corrida profunda en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
 - **El repo `robot-whatsapp` está vacío** y apagado; el único robot real es `robot-python`. No hay nada que apagar.

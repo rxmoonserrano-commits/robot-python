@@ -776,6 +776,25 @@ def _es_urgencia(texto: str) -> bool:
         if (not any(p in resto for p in _PALABRAS_URGENCIA)
                 and not any(i in normal for i in _INTENSIFICADORES)):
             return False
+    # (v3.20.6) Pregunta sobre el dolor (no síntoma propio):
+    # "¿el blanqueamiento causa dolor?", "tengo una duda sobre el
+    # dolor" son preguntas de información, no emergencias. Antes
+    # disparaban el protocolo de urgencia (handoff + propuesta
+    # urgente) en vez de una respuesta normal. Solo se exime si
+    # hay una forma clara de pregunta Y ninguna señal personal:
+    # "tengo dolor de muela" / "me duele" siguen siendo urgencia.
+    if "dolor" in normal:
+        _PREGUNTA_DOLOR = ("causa dolor", "causan dolor", "da dolor",
+                           "dan dolor", "produce dolor", "producen dolor",
+                           "genera dolor", "doloroso", "dolorosa",
+                           "duda sobre", "pregunta sobre",
+                           "sobre el dolor", "sobre dolor")
+        _DOLOR_PERSONAL = ("me duele", "tengo dolor", "siento dolor",
+                           "dolor de", "se me", "mi muela", "mi diente",
+                           "mi boca")
+        if (any(p in normal for p in _PREGUNTA_DOLOR)
+                and not any(p in normal for p in _DOLOR_PERSONAL)):
+            return False
     if any(p in normal for p in _PALABRAS_MEDICAS):
         return True
     if any(p in normal for p in _PALABRAS_AMBIGUAS):
