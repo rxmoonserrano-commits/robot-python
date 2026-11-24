@@ -5,6 +5,38 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.10 — Playbook ampliado: 14 escenarios nuevos de marketing/ventas/psicología/PNL (2026-11-24)
+
+Jose pidió más escenarios donde aplicar las mejoras de
+marketing/ventas/psicología/PNL. Se agregaron 14 entradas nuevas al
+playbook (en `robot/agent.py` y `guion-robot.md`, sincronizados;
+el test de sincronización las vigila con frases clave nuevas):
+
+- **Precio/valor:** compara con otra clínica (defiende el valor sin
+  igualar precio, R11 intacto), pregunta por promociones (solo
+  Conocimiento, nunca inventar), pregunta por anticipo (solo
+  Conocimiento o handoff, nunca inventar la política).
+- **Agendar/elegir:** cita para otra persona (presuposición suave,
+  datos del tercero los pide el sistema tras confirmar), no sabe
+  entre dos servicios (elección suave entre opciones reales, sin
+  recomendar tratamientos), quiere cita hoy mismo (solo huecos
+  reales de hoy), pregunta por un doctor específico (solo
+  profesionales de Conocimiento/contexto).
+- **Regreso/confianza:** regresa tras cancelar (retomada cálida con
+  memoria, sin culpa), viene recomendado (agradecer sin inventar
+  quién es), confirma su asistencia (calidez sin fricción).
+- **Ritmo/trato:** tiene prisa (brevedad + propuesta directa),
+  impaciente (espejo + calma, sin defenderte), escribe con
+  dificultad o es mayor (frases cortas, paciencia, una idea a la
+  vez), pide factura o comprobante (Conocimiento o handoff, nunca
+  inventar el proceso).
+
+Sin cambios de mecánica ni de invariantes: R9/R11/R14, urgencia,
+handoff, tope 2 citas, botones, solo texto y regla de audio igual.
+Suite 51/51 verde (test_mejoras_conversacionales 5/5 con las frases
+clave nuevas y ejemplos sincronizados). SIN push: v3.20.9 sigue en
+vivo; esta versión espera aprobación de Jose.
+
 ## v3.20.9 — Recolección dinámica de datos (el robot usa lo que el cliente confirma) (2026-11-24)
 
 Jose pidió verificar que la recolección sea dinámica e inteligente:

@@ -74,6 +74,34 @@ FRASES_CLAVE = [
     "Se despide sin agendar",
     # §2.3g lenguaje sensorial tranquilo.
     "lenguaje sensorial tranquilo",
+    # v3.20.10 escenarios nuevos: comparación con otra clínica.
+    "no igualas el precio ni hablas mal de la otra",
+    # v3.20.10 promociones: nunca inventar.
+    "Nunca inventes una promoción",
+    # v3.20.10 anticipo: nunca inventar la política.
+    "Nunca inventes la política de anticipo",
+    # v3.20.10 cita para otra persona.
+    "No pidas el nombre ni el número de la otra persona",
+    # v3.20.10 indecisión entre dos servicios.
+    "sin recomendar tratamientos",
+    # v3.20.10 cita hoy mismo: solo huecos reales.
+    "solo ofrece huecos reales de hoy",
+    # v3.20.10 doctor específico: nunca inventar.
+    "Nunca inventes un doctor ni su disponibilidad",
+    # v3.20.10 regresa tras cancelar: sin culpa.
+    "sin culpa ni reproches",
+    # v3.20.10 viene recomendado: no inventar quién es.
+    "no inventes quién es",
+    # v3.20.10 confirma asistencia: sin fricción.
+    "sin preguntas nuevas",
+    # v3.20.10 cliente con prisa: igualar ritmo.
+    "iguala su ritmo",
+    # v3.20.10 cliente impaciente: sin defenderte.
+    "sin defenderte",
+    # v3.20.10 escribe con dificultad: paciencia.
+    "No lo corrijas ni lo apures",
+    # v3.20.10 factura/comprobante: nunca inventar el proceso.
+    "Nunca inventes un proceso de facturación",
 ]
 
 
@@ -108,11 +136,30 @@ def c2():
     return ok, "el texto viejo de oferta_pendiente sigue en agent.py"
 
 
+# --- D. v3.20.10: ejemplos exactos de los escenarios nuevos en ambos ---
+
+EJEMPLOS_NUEVOS = [
+    # Comparación con otra clínica (valor sin igualar precio).
+    "cada clínica trabaja distinto",
+    # Indecisión entre dos servicios (elección suave).
+    "¿Te queda mejor la limpieza mañana",
+    # Regresa tras cancelar (retomada cálida).
+    "¡Qué bueno que volviste! Sin problema, te la reagendo",
+]
+
+
+def d1():
+    agente, espejo = _ambos()
+    faltan = [f for f in EJEMPLOS_NUEVOS if f not in agente or f not in espejo]
+    return (not faltan), f"ejemplos nuevos sin sincronizar: {faltan}"
+
+
 def main():
     caso("A1 frases clave sincronizadas en agent.py y guion-robot.md", a1)
     caso("B1 bloque Ejemplos de ritmo en guion-robot.md", b1)
     caso("C1 texto viejo de G4 fuera de guion-robot.md", c1)
     caso("C2 texto viejo de G4 fuera de agent.py", c2)
+    caso("D1 ejemplos de escenarios nuevos en ambos archivos", d1)
     fallos = [n for n, ok in RESULTADOS if not ok]
     print(f"\n{len(RESULTADOS) - len(fallos)}/{len(RESULTADOS)} casos ok "
           f"(mejoras conversacionales)")

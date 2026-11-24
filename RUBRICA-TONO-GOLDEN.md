@@ -17,7 +17,7 @@ python3 test_conversaciones_doradas.py
 - Sale código 0 si todo pasó, 1 si algo falló (imprime el caso
   exacto), 2 si falta la clave en tu `.env`.
 - Tarda unos minutos (llama a Gemini de verdad).
-- El zip fresco para tu Mac: `robot-python-v3.20.9.zip` (descomprímelo
+- El zip fresco para tu Mac: `robot-python-v3.20.10.zip` (descomprímelo
   sobre `~/Desktop/robot-python`).
 
 ## Rúbrica (1 a 5 por respuesta)
