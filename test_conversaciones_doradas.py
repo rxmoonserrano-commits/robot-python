@@ -1,7 +1,7 @@
-"""Conversaciones doradas (v2.13, ampliadas en v3.1, v3.2 y v3.4.7):
+"""Conversaciones doradas (v2.13, ampliadas en v3.1, v3.2, v3.4.7 y v3.20.11):
 la puerta de calidad.
 
-Qué es: 20 conversaciones completas, escritas como un cliente de
+Qué es: 34 conversaciones completas, escritas como un cliente de
 verdad, con los casos que YA nos fallaron en vivo. Cada una se corre
 contra la IA REAL (Gemini, con la clave de verdad) y se juzga lo que
 contesta, no lo que dice el prompt. Si una se rompe, esa versión NO
@@ -84,9 +84,15 @@ def fila(quien, mensaje, motivo=""):
 class DepsDoradas:
     """Servicios de mentira, pero con la IA de verdad."""
 
-    def __init__(self, historial=None, cliente=None):
+    def __init__(self, historial=None, cliente=None, espejo=None):
         self.historial = historial or []
         self.cliente = cliente
+        # (v3.20.11) Espejo de Citas falso: filas con Teléfono, Estado,
+        # Fecha, Hora_inicio, Hora_fin, Servicio, Notas, ID_Cita.
+        # Sin espejo, leer_citas_espejo devuelve [] como antes.
+        self.espejo = espejo or []
+        self.espejo_actualizaciones = []
+        self.cancelaciones = []
         self.memoria = {}
         self.conversaciones = []
         self.clientes = []
@@ -122,7 +128,19 @@ class DepsDoradas:
                 m["notas"] = (viejo + "; " + preferencias).strip("; ") if viejo else preferencias
 
     def cancelar_cita(self, telefono, fecha_cita):
+        self.cancelaciones.append((telefono, fecha_cita))
         return True
+
+    def leer_citas_espejo(self):
+        # (v3.20.11) El espejo falso: urgencia adelanto, tope/mover
+        # y registro conocido leen de aquí.
+        return list(self.espejo)
+
+    def hora_libre(self, fecha_cita):
+        return True
+
+    def actualizar_cita_espejo(self, *args, **kwargs):
+        self.espejo_actualizaciones.append((args, kwargs))
 
     def cancelar_cita_cliente(self, telefono):
         pass
@@ -212,12 +230,13 @@ def no_tiene(texto, *opciones):
     return all(o.lower() not in bajo for o in opciones)
 
 
-def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None, nombre="Jose Ramon"):
+def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None, nombre="Jose Ramon",
+             espejo=None):
     """Corre una conversación una sola vez. Devuelve (deps, resultado, texto)."""
     logic_mod._CITAS_PENDIENTES.clear()
     if propuesta:
         logic_mod._CITAS_PENDIENTES["5216694608263"] = dict(propuesta)
-    d = DepsDoradas(historial=historial, cliente=cliente)
+    d = DepsDoradas(historial=historial, cliente=cliente, espejo=espejo)
     resultado = atender_mensaje(d, "5216694608263", nombre, mensaje,
                                 con_ritmo=False, ahora=ahora)
     logic_mod._CITAS_PENDIENTES.clear()
@@ -225,7 +244,8 @@ def _una_vez(historial, mensaje, ahora, cliente=None, propuesta=None, nombre="Jo
     return d, resultado, "\n".join(textos)
 
 
-def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None, nombre_cliente="Jose Ramon"):
+def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None, nombre_cliente="Jose Ramon",
+           espejo=None):
     """Corre una conversación y devuelve (deps, resultado, respuesta_texto).
 
     (v3.4.7) Si Gemini tuvo un mal momento (falla técnica: cuota, red,
@@ -236,11 +256,11 @@ def correr(nombre, historial, mensaje, ahora, cliente=None, propuesta=None, nomb
     gratis con ráfagas.
     """
     d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta,
-                                 nombre=nombre_cliente)
+                                 nombre=nombre_cliente, espejo=espejo)
     if resultado.get("falla_tecnica"):
         time.sleep(15)
         d, resultado, txt = _una_vez(historial, mensaje, ahora, cliente, propuesta,
-                                     nombre=nombre_cliente)
+                                     nombre=nombre_cliente, espejo=espejo)
         if resultado.get("falla_tecnica"):
             print("      [FALLA TÉCNICA] Gemini no contestó tras reintentar; "
                   "no es un fallo de contenido.")
@@ -534,6 +554,188 @@ def main():
               and len(d.citas) == 1 and "60 minutos" in txt4
               and tiene(txt4, "nombre completo", "número", "numero", "registrar"),
               f"el flujo se rompió (r1={r1} / r3={r3} / citas={d.citas})", txt3)
+
+    # G21 (v3.20.11). Urgencia con cita propia: adelanta, no duplica.
+    # El espejo trae una cita Confirmada el miércoles 18 (después del
+    # primer hueco libre, sábado 14 10:00): la urgencia propone
+    # adelantarla con botones; al tocar "Adelantar cita" la cita se
+    # mueve (se crea la nueva y se cancela la vieja), no se duplica.
+    d, r, txt = correr(
+        "G21", [], "me duele mucho la muela, es urgente", DIA,
+        espejo=[{"Teléfono": "5216694608263", "Estado": "Confirmada",
+                 "Fecha": "2026-11-18", "Hora_inicio": "09:00",
+                 "Hora_fin": "10:00", "Servicio": "Limpieza dental",
+                 "Notas": "", "ID_Cita": "C1"}])
+    _prop21 = logic_mod._CITAS_PENDIENTES.get("5216694608263") or {}
+    _botones21 = d.botones_enviados[-1][2] if d.botones_enviados else []
+    r2 = atender_boton(d, "5216694608263", "Jose Ramon", "adelantar_cita", con_ritmo=False)
+    escenario("G21 urgencia con cita propia: propone adelantar con botones y mueve la cita",
+              r.get("handoff") is True
+              and _prop21.get("tipo") == "adelanto"
+              and any(b[0] == "adelantar_cita" for b in _botones21)
+              and r2.get("cita_adelantada") is True
+              and len(d.citas) == 1 and len(d.cancelaciones) == 1,
+              f"no adelantó la cita (r={r} / r2={r2} / propuesta={_prop21})", txt)
+
+    # G22 (v3.20.11). Urgencia sin cita propia pero con 2 citas de
+    # OTRA paciente en el espejo (cuentan para el tope, no son suyas):
+    # propone cita nueva urgente y al confirmar la crea pese al tope.
+    d, r, txt = correr(
+        "G22", [], "me duele mucho, es urgente", DIA,
+        espejo=[
+            {"Teléfono": "5216694608263", "Estado": "Confirmada",
+             "Fecha": "2026-11-16", "Hora_inicio": "09:00", "Hora_fin": "10:00",
+             "Servicio": "Limpieza dental", "Notas": "Paciente: su hermana",
+             "ID_Cita": "C2"},
+            {"Teléfono": "5216694608263", "Estado": "Confirmada",
+             "Fecha": "2026-11-18", "Hora_inicio": "09:00", "Hora_fin": "10:00",
+             "Servicio": "Revisión y diagnóstico", "Notas": "Paciente: su hermana",
+             "ID_Cita": "C3"},
+        ])
+    _prop22 = logic_mod._CITAS_PENDIENTES.get("5216694608263") or {}
+    r2 = atender_boton(d, "5216694608263", "Jose Ramon", "confirmar_cita", con_ritmo=False)
+    escenario("G22 urgencia sin cita propia: propone cita urgente y la crea pese al tope",
+              r.get("handoff") is True
+              and bool(str(_prop22.get("urgencia") or "").strip())
+              and len(d.botones_enviados) == 1
+              and len(d.citas) == 1,
+              f"no propuso ni creó la cita urgente (r={r} / r2={r2} / propuesta={_prop22})", txt)
+
+    # G23 (v3.20.11). Tope = mover, no muro: con 2 citas pide una
+    # tercera; el robot ofrece mover una con botones en vez del
+    # mensaje plano del tope. Al tocar "Mover cita" la cita se mueve.
+    d, r, txt = correr(
+        "G23", [], "quiero agendar otra cita de limpieza", DIA,
+        espejo=[
+            {"Teléfono": "5216694608263", "Estado": "Confirmada",
+             "Fecha": "2026-11-16", "Hora_inicio": "09:00", "Hora_fin": "10:00",
+             "Servicio": "Limpieza dental", "Notas": "", "ID_Cita": "C4"},
+            {"Teléfono": "5216694608263", "Estado": "Confirmada",
+             "Fecha": "2026-11-18", "Hora_inicio": "09:00", "Hora_fin": "10:00",
+             "Servicio": "Revisión y diagnóstico", "Notas": "", "ID_Cita": "C5"},
+        ])
+    _prop23 = logic_mod._CITAS_PENDIENTES.get("5216694608263") or {}
+    _botones23 = d.botones_enviados[-1][2] if d.botones_enviados else []
+    r2 = atender_boton(d, "5216694608263", "Jose Ramon", "adelantar_cita", con_ritmo=False)
+    escenario("G23 tope de citas: ofrece mover una con botones, no el muro",
+              r.get("cita_propuesta") is True
+              and _prop23.get("tipo") == "mover"
+              and any(b[0] == "adelantar_cita" for b in _botones23)
+              and no_tiene(txt, "para no llenar la agenda")
+              and r2.get("cita_movida") is True,
+              f"no ofreció mover la cita (r={r} / r2={r2} / propuesta={_prop23})", txt)
+
+    # G24 (v3.20.11). Nombre dinámico: agenda sin fricción, confirma
+    # con botón, el robot pide nombre y número DESPUÉS, y cuando el
+    # cliente dice su nombre lo confirma de vuelta usándolo.
+    d, r, txt = correr("G24", [], "quiero agendar una limpieza", DIA, nombre_cliente="")
+    r2 = atender_boton(d, "5216694608263", "", "confirmar_cita", con_ritmo=False)
+    txt_confirmacion = "\n".join(t for _, t in d.textos_enviados)
+    d.textos_enviados = []
+    atender_mensaje(d, "5216694608263", "", "me llamo María López", con_ritmo=False, ahora=DIA)
+    txt_nombre = "\n".join(t for _, t in d.textos_enviados)
+    escenario("G24 nombre dinámico: pide nombre tras confirmar y lo usa al confirmarlo",
+              r.get("cita_propuesta") is True and len(d.citas) == 1
+              and tiene(txt_confirmacion, "nombre completo", "número", "numero", "registrar")
+              and tiene(txt_nombre, "maría", "maria"),
+              f"no pidió o no usó el nombre (confirmación: {txt_confirmacion!r} / nombre: {txt_nombre!r})",
+              txt_nombre)
+
+    # G25 (v3.20.11). Correo dinámico: en el flujo de datos el cliente
+    # da su correo y el robot lo confirma de vuelta repitiéndolo.
+    d, r, txt = correr("G25", [], "quiero agendar una limpieza", DIA, nombre_cliente="")
+    r2 = atender_boton(d, "5216694608263", "", "confirmar_cita", con_ritmo=False)
+    d.textos_enviados = []
+    atender_mensaje(d, "5216694608263", "", "María López, mi correo es maria.lopez@ejemplo.com",
+                    con_ritmo=False, ahora=DIA)
+    txt_correo = "\n".join(t for _, t in d.textos_enviados)
+    escenario("G25 correo dinámico: lo confirma de vuelta repitiéndolo",
+              r.get("cita_propuesta") is True and len(d.citas) == 1
+              and tiene(txt_correo, "maria.lopez@ejemplo.com"),
+              f"no confirmó el correo (respuesta: {txt_correo!r})", txt_correo)
+
+    # G26 (v3.20.11). Compara con otra clínica: defiende el valor sin
+    # igualar el precio ni hablar mal de la otra (R11).
+    d, r, txt = correr("G26", [], "en la otra clínica me cobran $400 por la limpieza", DIA)
+    escenario("G26 compara con otra clínica: defiende valor sin igualar precio",
+              no_tiene(txt, "te igualo", "te lo dejo", "te hago un", "te dejo en")
+              and tiene(txt, "incluye", "una sola cita", "revisión", "distinto", "cada clínica"),
+              "igualó el precio o no defendió el valor", txt)
+
+    # G27 (v3.20.11). Pregunta por promociones: Conocimiento no trae
+    # ninguna; honestidad + apartado, nunca inventa una promoción.
+    d, r, txt = correr("G27", [], "¿tienen promociones o descuentos?", DIA)
+    escenario("G27 promociones: honestidad y apartado, sin inventar",
+              no_tiene(txt, "%", "2x1", "mitad de precio")
+              and tiene(txt, "aparto", "sin compromiso", "encargado", "te aviso", "confirmo", "pregunto"),
+              "inventó una promoción o no ofreció apartado", txt)
+
+    # G28 (v3.20.11). Cita para otra persona: presuposición suave,
+    # propuesta sin fricción (los datos de la otra persona los pide
+    # el sistema tras confirmar).
+    d, r, txt = correr("G28", [], "quiero una cita de limpieza para mi esposa", DIA)
+    escenario("G28 cita para otra persona: propone sin fricción",
+              r.get("cita_propuesta") is True and len(d.botones_enviados) == 1,
+              f"no propuso la cita para la esposa (resultado={r})", txt)
+
+    # G29 (v3.20.11). Regresa tras cancelar: retomada cálida con
+    # memoria, sin culpa.
+    d, r, txt = correr(
+        "G29", [fila("cliente", "quiero cancelar mi cita"),
+                fila("robot", "Sin problema, cancelé tu cita. ¿Qué día te viene mejor para la nueva?")],
+        "hola, ya lo pensé, sí quiero la limpieza", DIA,
+        cliente={"nombre": "Jose Ramon",
+                 "resumen_conversacion": "Quería agendar una limpieza; canceló su cita.",
+                 "estatus": "en conversacion"})
+    escenario("G29 regresa tras cancelar: retomada cálida sin culpa",
+              tiene(txt, "qué bueno", "volviste", "gusto", "bienvenido", "perfecto")
+              and no_tiene(txt, "te dije", "por qué cancelaste", "para qué cancelaste"),
+              "no retomó con calidez o echó culpa", txt)
+
+    # G30 (v3.20.11). Viene recomendado: agradece sin inventar quién
+    # es la persona ni qué dijo.
+    d, r, txt = correr("G30", [], "hola, me recomendó Juan, quiero una limpieza", DIA)
+    escenario("G30 viene recomendado: agradece sin inventar",
+              tiene(txt, "gracias", "qué bueno", "bienvenido", "gusto", "placer")
+              and no_tiene(txt, "te dijo que", "habló bien de", "te comentó que", "me dijo que Juan"),
+              "no agradeció o inventó sobre la recomendación", txt)
+
+    # G31 (v3.20.11). Tiene prisa: respuesta corta y directa con el precio.
+    d, r, txt = correr("G31", [], "solo tengo 5 minutos, ¿cuánto cuesta la limpieza?", DIA)
+    escenario("G31 tiene prisa: respuesta breve con el precio",
+              "$600" in txt and len(txt) <= 350,
+              "no dio el precio o se extendió demasiado", txt)
+
+    # G32 (v3.20.11). Quiere cita hoy mismo: solo huecos reales; si
+    # hoy no hay, ofrece la próxima apertura sin inventar.
+    d, r, txt = correr("G32", [], "quiero agendar una limpieza, ¿tienen lugar hoy?", DIA)
+    escenario("G32 cita hoy mismo: ofrece solo huecos reales",
+              tiene(txt, "sábado 14", "sábado a las 10", "lunes 16", "lunes a las 9", "mañana")
+              and no_tiene(txt, "hoy a las 9", "hoy a las 10", "hoy mismo a las"),
+              "inventó un hueco de hoy o no ofreció uno real", txt)
+
+    # G33 (v3.20.11). Doctor específico: sin profesionales en
+    # Conocimiento, no inventa un doctor ni confirma disponibilidad.
+    d, r, txt = correr("G33", [], "¿me atiende la Dra. Ruiz?", DIA)
+    escenario("G33 doctor específico: no inventa doctores",
+              no_tiene(txt, "Martínez", "González", "Santos", "Pérez", "Hernández",
+                       "García", "Torres", "Vega", "Mora", "Ríos", "Campos", "Nava",
+                       "te atiende la Dra", "te atiende el Dr")
+              and tiene(txt, "confirmo", "encargado", "pregunto", "averiguo", "te aviso",
+                        "persona", "reviso", "confirmarlo"),
+              "inventó un doctor o confirmó disponibilidad sin base", txt)
+
+    # G34 (v3.20.11). Confirma asistencia: agradece y confirma en una
+    # frase, sin pedir datos nuevos.
+    d, r, txt = correr(
+        "G34", [], "sí, ahí estaré", DIA,
+        cliente={"nombre": "Jose Ramon", "fecha_cita": "2026-11-16T09:00:00-07:00",
+                 "estatus": "agendado"})
+    escenario("G34 confirma asistencia: confirma sin fricción",
+              tiene(txt, "perfecto", "excelente", "listo", "confirmada", "te esperamos",
+                    "te espero", "anotado", "quedó")
+              and no_tiene(txt, "nombre completo", "a qué número", "registrar"),
+              "no confirmó la asistencia o pidió datos nuevos", txt)
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} conversaciones doradas pasaron.")

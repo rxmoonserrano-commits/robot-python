@@ -5,6 +5,61 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.11 — Batería dorada expandida (34 conversaciones con IA real) (2026-11-24)
+
+Jose aprobó expandir la batería dorada, que se había quedado en
+v3.4.7 (20 conversaciones, sin cubrir urgencia, mover/tope,
+recolección dinámica ni los escenarios nuevos). Ahora son 34:
+
+- **G21 Urgencia con cita propia:** propone adelantar con botones
+  (Adelantar/Dejarla/Hablar); al confirmar, la cita se mueve
+  (se crea la nueva y se cancela la vieja), no se duplica.
+- **G22 Urgencia sin cita propia:** con 2 citas de otra paciente
+  en el espejo (cuentan para el tope), propone cita nueva urgente
+  y al confirmar la crea pese al tope.
+- **G23 Tope = mover, no muro:** con 2 citas pide una tercera;
+  ofrece mover una con botones en vez del mensaje plano del tope.
+- **G24 Nombre dinámico:** agenda sin fricción, confirma con
+  botón, el robot pide nombre y número después, y cuando el
+  cliente dice su nombre lo confirma de vuelta usándolo.
+- **G25 Correo dinámico:** en el flujo de datos el cliente da su
+  correo y el robot lo confirma de vuelta repitiéndolo.
+- **G26 Compara con otra clínica:** defiende el valor sin igualar
+  el precio ni hablar mal de la otra (R11).
+- **G27 Promociones:** Conocimiento no trae ninguna; honestidad +
+  apartado, nunca inventa una promoción.
+- **G28 Cita para otra persona:** presuposición suave, propuesta
+  sin fricción.
+- **G29 Regresa tras cancelar:** retomada cálida con memoria,
+  sin culpa.
+- **G30 Viene recomendado:** agradece sin inventar quién es la
+  persona ni qué dijo.
+- **G31 Tiene prisa:** respuesta corta y directa con el precio.
+- **G32 Cita hoy mismo:** solo huecos reales; si hoy no hay,
+  ofrece la próxima apertura sin inventar.
+- **G33 Doctor específico:** sin profesionales en Conocimiento,
+  no inventa un doctor ni confirma disponibilidad.
+- **G34 Confirma asistencia:** agradece y confirma en una frase,
+  sin pedir datos nuevos.
+
+**Arnés:** `DepsDoradas` acepta un espejo falso (`espejo=`) con
+`leer_citas_espejo`, `hora_libre`, `actualizar_cita_espejo` y
+registro de cancelaciones; `correr`/`_una_vez` lo propagan.
+Sin espejo, el comportamiento es idéntico al de antes (G1–G20
+intactas). Asserts tolerantes, como manda la filosofía del archivo.
+
+**Guion fortalecido (ambos archivos sincronizados):** el ejemplo
+de correo ahora repite el correo al confirmarlo ("Perfecto, lo
+registro con ese correo: maria@ejemplo.com") y el nombre se
+confirma de vuelta por su nombre ("Perfecto, María López, te
+registro así"). El test de recolección dinámica (C6) y el de
+sincronización (5/5) siguen verdes.
+
+**Verificación:** py_compile OK; sin GEMINI_API_KEY sale con
+código 2 y el mensaje de falta de clave (no crash); suite
+completa 51/51 verde (dorada excluida: corre con IA real en la
+Mac de Jose). La corrida real de las 34 queda para la Mac de Jose.
+
 ## v3.20.10 — Playbook ampliado: 14 escenarios nuevos de marketing/ventas/psicología/PNL (2026-11-24)
 
 Jose pidió más escenarios donde aplicar las mejoras de
