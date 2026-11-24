@@ -106,7 +106,7 @@ class DepsV211:
         self.citas.append(cita)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):

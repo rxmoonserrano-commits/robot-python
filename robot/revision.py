@@ -58,6 +58,12 @@ R9. NINGÚN PRECIO INVENTADO (v3.17): si la respuesta trae un monto
     se toca, para no confundir horas o direcciones). Sin la lista
     de precios conocidos, R9 no se aplica (compatibilidad con
     llamadas viejas).
+R10. NO REPETIR LA RESPUESTA ENTERA (v3.20): si la respuesta es
+    exactamente el mismo texto que el último mensaje del robot
+    (el cliente repite la pregunta y la IA parrotea la respuesta
+    anterior), se reemplaza por \"¿Te ayudo con algo más?\". R7 solo
+    quitaba el cierre repetido; R10 cubre la repetición completa.
+    Se compara sin acentos, en minúsculas y sin espacios de más.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -351,6 +357,19 @@ def revisar_respuesta(
     if precios_conocidos is not None:
         if any(m not in precios_conocidos for m in _montos_en_texto(texto)):
             return _RESPUESTA_PRECIO_INVENTADO, ["R9"]
+
+    # R10 (v3.20): no repetir la respuesta entera. Si el texto es
+    # exactamente el mismo que el último mensaje del robot (la IA
+    # parroteó la respuesta anterior), se reemplaza por una pregunta
+    # neutra. R7 (abajo) solo quita el cierre repetido; esto cubre
+    # la repetición completa.
+    _ultimo_robot = str(estado.get("ultimo_mensaje_robot", "") or "")
+    if texto and _ultimo_robot:
+        _norm_nuevo = re.sub(r"\s+", " ", _sin_acentos(texto)).strip().lower()
+        _norm_viejo = re.sub(r"\s+", " ", _sin_acentos(_ultimo_robot)).strip().lower()
+        if _norm_nuevo and _norm_nuevo == _norm_viejo:
+            texto = "¿Te ayudo con algo más?"
+            violaciones.append("R10")
 
     # R3: la frase de cierre, se cambie lo que se cambie después.
     if _CERRAMOS_RE.search(texto):

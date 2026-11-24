@@ -160,16 +160,21 @@ def alerta_cita_pendiente(
 
 def alerta_handoff(
     nombre: str, telefono: str, motivo: str, ultimo_mensaje: str, fecha: str,
-    resumen: str = "",
+    resumen: str = "", hilo: str = "",
 ) -> None:
     """Correo al dueño: este cliente necesita una persona. El robot se calla.
 
     (v3.12) `resumen` es la memoria de la conversación (Clientes):
     el dueño recibe el contexto junto con la alerta, sin tener que
     buscar en la hoja (Sereno función 05: "entrega el contexto").
+    (v3.20) `hilo` trae los últimos mensajes de la conversación,
+    para que recepción vea la foto completa sin abrir la hoja.
     """
     _resumen_txt = (
         f"\nResumen de la conversación:\n{resumen}\n" if resumen else ""
+    )
+    _hilo_txt = (
+        f"\nÚltimos mensajes de la conversación:\n{hilo}\n" if hilo else ""
     )
     enviar_correo(
         correo_dueno(),
@@ -179,7 +184,8 @@ def alerta_handoff(
         f"Teléfono: {telefono}\n"
         f"Motivo del handoff: {motivo}\n"
         f"Fecha: {fecha}\n"
-        f"{_resumen_txt}\n"
+        f"{_resumen_txt}"
+        f"{_hilo_txt}\n"
         "Último mensaje del cliente:\n"
         f"{ultimo_mensaje}\n\n"
         "Resumen: revisa la hoja Conversaciones. Recuerda: el robot queda "

@@ -161,7 +161,7 @@ class DepsI:
         return self.hora_libre_resultado
 
     # --- Correo ---
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         self.alertas_handoff.append((nombre, telefono, motivo))
 
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):

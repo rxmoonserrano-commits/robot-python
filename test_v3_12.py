@@ -224,7 +224,7 @@ class DepsV312(Dependencias):
     def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen="", hilo=""):
         self.alertas_handoff.append({"nombre": nombre, "telefono": telefono,
                                      "motivo": motivo, "resumen": resumen})
 

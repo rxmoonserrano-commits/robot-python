@@ -5,6 +5,72 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.1 — Corrida adversarial profunda: 6 bugs reales (2026-11-24)
+
+Jose pidió una corrida profunda antes de subir la última versión.
+Nueva `test_corrida_adversarial.py` (25 casos) + barrida propia
+sobre los clasificadores y el flujo real. Bugs reales corregidos:
+
+- **Confirmación de asistencia falsa (03):** "confirmo que no
+  podré ir" registraba "Paciente confirmó asistencia" y respondía
+  "¡Perfecto! Quedó confirmada tu asistencia" a quien decía que
+  NO podía ir; "confirmo pero quiero cambiar" se tragaba la
+  petición de cambio. Ahora solo las confirmaciones puras cuentan:
+  negación o cambio/cancelación van al flujo correcto.
+- **Falsa urgencia por "no tengo dolor" (05):** "no tengo dolor,
+  solo quiero una limpieza" disparaba el protocolo de urgencia
+  (handoff + propuesta urgente). Ahora es negación, no urgencia.
+- **Señales médicas que faltaban (05):** "sangro mucho" y "se me
+  hinchó la cara" no disparaban la urgencia (la lista solo tenía
+  "sangrando"/"sangre" e "hinchado/a"). Raíces "sangr" e "hinch".
+- **Citas ajenas intocables (02):** "cancela la de mi vecino" o
+  "cambia la cita de mi hermana" cancelaban la cita del propio
+  cliente. Ahora van al agente, que lo atiende conversando.
+- **"no quiero la cita" es cancelar (02):** antes caía en el
+  "no quiero" de cambiar y el robot preguntaba "qué día te viene
+  mejor para la nueva". "no quiero esa hora" sigue siendo cambiar.
+- **"cancelar" con solo propuesta (02):** confirmaba la
+  cancelación en vez de preguntar por un día nuevo.
+- **Tests:** nueva `test_corrida_adversarial.py` (25 casos);
+  2 casos de la simulación profunda (x8/v9) actualizados: con la
+  guarda, la respuesta sale por botones (agente) en vez del texto
+  mecánico — la invariante (nada cancelado) se mantiene. Suite
+  completa verde + baterías (dinámica 4 semillas sin violaciones,
+  profunda 99/99, conversacional 27/27).
+
+## v3.20.0 — Calidad conversacional: funciones 01, 04 y 05 (2026-11-23)
+
+Jose pidió rectificar el código para mejorar la calidad en la función
+completa (01 Conversaciones naturales, 04 Memoria útil, 05 Atención
+humana cuando importa). Auditoría contra el código real y mejoras:
+
+- **R10 (01):** el revisor ahora atrapa la respuesta ENTERA repetida
+  (antes R7 solo quitaba el cierre repetido). Si la IA parrotea el
+  último mensaje del robot, se reemplaza por "¿Te ayudo con algo
+  más?" y se registra en Diagnóstico.
+- **Historial más ancho (01):** el prompt lleva los últimos 8
+  mensajes (antes 5): más contexto para recordar de qué hablaban.
+- **Cita pasada con servicio (04):** el contexto dice "Su última
+  cita fue Blanqueamiento dental el ..." (antes solo la fecha):
+  el robot reconoce al paciente recurrente por lo que se hizo.
+- **Preferencias en el guion (04):** si el robot sabe que el cliente
+  prefiere mañanas/tardes, propone en ese horario y no pregunta de
+  nuevo lo que ya dijo.
+- **Handoff con hilo (05):** el correo de alerta trae los últimos 8
+  mensajes de la conversación: recepción ve la foto completa sin
+  abrir la hoja.
+- **Bug real corregido (01):** "mejor no, quiero cambiarla" (=
+  "esa no, otra") era tragado por la negación v3.16 ("no quiero
+  cambiar" aparece dentro tras quitar la coma): el cambio se
+  perdía. Ahora es cambiar. También se cubrieron negaciones
+  faltantes ("no me cambies la cita" ya no cambia nada).
+- **Tests:** nueva `test_v3_20.py` (14 casos), 3 viajes nuevos en la
+  simulación conversacional (27 total), regresiones en
+  `_intencion_cambio`. De paso se corrigieron 3 tests viejos que
+  llevaban fallando sin verse (precio $600 contra conocimiento
+  $500, historial 5 vs 8, R7 vs R10) y 2 fallos reales del mismo
+  bug de negación (test_v2_4 y test_v2_5).
+
 ## v3.19.0 — Simulación conversacional: 24 viajes completos (2026-11-23)
 
 Jose pidió una corrida puramente conversacional para adelantarse a

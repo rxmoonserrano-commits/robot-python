@@ -176,7 +176,7 @@ class DepsV310(Dependencias):
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen="", hilo=""):
         pass
 
     def cancelar_cita(self, telefono, fecha_cita):

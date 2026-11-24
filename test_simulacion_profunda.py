@@ -623,7 +623,12 @@ def x7():
 def x8():
     d = nuevo()
     r = msg(d, "cancela la cita de mi vecino")
-    ok = not d.citas_canceladas and bool(d.textos)
+    # (v3.20.1) La mecánica ya no toca las citas ajenas: el mensaje
+    # va al agente y la respuesta puede salir como propuesta con
+    # botones (antes salía el texto mecánico "no tienes ninguna
+    # cita"). Lo que importa: nada se canceló y el cliente recibió
+    # respuesta.
+    ok = not d.citas_canceladas and (bool(d.textos) or bool(d.botones))
     return ok, f"canceladas={d.citas_canceladas} texto={todo_texto(d)[:150]!r}"
 
 
@@ -783,7 +788,8 @@ def v8():
 def v9():
     d = nuevo()
     r = msg(d, "cancela la cita de mi vecino")
-    ok = not d.citas_canceladas and bool(d.textos)
+    # (v3.20.1) Igual que x8: la respuesta puede venir por botones.
+    ok = not d.citas_canceladas and (bool(d.textos) or bool(d.botones))
     return ok, f"canceladas={d.citas_canceladas} texto={todo_texto(d)[:150]!r}"
 
 

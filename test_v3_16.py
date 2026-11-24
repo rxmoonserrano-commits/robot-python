@@ -156,7 +156,7 @@ class DepsV316(Dependencias):
     def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen="", hilo=""):
         self.alertas_handoff.append(motivo)
 
     def enviar_texto(self, telefono, texto):
@@ -287,6 +287,12 @@ _ic = {
     "no quiero cambiar": None, "quiero cambiar mi cita": "cambiar",
     "cancelar por favor": "cancelar", "no lo canceles": None,
     "dejalo asi": None, "mejor no": "cambiar",
+    # (v3.20) "mejor no, quiero cambiarla" = "esa no, otra": es
+    # cambiar, no negar. La negación v3.16 se lo tragaba.
+    "mejor no, quiero cambiarla": "cambiar",
+    "mejor no, quiero cambiar mi cita": "cambiar",
+    # "mejor no quiero cancelar" sigue sin cancelar (no se toca).
+    "mejor no quiero cancelar": None,
 }
 _mal = [(t, _intencion_cambio(t), e) for t, e in _ic.items() if _intencion_cambio(t) != e]
 caso("(c) _intencion_cambio con negaciones", not _mal, f"{_mal}")

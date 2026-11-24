@@ -453,8 +453,24 @@ _FRASES_CONFIRMACION_ASISTENCIA = (
 
 
 def _es_confirmacion_asistencia(texto: str) -> bool:
-    """¿El mensaje confirma asistencia a una cita ya creada? (v3.12)"""
+    """¿El mensaje confirma asistencia a una cita ya creada? (v3.12)
+
+    (v3.20.1) Solo frases de confirmación PURA: un mensaje con
+    negación ("confirmo que no podré ir"), con cambio ("confirmo
+    pero quiero cambiar") o con cancelación NO es confirmar
+    asistencia — antes registraba "Paciente confirmó asistencia"
+    para alguien que decía que NO podía ir, y se tragaba la
+    petición de cambio. Esos mensajes van al flujo de cambio o al
+    agente.
+    """
     normal = _sin_acentos(texto or "").lower()
+    if re.search(r"\bno\b", normal):
+        return False
+    if any(m in normal for m in (
+        "cambiar", "cancelar", "cancela", "anular", "mejor",
+        "otro", "otra", "mover", "reprogramar", "reagendar",
+    )):
+        return False
     return any(f in normal for f in _FRASES_CONFIRMACION_ASISTENCIA)
 
 
@@ -567,6 +583,10 @@ _PALABRAS_MEDICAS = (
     "me duele", "dolor", "sangrando", "sangre", "hinchado", "hinchada",
     "se me cayo", "se me rompio", "no puedo esperar", "emergencia",
     "accidente", "fractura",
+    # (v3.20.1) Raíces que cubren las conjugaciones reales:
+    # "sangro mucho" / "sangra" (la lista solo tenía "sangrando" y
+    # "sangre") y "se me hinchó la cara" (solo tenía hinchado/a).
+    "sangr", "hinch",
 )
 _PALABRAS_AMBIGUAS = ("urgente", "urgencia")
 _PALABRAS_INFO = (
@@ -601,7 +621,13 @@ def _es_urgencia(texto: str) -> bool:
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto)).strip()
     normal = re.sub(r"\s+", " ", normal)
     _NEGACIONES = ("no me duele", "no es urgente", "no es una urgencia",
-                   "no es emergencia", "sin urgencia", "sin dolor")
+                   "no es emergencia", "sin urgencia", "sin dolor",
+                   # (v3.20.1) "no tengo dolor, solo quiero una
+                   # limpieza" disparaba el protocolo de urgencia
+                   # (handoff + propuesta urgente) para un cliente
+                   # que decía explícitamente que NO le duele.
+                   "no tengo dolor", "no tengo ningun dolor",
+                   "no siento dolor")
     if any(n in normal for n in _NEGACIONES):
         resto = normal
         for n in _NEGACIONES:
@@ -1986,7 +2012,15 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
 
 # --- Cambiar / cancelar cita (v2.4) ---
 
-_PALABRAS_CANCELAR = ("cancelar", "cancela", "anular", "ya no quiero la cita")
+_PALABRAS_CANCELAR = (
+    "cancelar", "cancela", "anular", "ya no quiero la cita",
+    # (v3.20.1) "no quiero la cita" es cancelar, no cambiar: antes
+    # caía en el "no quiero" de cambiar y el robot preguntaba "qué
+    # día te viene mejor para la nueva" a quien no quería la cita.
+    # Se revisa antes que cambiar, así que "no quiero esa hora"
+    # sigue siendo cambiar.
+    "no quiero la cita", "no quiero mi cita",
+)
 _PALABRAS_CAMBIAR = (
     "cambiar", "reprogramar", "reagendar", "mover la cita", "mejor no",
     "prefiero otra", "otra hora", "otro dia", "otro día", "no quiero",
@@ -2012,14 +2046,30 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
     """
     normal = re.sub(r"[^a-z0-9 ]+", "", _sin_acentos(texto))
     normal = re.sub(r"\s+", " ", normal).strip()
+    # (v3.20) "mejor no, quiero cambiarla" = "esa no, otra": el "no"
+    # va sobre la hora propuesta, no sobre cambiar. El chequeo de
+    # negación de abajo se lo tragaba ("no quiero cambiar" aparece
+    # dentro de "mejor no quiero cambiarla" tras quitar la coma) y
+    # el cambio se perdía. Si trae "mejor no" + "quiero cambiar",
+    # es cambiar.
+    if "mejor no" in normal and "quiero cambiar" in normal:
+        return "cambiar"
+    # (v3.20.1) La cita de OTRA persona no se toca con la mecánica:
+    # "cancela la de mi vecino" / "cambia la cita de mi hermana"
+    # cancelaban la cita del propio cliente (la simulación profunda
+    # solo lo probó sin cita; con cita, la cancelaba de verdad).
+    # Van al agente, que lo atiende conversando.
+    if "de mi " in normal or "de otra persona" in normal or "de alguien" in normal:
+        return None
     # (v3.16) Negaciones: "no quiero cancelar" NO cancela (antes
     # cancelaba la cita de verdad) y "no quiero cambiar" no cambia.
     # Son mensajes para la IA, no para la mecánica.
     _NEG_CANCELAR = ("no quiero cancelar", "no quiero cancela", "no cancelar",
-                     "no lo canceles", "no la canceles", "no anules",
-                     "no lo anules", "no quiero anular", "sin cancelar")
+                     "no lo canceles", "no la canceles", "no me canceles",
+                     "no anules", "no lo anules", "no quiero anular", "sin cancelar")
     _NEG_CAMBIAR = ("no quiero cambiar", "no cambiar", "no lo cambies",
-                    "no la cambies", "dejalo", "dejala")
+                    "no la cambies", "no me cambies", "no me cambie",
+                    "no cambies", "no cambie", "dejalo", "dejala")
     if any(n in normal for n in _NEG_CANCELAR + _NEG_CAMBIAR):
         return None
     if any(p in normal for p in _PALABRAS_CANCELAR):
@@ -2097,7 +2147,16 @@ def _atender_cambio_cancelacion(deps: Dependencias, telefono: str, nombre: str,
                                "", "whatsapp", "en conversacion", "no")
         return {"respondio": True, "handoff": False, "cita_cancelada": True}
     if propuesta is not None or intencion == "cambiar":
-        mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor?"
+        # (v3.20.1) "cancelar" con solo una propuesta (todavía no
+        # creada) confirma la cancelación; antes preguntaba "qué
+        # día te viene mejor" como si quisiera cambiar.
+        if intencion == "cancelar":
+            mensaje = (
+                "Claro, sin problema. Quedó cancelada tu propuesta. "
+                "Cuando quieras agendar, dime qué día te viene bien."
+            )
+        else:
+            mensaje = "Claro, sin problema. ¿Qué día y hora te vienen mejor?"
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambiar cita")
         return {"respondio": True, "handoff": False, "cita_cancelada": False}
@@ -2454,7 +2513,7 @@ class Dependencias:
     def cancelar_cita(self, telefono, fecha_cita) -> bool:
         """Borra del Calendar la cita de ese teléfono en esa fecha. True si la borró."""
         return False
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""): ...
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""): ...
 
     # --- Nuevos en la v3.3 (vacío = no hacer nada, el robot sigue) ---
     def proximos_huecos_libres(self, conocimiento: list[dict], ahora: datetime,
@@ -2863,10 +2922,20 @@ def atender_mensaje(
             _bonita_pasada = formatear_cita_bonita(_fc_pasada)
         except Exception:
             _bonita_pasada = _fc_pasada
-        contexto.append(
-            f"Su última cita fue el {_bonita_pasada} y ya pasó: no la "
-            "trates como vigente ni le ofrezcas cambiarla."
-        )
+        # (v3.20) Con el servicio: el robot reconoce al paciente
+        # recurrente ("la última vez fue tu blanqueamiento") en vez
+        # de solo la fecha.
+        _servicio_pasado = str(fila_cliente.get("motivo", "") or "").strip()
+        if _servicio_pasado:
+            contexto.append(
+                f"Su última cita fue {_servicio_pasado} el {_bonita_pasada} y ya pasó: no la "
+                "trates como vigente ni le ofrezcas cambiarla."
+            )
+        else:
+            contexto.append(
+                f"Su última cita fue el {_bonita_pasada} y ya pasó: no la "
+                "trates como vigente ni le ofrezcas cambiarla."
+            )
     # (v3.2) Memoria del cliente: lo que el robot aprendió en
     # conversaciones pasadas (resumen, intereses, pendientes,
     # preferencias). Va ANTES de los últimos mensajes: así el robot
@@ -3234,10 +3303,19 @@ def atender_mensaje(
             enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto,
                              dormir=con_ritmo, sin_dividir=_es_urgencia_handoff)
             deps.registrar_conversacion(fecha, telefono, "robot", respuesta.respuesta_texto, "si", "handoff")
+            # (v3.20) El correo trae el hilo reciente de la conversación
+            # (últimos 8 mensajes): recepción ve la foto completa sin
+            # abrir la hoja (Sereno función 05: "entrega el contexto").
+            _hilo = "\n".join(
+                f"{'Cliente' if str(h.get('quien_hablo', '')) == 'cliente' else 'Robot'}: "
+                f"{str(h.get('mensaje', ''))[:200]}"
+                for h in (historial or [])[-8:]
+            )
             _avisar_por_correo(
                 deps.alerta_handoff,
                 respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
                 resumen=str(fila_cliente.get("resumen_conversacion", "") or ""),
+                hilo=_hilo,
             )
             # (v3.13) Urgencia con cita: después del mensaje de
             # handoff, la oferta de cita urgente con botones (la

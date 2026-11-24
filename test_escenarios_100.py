@@ -246,7 +246,7 @@ class Deps100(Dependencias):
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         self.alertas.append("lead_caliente")
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         self.alertas.append("handoff")
 
     def alerta_cita_pendiente(self, nombre, telefono, motivo, fecha_bonita, fecha):

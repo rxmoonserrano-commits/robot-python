@@ -1,4 +1,4 @@
-"""Simulación conversacional (v3.19): viajes multi-turno completos.
+"""Simulación conversacional (v3.19, extendida v3.20): viajes multi-turno completos.
 
 Jose pidió una corrida puramente conversacional para adelantarse
 a los bugs y asegurar calidad. Las corridas anteriores probaban
@@ -13,6 +13,10 @@ al final: citas creadas (cuántas y cuándo), correos, handoffs,
 propuesta viva o consumida, y que la IA recibió el contexto
 (qué días pasaron, qué cita tiene, qué preguntó antes).
 
+Tres recorridos nuevos (v3.20): R10 anti-repetición en flujo real,
+cita pasada con servicio en el contexto, y handoff con el hilo
+reciente en el correo.
+
 Uso:  python3 test_simulacion_conversacional.py
 Salida: 0 = todo ok; 1 = algún viaje falló (se imprime por qué).
 """
@@ -23,6 +27,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from robot.agent import RespuestaAgente  # noqa: E402
 from test_bateria_dinamica import (  # noqa: E402
     AHORA_ABIERTO,
     H1,
@@ -60,15 +65,24 @@ def escenario(nombre, fn):
 
 
 class DepsConversacional(DepsProfunda):
-    """Registra además el contexto completo que recibe la IA."""
+    """Registra además el contexto completo que recibe la IA y el hilo
+    del correo de handoff."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mensajes_agente = []
+        self.hilos = []
 
     def preguntar_agente(self, mensaje, conocimiento, fotos, historial):
         self.mensajes_agente.append(mensaje)
         return super().preguntar_agente(mensaje, conocimiento, fotos, historial)
+
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha,
+                       resumen="", hilo=""):
+        self.hilos.append(hilo)
+        return super().alerta_handoff(
+            nombre, telefono, motivo, mensaje, fecha,
+            resumen=resumen, hilo=hilo)
 
 
 def nuevo_c(**kw):
@@ -474,6 +488,53 @@ def j24():
     return ok, f"citas={len(d.citas)}"
 
 
+def j25():
+    """v3.20: la IA parrotea la respuesta anterior y el revisor (R10)
+    la reemplaza: el cliente nunca recibe la misma respuesta dos veces."""
+    hist = [
+        {"fecha": "2026-11-23T20:00:00+00:00", "quien_hablo": "cliente",
+         "mensaje": "¿cuánto cuesta la limpieza?"},
+        {"fecha": "2026-11-23T20:01:00+00:00", "quien_hablo": "robot",
+         "mensaje": "La limpieza cuesta $600 y no duele."},
+    ]
+    d = nuevo_c(historial=hist)
+    d.agente_override = RespuestaAgente(
+        respuesta_texto="La limpieza cuesta $600 y no duele.")
+    msg(d, "¿cuánto cuesta la limpieza?")
+    txt = todo_texto(d)
+    ok = "¿Te ayudo con algo más?" in txt and "La limpieza cuesta $600" not in txt
+    return ok, txt[:200]
+
+
+def j26():
+    """v3.20: paciente recurrente con cita pasada: la IA recibe el
+    servicio de la última cita, no solo la fecha."""
+    cli = {"estatus": "agendado", "fecha_cita": "2026-11-16T09:00:00-07:00",
+           "motivo": "Blanqueamiento dental", "nombre": NOMBRE}
+    d = nuevo_c(cliente=cli)
+    msg(d, "hola")
+    ok = any("Su última cita fue Blanqueamiento dental el" in m
+             for m in d.mensajes_agente)
+    detalle = d.mensajes_agente[-1][:300] if d.mensajes_agente else "sin mensajes"
+    return ok, detalle
+
+
+def j27():
+    """v3.20: handoff con queja: el correo a recepción trae el hilo
+    reciente de la conversación, no solo el resumen."""
+    hist = [
+        {"fecha": "2026-11-23T20:00:00+00:00", "quien_hablo": "cliente",
+         "mensaje": "hola, buenas tardes"},
+        {"fecha": "2026-11-23T20:01:00+00:00", "quien_hablo": "robot",
+         "mensaje": "¡Hola! ¿En qué te ayudo?"},
+    ]
+    d = nuevo_c(historial=hist)
+    msg(d, "estoy muy enojado con el servicio")
+    ok = (bool(d.hilos) and "hola, buenas tardes" in d.hilos[-1]
+          and "¿En qué te ayudo?" in d.hilos[-1])
+    return ok, str(d.hilos)[:200]
+
+
 def main():
     viajes = [
         ("J1 cliente nuevo completo: saluda→precio→horario→agenda→confirma", j1),
@@ -500,6 +561,9 @@ def main():
         ("J22 memoria al final del viaje: el robot aprendió algo", j22),
         ("J23 'no' pelón = esa hora no: reagenda y confirma", j23),
         ("J24 dos preguntas con propuesta viva: sobrevive y confirma", j24),
+        ("J25 R10: no se repite la respuesta entera", j25),
+        ("J26 memoria: cita pasada con servicio en el contexto", j26),
+        ("J27 handoff: el correo trae el hilo reciente", j27),
     ]
     for nombre, fn in viajes:
         escenario(nombre, fn)

@@ -1,16 +1,22 @@
 # Kit de venta — Sereno (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-22. v3.12.0 "Sereno completo" en vivo en Render (servicio `robot-whatsapp-python`), verificado en `/health` y `/estado` con cero errores. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24. v3.20.1 "Corrida adversarial profunda" construida y probada en local (suite verde, zip fresco listo); **pendiente subirla a Render — en vivo sigue v3.19.0** (verificado en `/health` 2026-11-23 23:17 UTC). No digas "en vivo v3.20" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Sereno (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.12.0 (ya probado: 29 archivos, 758 casos en verde)
+## Lo que trae la v3.20.1 (ya probado: suite completa verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
 - Urgencia con guía: orienta a buscar atención inmediata antes de pasar a humano.
+- Urgencia inteligente (v3.15): si el cliente ya tiene cita, le ofrece adelantarla a la primera hora libre en vez de crear otra; si no tiene, cita urgente nueva.
+- El tope de 2 citas ya no es un muro (v3.16): si tiene cita y hay hora libre antes, le ofrece moverla con botones.
+- Tiempo completo para la IA (v3.16): sabe cuántos días pasaron desde el último mensaje y cuánto falta para su cita, en cualquier etapa.
+- Acción y confianza (v3.16): la IA elige responder/agendar/mover/pedir_info/terminar/pasar_persona/no_responder; con confianza baja dos veces seguidas pasa a una persona en vez de adivinar.
+- R9 — ningún precio inventado (v3.17): si la respuesta trae un monto que no está en el Conocimiento, se desecha y se contesta con la frase segura. La IA ya no puede inventar precios.
+- Calidad probada por simulación (v3.17–v3.19): batería dinámica (miles de combinaciones contra invariantes), simulación profunda de 99 escenarios adversariales y 24 viajes conversacionales completos (5–9 turnos) — 24/24 ok, con un bug real encontrado y corregido (KeyError en propuesta de dos citas).
 - Handoff con contexto: el correo al dueño incluye el resumen de la conversación.
 - Servicios y precios directos: responde con los 5 principales de la hoja, sin evadir.
 - Reporte semanal con confirmaciones: cuenta quién confirmó asistencia.
@@ -80,11 +86,11 @@ Después comparte la copia con el correo de la cuenta de servicio de Google (el 
 
 - [ ] Aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp Manager → Plantillas, tipo utilidad, es_MX, cuerpo con {{1}} y {{2}}). Sin ella los recordatorios se rechazan y no cuestan nada, pero el paciente no recibe nada.
 - [ ] Contraseña de aplicación de Gmail en Render (`GMAIL_USER` + `GMAIL_APP_PASSWORD`): sin ella no salen los correos del dueño ni el reporte semanal.
-- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.12.0).
-- [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): dos citas, cambio de hora, handoff.
+- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.1).
+- [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): ya está el guion listo en `~/workspace/prueba-conversacional-en-vivo.md` (3 conversaciones cortas, ~10 min) — dos citas, cambio de hora, handoff, urgencia.
 - [ ] Elegir nicho y probar la oferta con 5 negocios: si 3 de 5 dicen que sí o lo piensan en serio, el precio está en buen lugar.
 
 ## Qué NO hace falta
 
-- **No hay que construir nada más:** el robot ya pasó la puerta dorada y corre en vivo en v3.12.0. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
+- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.1 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.19.0), con simulaciones conversacionales y adversariales en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
 - **El repo `robot-whatsapp` está vacío** y apagado; el único robot real es `robot-python`. No hay nada que apagar.

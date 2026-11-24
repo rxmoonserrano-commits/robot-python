@@ -130,7 +130,7 @@ class DepsV32:
     def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         return {"inicio": fecha_cita}
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):
@@ -397,7 +397,7 @@ def main():
          "¿Te ayudo con algo más?" in texto and v == [], f"salió: {texto!r} {v}")
     texto, v = revisar_respuesta(
         "Quedamos a tus órdenes.",
-        {"etapa": "pregunto", "ultimo_mensaje_robot": "Quedamos a tus órdenes."},
+        {"etapa": "pregunto", "ultimo_mensaje_robot": "¡Hola! Quedamos a tus órdenes."},
         telefono=TELEFONO)
     caso("(c) R7: si la respuesta ERA solo el cierre, se cambia por una pregunta",
          texto == "¿Te ayudo con algo más?" and v == ["R7"], f"salió: {texto!r} {v}")

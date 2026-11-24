@@ -251,7 +251,7 @@ class DepsDinamica(Dependencias):
     def alerta_cita_urgente(self, nombre, telefono, motivo, fecha_bonita, fecha, razon=""):
         self.alertas_urgentes.append(razon)
 
-    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, mensaje, fecha, resumen="", hilo=""):
         self.alertas_handoff.append(motivo)
 
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):

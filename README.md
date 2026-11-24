@@ -451,7 +451,7 @@ a mano, genera una con `python3 -c "import secrets; print(secrets.token_urlsafe(
 uvicorn app:app --port 8000
 ```
 
-Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.19.0", ...}`.
+Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.20.1", ...}`.
 Para que Meta pueda llamar a tu webhook, tu computadora necesita una URL
 pública: usa `ngrok http 8000` mientras pruebas (gratis), y pon esa URL
 en Meta como `https://tu-url.ngrok.io/webhook`.

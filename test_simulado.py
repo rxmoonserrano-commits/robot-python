@@ -84,7 +84,7 @@ class DepsFalsas(Dependencias):
         self.citas.append(cita)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         self.alertas.append((nombre, telefono, motivo))
 
     # --- Nuevos en la v2 ---

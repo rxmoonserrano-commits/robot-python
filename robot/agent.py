@@ -205,6 +205,9 @@ el cliente necesita, y que se sienta atendido, recibido y en calma.
   sienta recibido. No ofrezcas cita todavía.
 - Saludo de cliente que vuelve: recuerda de qué hablaban en una
   frase cálida y pregunta si siguen con eso. Que sienta continuidad.
+- Preferencias conocidas: si en lo que sabes del cliente hay
+  preferencias (mañanas, tardes, días), úsalas al proponer: propón
+  en ese horario y no le preguntes de nuevo lo que ya dijo.
 - Pregunta el precio de un servicio: dato exacto, beneficio y
   duración, y deja la puerta abierta: "La limpieza cuesta $600,
   dura 60 minutos y no duele. ¿Quieres que te agende una?" Que
@@ -620,8 +623,9 @@ def preguntar_agente(
     3. Gemini contesta algo roto (JSON a medias): respuesta segura,
        con un pedazo de lo que devolvió en el motivo, para verlo en
        Diagnóstico.
-    Además el historial que se le manda se recorta a los últimos 5
-    mensajes: con 20 el prompt era enorme y el modelo tardaba más.
+    Además el historial que se le manda se recorta a los últimos 8
+    mensajes (v3.20; antes 5): con 20 el prompt era enorme y el
+    modelo tardaba más.
     (v3.4.1) El mensaje nuevo va AL FINAL, marcado como "responde
     SOLO a este": antes iba primero y el historial al final, y el
     modelo a veces contestaba un mensaje viejo del historial en vez
@@ -634,7 +638,7 @@ def preguntar_agente(
         f"{guion()}\n\n"
         f"Historial reciente de este teléfono (solo contexto; NO respondas "
         f"a estos mensajes viejos): "
-        f"{json.dumps((historial or [])[-5:], ensure_ascii=False)}\n\n"
+        f"{json.dumps((historial or [])[-8:], ensure_ascii=False)}\n\n"
         f"Conocimiento del negocio: {json.dumps(conocimiento, ensure_ascii=False)}\n\n"
         f"Fotos oficiales: {json.dumps(fotos, ensure_ascii=False)}\n\n"
         f"Mensaje nuevo del cliente (responde SOLO a este): {mensaje}"

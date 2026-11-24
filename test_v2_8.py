@@ -111,7 +111,7 @@ def main():
     finally:
         agent_mod.generar_texto = generar_viejo
 
-    # (e) Historial recortado a los últimos 5 mensajes.
+    # (e) Historial recortado a los últimos 8 mensajes (v3.20; antes 5).
     try:
         prompts = []
         agent_mod.generar_texto = lambda prompt: (
@@ -123,8 +123,8 @@ def main():
         r = preguntar_agente("hola", CONOCIMIENTO, FOTOS, historial)
         parte = prompts[0].split("mensajes viejos): ", 1)[1].split("\n\n", 1)[0]
         enviados = json.loads(parte)
-        caso("(e) El historial que se manda son los últimos 5 mensajes",
-             len(enviados) == 5 and enviados[0]["mensaje"] == "m15"
+        caso("(e) El historial que se manda son los últimos 8 mensajes",
+             len(enviados) == 8 and enviados[0]["mensaje"] == "m12"
              and enviados[-1]["mensaje"] == "m19",
              f"enviados={len(enviados)}")
     finally:

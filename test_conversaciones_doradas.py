@@ -184,7 +184,7 @@ class DepsDoradas:
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha):
         pass
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         pass
 
     def marcar_leido_y_escribiendo(self, message_id):

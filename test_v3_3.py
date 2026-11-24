@@ -141,7 +141,7 @@ class DepsV33:
     def crear_cita(self, nombre, telefono, motivo, fecha_cita, nota=""):
         return {"inicio": fecha_cita}
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         self.alertas_handoff.append((nombre, telefono, motivo))
 
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha):

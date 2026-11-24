@@ -124,7 +124,7 @@ class DepsV2:
         self.citas_notas.append(nota)
         return cita
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         if self.alertas_fallan:
             raise RuntimeError("Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env.")
         self.alertas.append((nombre, telefono, motivo))
@@ -333,8 +333,8 @@ def main():
     # (i6) Partes: el agente decide responder en varios mensajes; cada
     # parte va como su propio mensaje, en orden (v3.4.8).
     agente_partes = RespuestaAgente(
-        respuesta_texto="La limpieza cuesta $600 y dura 60 minutos.",
-        partes=["La limpieza cuesta $600 y dura 60 minutos.",
+        respuesta_texto="La limpieza cuesta $500 y dura 60 minutos.",
+        partes=["La limpieza cuesta $500 y dura 60 minutos.",
                 "No duele y se usan instrumentos esterilizados."])
     d7 = DepsV2(agente=agente_partes)
     r8 = atender_mensaje(d7, "6679999996", "Ana", "cuánto cuesta y duele?",
@@ -342,7 +342,7 @@ def main():
                          ahora=datetime(2026, 11, 13, 16, 0, tzinfo=timezone.utc))
     textos7 = [t for _, t in d7.textos_enviados]
     caso("(i6) Partes: se mandan como mensajes separados, en orden",
-         textos7 == ["La limpieza cuesta $600 y dura 60 minutos.",
+         textos7 == ["La limpieza cuesta $500 y dura 60 minutos.",
                      "No duele y se usan instrumentos esterilizados."],
          f"textos={textos7}")
 
