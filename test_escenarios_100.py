@@ -189,7 +189,7 @@ class Deps100(Dependencias):
                                   "contexto": contexto})
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         self.memoria.append({"telefono": telefono, "resumen": resumen})
 
     # -- agenda --

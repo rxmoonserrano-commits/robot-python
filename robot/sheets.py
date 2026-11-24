@@ -572,9 +572,18 @@ def registrar_cliente(
 # prefiere sábados"), sin repetir lo que ya estaba.
 # Columnas: K resumen_conversacion, L intereses, N proxima_accion,
 # O notas. La M (calificacion) es del dueño y no se toca.
+# (v3.20.3) Columna de miedos / sensibilidades en Clientes. Se
+# agrega AL FINAL (W): ninguna lectura ni escritura posicional la
+# toca (K/L/N/O memoria, M calificación de Jose, P robot_activo).
+# El código la lee por nombre de encabezado: si la hoja aún no la
+# tiene, simplemente no se usa (los miedos siguen en el resumen).
+_COL_MIEDOS = "Miedos / sensibilidades"
+
+
 def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
-                            proxima_accion: str = "", preferencias: str = "") -> None:
-    """Guarda la memoria del cliente en Clientes (K, L, N, O).
+                            proxima_accion: str = "", preferencias: str = "",
+                            miedos: str = "") -> None:
+    """Guarda la memoria del cliente en Clientes (K, L, N, O y W).
 
     No hace nada si no hay nada nuevo, y no hace nada si el teléfono
     no tiene fila (el cliente se registra primero por otro lado).
@@ -599,22 +608,42 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
             nuevos["notas"] = (
                 (viejo + "; " + nuevo_pref).strip("; ")[:300] if viejo else nuevo_pref
             )
-    if not nuevos:
+    # (v3.20.3) Miedos: se acumulan como las preferencias (si ya
+    # está, no se duplica) y se escriben en la columna W, aparte.
+    # Si la hoja aún no tiene el encabezado, no se escribe nada
+    # (compatibilidad hacia atrás: el miedo sigue en el resumen).
+    miedos_nuevo: str | None = None
+    if str(miedos or "").strip() and _COL_MIEDOS in fila:
+        viejo_m = str(fila.get(_COL_MIEDOS, "") or "").strip()
+        nuevo_m = str(miedos).strip()[:150]
+        if nuevo_m.lower() not in viejo_m.lower():
+            miedos_nuevo = (
+                (viejo_m + "; " + nuevo_m).strip("; ")[:300] if viejo_m else nuevo_m
+            )
+    if not nuevos and not miedos_nuevo:
         return
-    valores = [
-        nuevos.get("resumen_conversacion", str(fila.get("resumen_conversacion", "") or "")),
-        nuevos.get("intereses", str(fila.get("intereses", "") or "")),
-        str(fila.get("calificacion", "") or ""),
-        nuevos.get("proxima_accion", str(fila.get("proxima_accion", "") or "")),
-        nuevos.get("notas", str(fila.get("notas", "") or "")),
-    ]
     servicio = _servicio_sheets()
-    servicio.values().update(
-        spreadsheetId=settings.sheet_id,
-        range=f"Clientes!K{numero_fila}:O{numero_fila}",
-        valueInputOption="RAW",
-        body={"values": [valores]},
-    ).execute()
+    if nuevos:
+        valores = [
+            nuevos.get("resumen_conversacion", str(fila.get("resumen_conversacion", "") or "")),
+            nuevos.get("intereses", str(fila.get("intereses", "") or "")),
+            str(fila.get("calificacion", "") or ""),
+            nuevos.get("proxima_accion", str(fila.get("proxima_accion", "") or "")),
+            nuevos.get("notas", str(fila.get("notas", "") or "")),
+        ]
+        servicio.values().update(
+            spreadsheetId=settings.sheet_id,
+            range=f"Clientes!K{numero_fila}:O{numero_fila}",
+            valueInputOption="RAW",
+            body={"values": [valores]},
+        ).execute()
+    if miedos_nuevo:
+        servicio.values().update(
+            spreadsheetId=settings.sheet_id,
+            range=f"Clientes!W{numero_fila}",
+            valueInputOption="RAW",
+            body={"values": [[miedos_nuevo]]},
+        ).execute()
     _invalidar_cache("Clientes")
 
 

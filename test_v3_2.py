@@ -86,7 +86,7 @@ class DepsV32:
         return []
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         m = self.memoria.setdefault(telefono, {})
         if resumen:
             m["resumen_conversacion"] = resumen

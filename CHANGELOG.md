@@ -5,6 +5,70 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.3 — Pulida agrupamiento/handoff/botones: doble toque, correos que sí salen y miedos con columna propia (2026-11-24)
+
+Jose pidió una pulida profunda de los tres motores (agrupamiento,
+handoff y botones) y aplicar las 5 propuestas de la pulida pasada
+donde fuera seguro. Nueva `test_pulida_agrupamiento.py` (35
+casos) + mejoras aplicadas:
+
+- **Bug crítico: los correos de handoff nunca salían.** `logic.py`
+  pasa `hilo` a `alerta_handoff` desde v3.20, pero
+  `DependenciasReales` en `app.py` no aceptaba ese parámetro: el
+  TypeError se tragaba en silencio y recepción nunca recibía el
+  correo. Ahora `app.py` lo acepta y lo pasa a `mail`.
+- **Doble toque en Confirmar creaba DOS citas.** El webhook corre
+  en un hilo por mensaje y `_CITAS_PENDIENTES` no tenía candado:
+  dos toques casi a la vez leían la misma propuesta antes de
+  borrarla. Ahora `atender_mensaje` y `atender_boton` se serializan
+  por teléfono (RLock): el segundo toque espera y ya no encuentra
+  propuesta. Teléfonos distintos corren en paralelo.
+- **El interruptor general no frenaba los botones.** Con
+  `bot_activo=NO` en Control, un Confirmar seguía creando citas.
+  Ahora los botones de cita revisan el interruptor global (salvo
+  "hablar con persona", que es el camino al humano).
+- **El botón se saltaba la fila.** Un toque de botón se atendía al
+  instante aunque el cliente tuviera textos en el buzón de
+  agrupamiento, y el lote se procesaba después sobre una propuesta
+  ya consumida. Ahora `app.py` vacía el buzón (`procesar_ahora`)
+  antes de atender el botón.
+- **Handoff siempre con contexto completo.** El correo de
+  "hablar con persona", el handoff en silencio (IA apagada) y los
+  correos de adelanto/mover ahora traen el hilo de la conversación
+  y el resumen, como el handoff por texto.
+- **"Dejarla igual" viejo prometía una persona que nunca llegaba**
+  (sin propuesta, sin correo). Ahora responde "Esa opción ya no
+  está disponible" y, con propuesta real, el correo de handoff sí
+  sale con el hilo.
+- **Wamids con desalojo FIFO.** Al pasar el tope de 5000, antes se
+  borraban TODOS los wamids vistos y un reenvío de Meta se
+  reprocesaba (respuesta duplicada). Ahora se desalojan los más
+  viejos; el Agrupador acepta `max_vistos`.
+- **R11 con valor exacto (propuesta 2, aplicada).** Si el negocio
+  sí maneja descuentos, solo se permiten los porcentajes literales
+  del Conocimiento ("10% los martes" permite el 10%, no el 15%) y
+  las mecánicas literales (2x1, rebaja, oferta especial).
+- **Miedos con columna propia (propuesta 1, aplicada).** Nueva
+  columna W "Miedos / sensibilidades" en Clientes (documento
+  oficial y plantilla). El agente devuelve `miedos` en su JSON, se
+  guarda en W (se acumula sin duplicar) y el contexto lo incluye
+  como "Le dan miedo o le molestan: ...". Compatibilidad hacia
+  atrás: si la hoja no tiene el encabezado, no se escribe nada y
+  el miedo sigue en el resumen.
+- **Typos inequívocos nuevos (propuesta 3, aplicada).**
+  "desagendar"/"desagenda" cancelan y "pospon" cambia, con sus
+  negaciones ("no quiero desagendar" no cancela). Conservador:
+  nada de fuzzy amplio ("cansado" ≠ "cancelar").
+
+Propuestas que quedaron para Jose (sin heurística segura o sin
+entorno): R13 amplio (no se puede distinguir determinísticamente
+una re-pregunta dañina de una re-respuesta legítima) y la
+calibración de tono con IA real (necesita GEMINI_API_KEY en su
+Mac; la rúbrica está lista).
+
+Suite completa en verde (41 archivos, incluida la nueva
+`test_pulida_agrupamiento.py` con 35 casos).
+
 ## v3.20.2 — Pulida conversacional: clientes emocionales, descuentos inventados y errores de dedo (2026-11-24)
 
 Jose pidió una pulida profunda del motor conversacional con AI

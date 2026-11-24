@@ -39,7 +39,7 @@ class Agrupador:
     """Buzón por teléfono con temporizador. Hilo-seguro."""
 
     def __init__(self, callback, espera_segundos: float = 15.0, archivo: str | None = None,
-                 atascado_segundos: float = 300.0):
+                 atascado_segundos: float = 300.0, max_vistos: int = _MAX_VISTOS):
         """callback(telefono, nombre, textos, wamids): qué hacer con el lote.
 
         textos: lista de textos en orden. wamids: sus ids de WhatsApp.
@@ -54,14 +54,21 @@ class Agrupador:
         proceso, se da por muerto y el teléfono se libera: sin esto,
         un atasco deja a ese cliente mudo para siempre (sus lotes
         nuevos se re-encolan cada 2 s sin fin, sin aviso y sin fila).
+        max_vistos: (v3.20.3) cuántos wamids se recuerdan para
+        ignorar reenvíos de Meta. Al pasar el tope se desalojan los
+        MÁS VIEJOS (FIFO), no todos: antes se borraban todos y un
+        reenvío viejo se reprocesaba (respuesta duplicada).
         """
         self.callback = callback
         self.espera_segundos = espera_segundos
         self.archivo = archivo
         self.atascado_segundos = atascado_segundos
+        self.max_vistos = max(1, int(max_vistos))
         self._candado = threading.Lock()
         self._pendientes: dict[str, dict] = {}
-        self._vistos: set[str] = set()
+        # dict como conjunto ordenado (Python 3.7+): las claves salen
+        # en orden de inserción, así el desalojo es FIFO.
+        self._vistos: dict[str, None] = {}
         # Teléfono -> momento (monotonic) en que empezó su lote.
         self._procesando: dict[str, float] = {}
 
@@ -87,7 +94,7 @@ class Agrupador:
                               "nombre": b["nombre"]}
                         for tel, b in self._pendientes.items()
                     },
-                    "vistos": list(self._vistos)[:_MAX_VISTOS],
+                    "vistos": list(self._vistos)[:self.max_vistos],
                 }
             tmp = self.archivo + ".tmp"
             with open(tmp, "w", encoding="utf-8") as archivo:
@@ -128,7 +135,7 @@ class Agrupador:
                 timer.start()
                 restaurados += 1
             for wamid in (datos.get("vistos") or []):
-                self._vistos.add(wamid)
+                self._vistos[wamid] = None
         return restaurados
 
     def agregar(self, telefono: str, texto: str, wamid: str = "", nombre: str = "") -> bool:
@@ -140,10 +147,13 @@ class Agrupador:
             if wamid:
                 if wamid in self._vistos:
                     return False  # Meta lo reenvió: no contestar dos veces.
-                self._vistos.add(wamid)
-                if len(self._vistos) > _MAX_VISTOS:
-                    self._vistos.clear()
-                    self._vistos.add(wamid)
+                self._vistos[wamid] = None
+                # (v3.20.3) Desalojo FIFO: se van los wamids más
+                # viejos, no todos. Antes se borraba la lista entera
+                # y un reenvío de Meta se reprocesaba (el cliente
+                # recibía la respuesta dos veces).
+                while len(self._vistos) > self.max_vistos:
+                    self._vistos.pop(next(iter(self._vistos)))
             buzon = self._pendientes.get(telefono)
             if buzon is None:
                 buzon = {"textos": [], "wamids": [], "nombre": nombre, "timer": None}

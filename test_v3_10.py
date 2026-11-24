@@ -133,7 +133,7 @@ class DepsV310(Dependencias):
         pass
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         pass
 
     def guardar_propuesta(self, telefono, propuesta):

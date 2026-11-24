@@ -177,7 +177,7 @@ def main():
         render = open(os.path.join(os.path.dirname(__file__), "render.yaml")).read()
         caso("(e) Espera de 15 s: config, Agrupador y render.yaml",
              s.espera_agrupar_segundos == 15
-             and agrupar_mod.Agrupador.__init__.__defaults__ == (15.0, None, 300.0)
+             and agrupar_mod.Agrupador.__init__.__defaults__ == (15.0, None, 300.0, 5000)
              and 'value: "15"' in render and "ESPERA_AGRUPAR_SEGUNDOS" in render,
              f"config={s.espera_agrupar_segundos}, defaults={agrupar_mod.Agrupador.__init__.__defaults__}")
 

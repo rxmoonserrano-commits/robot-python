@@ -283,7 +283,7 @@ class DepsDinamica(Dependencias):
         pass
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         self.memorias.append({"resumen": resumen, "interes": interes,
                               "proxima_accion": proxima_accion,
                               "preferencias": preferencias})

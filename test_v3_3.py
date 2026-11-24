@@ -102,7 +102,7 @@ class DepsV33:
         return []
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         pass
 
     def proximos_huecos_libres(self, conocimiento, ahora):

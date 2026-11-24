@@ -99,7 +99,7 @@ class Deps36:
         return []
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         pass
 
     def registrar_diagnostico(self, fecha, componente, estado, detalle, telefono="", contexto=""):

@@ -246,7 +246,9 @@ el cliente necesita, y que se sienta atendido, recibido y en calma.
   valida el miedo con calma y certeza, no te burles ni lo tomes
   literal si es una forma de decir que tiene miedo; responde con
   los datos de Conocimiento (sin dolor, higiene) y ofrece pasar a
-  una persona si lo necesita. Que sienta que lo entiendes.
+  una persona si lo necesita. Guarda el miedo en el campo miedos
+  para que la próxima vez lo atiendas con cuidado. Que sienta que
+  lo entiendes.
 - Cliente triste o abrumado (llora, está muy triste, no aguanta):
   reconoce lo que siente con empatía, sin consejos médicos; si hay
   dolor o es delicado, pasa a una persona. Que sienta que lo
@@ -392,8 +394,9 @@ Límites duros:
   próxima vez lo atiendas con cuidado), interes_cliente (el servicio que
   le interesa o ""), proxima_accion (lo que quedó pendiente o ""),
   preferencias (lo que prefiere: días, horas, o "" — solo si el
-  cliente lo dijo). Nunca inventes nada: si no sabes, deja el campo
-  vacío.
+  cliente lo dijo), miedos (temores o sensibilidades que mencione,
+  ej. 'le dan miedo las agujas', o "" si no mencionó ninguno).
+  Nunca inventes nada: si no sabes, deja el campo vacío.
 Acción y confianza (v3.16): además del texto, elige UNA acción:
 - responder: lo normal, contestas y listo (usa esta si dudas).
 - agendar: el cliente quiere cita (también marca quiere_agendar).
@@ -414,7 +417,7 @@ adivines. Dos veces sin entender y el sistema pasa a una persona.
 Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos campos:
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
-resumen_cliente, interes_cliente, proxima_accion, preferencias, partes,
+resumen_cliente, interes_cliente, proxima_accion, preferencias, miedos, partes,
 nombre_paciente, relacion_paciente, numero_paciente, citas_extra,
 accion, confianza, info_faltante.
 "citas_extra" es una lista con máximo 1 elemento (la segunda cita:
@@ -464,6 +467,11 @@ class RespuestaAgente:
     interes_cliente: str = ""
     proxima_accion: str = ""
     preferencias: str = ""
+    # Miedos / sensibilidades (v3.20.3): lo que el cliente teme o no
+    # soporta (agujas, dolor, el dentista...). Se guarda en su
+    # columna propia en Clientes para atenderlo con cuidado la
+    # próxima vez. Vacío si no mencionó ninguno.
+    miedos: str = ""
     # Partes de la respuesta (v3.4.8): el agente decide si su respuesta
     # va en 1 solo mensaje o en varios (por ejemplo, contestar dos
     # temas distintos). Cada parte es su propio mensaje, en orden.
@@ -590,6 +598,7 @@ def _normalizar(datos: dict) -> RespuestaAgente:
         interes_cliente=str(datos.get("interes_cliente") or "").strip()[:150],
         proxima_accion=str(datos.get("proxima_accion") or "").strip()[:200],
         preferencias=str(datos.get("preferencias") or "").strip()[:150],
+        miedos=str(datos.get("miedos") or "").strip()[:150],
         # Cita para otra persona y segunda cita (v3.10): todo con
         # valores seguros. citas_extra: máximo 1 (total 2 citas) y
         # solo entradas con fecha_cita; el resto se descarta.

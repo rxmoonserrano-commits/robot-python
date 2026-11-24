@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.2"
+VERSION = "3.20.3"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -183,9 +183,9 @@ class DependenciasReales(Dependencias):
         return booking.cancelar_cita(telefono, fecha_cita)
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias=""):
+                                proxima_accion="", preferencias="", miedos=""):
         sheets.guardar_memoria_cliente(telefono, resumen, interes,
-                                       proxima_accion, preferencias)
+                                       proxima_accion, preferencias, miedos)
 
     def guardar_propuesta(self, telefono, propuesta):
         sheets.guardar_propuesta(telefono, propuesta)
@@ -196,11 +196,14 @@ class DependenciasReales(Dependencias):
     def leer_propuestas(self):
         return sheets.leer_propuestas()
 
-    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen=""):
+    def alerta_handoff(self, nombre, telefono, motivo, ultimo_mensaje, fecha, resumen="", hilo=""):
         # Best-effort también aquí (doble protección, ver logic.py):
         # si Gmail no está configurado, el correo no debe romper nada.
+        # (v3.20.3) Faltaba el parámetro hilo: logic.py lo pasa desde
+        # v3.20 y el TypeError se tragaba en silencio, así que los
+        # correos de handoff NUNCA salían en producción.
         try:
-            mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha, resumen)
+            mail.alerta_handoff(nombre, telefono, motivo, ultimo_mensaje, fecha, resumen, hilo)
         except Exception as exc:  # noqa: BLE001 - el correo nunca rompe WhatsApp
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
@@ -423,6 +426,14 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         if not boton_id:
             return
         try:
+            # (v3.20.3) Si el cliente mandó textos que aún están en
+            # el buzón de agrupamiento, se atienden primero: el
+            # botón no se salta la fila y el lote no se procesa
+            # después sobre una propuesta ya consumida.
+            try:
+                _AGRUPADOR.procesar_ahora(telefono)
+            except Exception:
+                pass
             atender_boton(_DEPS, telefono, nombre, boton_id)
         except Exception as exc:  # noqa: BLE001
             error(f"[boton] Error atendiendo botón {boton_id} de {telefono}: {exc}")

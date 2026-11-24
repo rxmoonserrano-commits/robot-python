@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -60,6 +61,46 @@ _RETOMAR: dict[str, dict] = {}
 # con cualquier respuesta de confianza normal. Solo en memoria.
 _BAJA_CONFIANZA: dict[str, int] = {}
 
+# (v3.20.3) Candado por teléfono: un cliente se atiende de a uno.
+# El webhook corre en un hilo por mensaje, así que dos toques en
+# Confirmar casi a la vez podían leer la misma propuesta antes de
+# borrarla y crear DOS citas. Con el candado, atender_mensaje y
+# atender_boton se serializan por teléfono: el segundo toque espera
+# y ya no encuentra propuesta. RLock (reentrante) por si algún
+# camino interno volviera a entrar. Teléfonos distintos corren en
+# paralelo, como siempre.
+_CANDADOS_TELEFONO: dict[str, threading.RLock] = {}
+_CANDADO_CANDADOS = threading.Lock()
+
+
+def _candado_telefono(telefono: str) -> threading.RLock:
+    """El candado de un teléfono, creado la primera vez que se usa."""
+    with _CANDADO_CANDADOS:
+        candado = _CANDADOS_TELEFONO.get(telefono)
+        if candado is None:
+            candado = threading.RLock()
+            _CANDADOS_TELEFONO[telefono] = candado
+        return candado
+
+
+def _hilo_conversacion(historial) -> str:
+    """Los últimos mensajes de la conversación, para el correo de
+    handoff: recepción ve la foto completa sin abrir la hoja."""
+    return "\n".join(
+        f"{'Cliente' if str(h.get('quien_hablo', '')) == 'cliente' else 'Robot'}: "
+        f"{str(h.get('mensaje', ''))[:200]}"
+        for h in (historial or [])[-8:]
+    )
+
+
+def _hilo_seguro(deps, telefono: str) -> str:
+    """El hilo de la conversación, o "" si no se puede leer.
+    Best-effort: un correo sin hilo es mejor que ningún correo."""
+    try:
+        return _hilo_conversacion(deps.leer_historial(telefono))
+    except Exception:
+        return ""
+
 def _contiene_aparto(texto: str) -> bool:
     """¿La respuesta le aparta el lugar al cliente?
 
@@ -81,7 +122,8 @@ def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgen
     sin respuesta por culpa de la memoria.
     """
     if not any([respuesta.resumen_cliente, respuesta.interes_cliente,
-                respuesta.proxima_accion, respuesta.preferencias]):
+                respuesta.proxima_accion, respuesta.preferencias,
+                getattr(respuesta, "miedos", "")]):
         return
     guardar = getattr(deps, "guardar_memoria_cliente", None)
     if guardar is None:
@@ -90,7 +132,8 @@ def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgen
         guardar(telefono, resumen=respuesta.resumen_cliente,
                 interes=respuesta.interes_cliente,
                 proxima_accion=respuesta.proxima_accion,
-                preferencias=respuesta.preferencias)
+                preferencias=respuesta.preferencias,
+                miedos=getattr(respuesta, "miedos", ""))
     except Exception:
         pass
 
@@ -1442,7 +1485,8 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "adelanto ocupado")
         _avisar_por_correo(deps.alerta_handoff, nombre, telefono, razon,
-                           "(adelanto ocupado)", fecha)
+                           "(adelanto ocupado)", fecha,
+                           hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "hora ocupada", "handoff": True}
     nota = (f"URGENTE: {razon} | Adelantada desde "
             f"{propuesta.get('fecha_bonita_vieja', '')}").strip(" |")
@@ -1457,7 +1501,8 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "adelanto fallido")
         _avisar_por_correo(deps.alerta_handoff, nombre, telefono, razon,
-                           "(adelanto fallido)", fecha)
+                           "(adelanto fallido)", fecha,
+                           hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "adelanto fallido", "handoff": True}
     try:
         deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
@@ -1517,18 +1562,32 @@ def _dejar_cita_igual(deps: Dependencias, telefono: str, nombre: str,
 
     (v3.16) Con mover=True (oferta por tope, sin urgencia) no se
     promete pasar a una persona: la cita simplemente queda igual.
+    (v3.20.3) Un toque viejo (sin propuesta) ya no promete una
+    persona que nunca llegará: responde con calma. Y cuando sí
+    promete persona (mover=False), el correo de handoff sale de
+    verdad, con el hilo de la conversación.
     """
+    if not _CITAS_PENDIENTES.get(telefono):
+        mensaje = "Esa opción ya no está disponible. ¿Te ayudo con algo más?"
+        enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+        deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "sin dejarla")
+        return {"respondio": True, "motivo": "sin dejarla", "handoff": False}
     _borrar_propuesta(deps, telefono)
     if mover:
         mensaje = "Perfecto, tu cita queda como está."
         _motivo = "mover rechazado"
+        _handoff = False
     else:
         mensaje = ("Perfecto, tu cita queda como está. Te paso con una persona de "
                    "inmediato para que te atiendan lo antes posible.")
         _motivo = "adelanto rechazado"
+        _handoff = True
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
     deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", _motivo)
-    return {"respondio": True, "handoff": False, "cita_sin_cambio": True}
+    if _handoff:
+        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, _motivo, mensaje, fecha,
+                           hilo=_hilo_seguro(deps, telefono))
+    return {"respondio": True, "handoff": _handoff, "cita_sin_cambio": True}
 
 
 def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
@@ -1567,7 +1626,8 @@ def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "mover ocupado")
         _avisar_por_correo(deps.alerta_handoff, nombre, telefono, "mover por tope",
-                           "(mover ocupado)", fecha)
+                           "(mover ocupado)", fecha,
+                           hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "hora ocupada", "handoff": True}
     nota = f"Movida desde {propuesta.get('fecha_bonita_vieja', '')}".strip()
     try:
@@ -1581,7 +1641,8 @@ def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "mover fallido")
         _avisar_por_correo(deps.alerta_handoff, nombre, telefono, "mover por tope",
-                           "(mover fallido)", fecha)
+                           "(mover fallido)", fecha,
+                           hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "mover fallido", "handoff": True}
     try:
         deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
@@ -2041,6 +2102,10 @@ _PALABRAS_CANCELAR = (
     # seguía viva. Estas variantes son inequívocas (nadie escribe
     # "cansela" o "anulo" queriendo otra cosa).
     "canselar", "cansela", "canselo", "cancelo", "anulo", "anula",
+    # (v3.20.3) "Desagendar" solo significa cancelar la cita (nadie
+    # lo escribe queriendo otra cosa). Conservador: nada de fuzzy
+    # amplio, donde "cansado" se confundiría con "cancelar".
+    "desagendar", "desagenda",
 )
 _PALABRAS_CAMBIAR = (
     "cambiar", "reprogramar", "reagendar", "mover la cita", "mejor no",
@@ -2056,6 +2121,10 @@ _PALABRAS_CAMBIAR = (
     # mismo problema que en cancelar — sin esto, el cambio se perdía
     # y la cita vieja seguía viva sin que nadie lo notara.
     "canbiar", "cambair",
+    # (v3.20.3) "Posponer" solo aplica a citas/eventos: en este
+    # contexto es inequívocamente cambiar. "pospon" cubre
+    # posponer/posponla/posponlo por substring.
+    "pospon",
 )
 
 
@@ -2095,12 +2164,16 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
                      # (v3.20.2) Negaciones de las variantes con error
                      # de dedo: "no canselo" no cancela.
                      "no canselo", "no cansela", "no canselar", "no cancelo",
-                     "no anulo", "no anula", "no canseles", "no me canseles")
+                     "no anulo", "no anula", "no canseles", "no me canseles",
+                     # (v3.20.3) Negaciones de "desagendar".
+                     "no desagendar", "no desagenda", "no quiero desagendar")
     _NEG_CAMBIAR = ("no quiero cambiar", "no cambiar", "no lo cambies",
                     "no la cambies", "no me cambies", "no me cambie",
                     "no cambies", "no cambie", "dejalo", "dejala",
                     # (v3.20.2) Negaciones de "canbiar"/"cambair".
-                    "no canbiar", "no cambair")
+                    "no canbiar", "no cambair",
+                    # (v3.20.3) Negaciones de "posponer".
+                    "no posponer", "no pospon", "no quiero posponer")
     if any(n in normal for n in _NEG_CANCELAR + _NEG_CAMBIAR):
         return None
     if any(p in normal for p in _PALABRAS_CANCELAR):
@@ -2520,7 +2593,8 @@ class Dependencias:
         """Todas las propuestas guardadas en la hoja (para recuperarlas al arrancar)."""
         return []
     def guardar_memoria_cliente(self, telefono: str, resumen: str = "", interes: str = "",
-                                proxima_accion: str = "", preferencias: str = "") -> None:
+                                proxima_accion: str = "", preferencias: str = "",
+                                miedos: str = "") -> None:
         """Guarda lo que se aprendió del cliente en Clientes (v3.2). Por defecto: nada."""
         ...
     def leer_conocimiento(self) -> list[dict]: ...
@@ -2652,7 +2726,7 @@ def _diagnostico(deps: Dependencias, fecha, componente: str, estado: str,
         log_aviso(f"[diagnostico] No pude escribir en la hoja: {exc}")
 
 
-def atender_mensaje(
+def _atender_mensaje_impl(
     deps: Dependencias,
     telefono: str,
     nombre: str,
@@ -2712,9 +2786,20 @@ def atender_mensaje(
         if motivo_silencio in ("robot apagado para este cliente", "boton apagado"):
             motivo_handoff = _motivo_handoff_en_silencio(texto)
             if motivo_handoff:
+                # (v3.20.3) El correo trae el hilo y el resumen, como
+                # el handoff normal: recepción ve la foto completa.
+                _hilo_sil = ""
+                _resumen_sil = ""
+                try:
+                    _hilo_sil = _hilo_conversacion(deps.leer_historial(telefono))
+                    _cli_sil = (getattr(deps, "leer_cliente", lambda t: None)(telefono) or {})
+                    _resumen_sil = str(_cli_sil.get("resumen_conversacion", "") or "")
+                except Exception:
+                    pass
                 _avisar_por_correo(
                     deps.alerta_handoff,
                     nombre, telefono, motivo_handoff, texto, fecha,
+                    resumen=_resumen_sil, hilo=_hilo_sil,
                 )
                 deps.registrar_cliente(
                     fecha, nombre, telefono, texto[:120], "", "whatsapp",
@@ -2981,6 +3066,13 @@ def atender_mensaje(
         memoria.append(f"Quedaron en: {fila_cliente['proxima_accion']}")
     if str(fila_cliente.get("notas", "") or "").strip():
         memoria.append(f"Prefiere {fila_cliente['notas']}")
+    # (v3.20.3) Miedos / sensibilidades: para atenderlo con cuidado
+    # sin que tenga que repetirlo. Solo si la columna existe y trae
+    # algo; si no, no se menciona (compatibilidad hacia atrás).
+    if str(fila_cliente.get("Miedos / sensibilidades", "") or "").strip():
+        memoria.append(
+            f"Le dan miedo o le molestan: {fila_cliente['Miedos / sensibilidades']}"
+        )
     if memoria:
         contexto.append(
             "Lo que sabes de este cliente: " + " ".join(memoria)
@@ -3342,11 +3434,7 @@ def atender_mensaje(
             # (v3.20) El correo trae el hilo reciente de la conversación
             # (últimos 8 mensajes): recepción ve la foto completa sin
             # abrir la hoja (Sereno función 05: "entrega el contexto").
-            _hilo = "\n".join(
-                f"{'Cliente' if str(h.get('quien_hablo', '')) == 'cliente' else 'Robot'}: "
-                f"{str(h.get('mensaje', ''))[:200]}"
-                for h in (historial or [])[-8:]
-            )
+            _hilo = _hilo_conversacion(historial)
             _avisar_por_correo(
                 deps.alerta_handoff,
                 respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
@@ -3737,7 +3825,29 @@ def atender_mensaje(
     return {"respondio": True, "handoff": False, "cita": None, "foto": bool(foto)}
 
 
-def atender_boton(
+def atender_mensaje(
+    deps: Dependencias,
+    telefono: str,
+    nombre: str,
+    texto: str,
+    fecha_iso: str | None = None,
+    message_id: str = "",
+    con_ritmo: bool = True,
+    ahora: datetime | None = None,
+    aviso_lote_enviado: dict | None = None,
+) -> dict:
+    """Atiende un mensaje o lote con el candado por teléfono (v3.20.3):
+    un cliente se atiende de a uno, para que un toque de botón y un
+    texto nunca se pisen (doble toque = cita duplicada). La lógica
+    vive en _atender_mensaje_impl."""
+    with _candado_telefono(telefono):
+        return _atender_mensaje_impl(
+            deps, telefono, nombre, texto, fecha_iso=fecha_iso,
+            message_id=message_id, con_ritmo=con_ritmo, ahora=ahora,
+            aviso_lote_enviado=aviso_lote_enviado)
+
+
+def _atender_boton_impl(
     deps: Dependencias,
     telefono: str,
     nombre: str,
@@ -3770,6 +3880,25 @@ def atender_boton(
                 "robot apagado para este cliente",
             )
             return {"respondio": False, "motivo": "robot apagado para este cliente", "handoff": False}
+
+    # (v3.20.3) El interruptor global (Control) también frena los
+    # botones: con el robot apagado para todos, un Confirmar no debe
+    # crear una cita (antes lo hacía: el botón no revisaba el
+    # interruptor global). "hablar_persona" queda exenta, como en el
+    # interruptor por cliente: es el camino al humano.
+    if boton_id in ("confirmar_cita", "cambiar_hora", "cambiar_mia", "cambiar_de_otra",
+                     "adelantar_cita", "dejar_cita_igual"):
+        try:
+            _control = (getattr(deps, "leer_control", lambda: {})() or {})
+        except Exception:
+            _control = {}
+        if str(_control.get("bot_activo", "SI")).strip().upper() != "SI":
+            _borrar_propuesta(deps, telefono)
+            deps.registrar_conversacion(
+                fecha, telefono, "cliente", f"(botón {boton_id})", "no",
+                "robot apagado",
+            )
+            return {"respondio": False, "motivo": "robot apagado", "handoff": False}
 
     if boton_id == "confirmar_cita":
         # El mismo camino que el "sí" por texto (ver _confirmar_cita_propuesta).
@@ -3879,7 +4008,18 @@ def atender_boton(
         motivo = (propuesta or {}).get("motivo", "El cliente pidió hablar con una persona")
         mensaje = "Claro, te paso con una persona del negocio. Te atienden en un momento."
         enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
-        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, motivo, mensaje, fecha)
+        # (v3.20.3) El correo trae el hilo y el resumen, como el
+        # handoff por texto: recepción ve la foto completa.
+        _hilo = ""
+        _resumen = ""
+        try:
+            _hilo = _hilo_conversacion(deps.leer_historial(telefono))
+            _cliente_h = (getattr(deps, "leer_cliente", lambda t: None)(telefono) or {})
+            _resumen = str(_cliente_h.get("resumen_conversacion", "") or "")
+        except Exception:
+            pass
+        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, motivo, mensaje, fecha,
+                           resumen=_resumen, hilo=_hilo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", motivo)
         deps.registrar_cliente(
             fecha, nombre, telefono, motivo, "", "whatsapp", "en conversacion", "si",
@@ -3890,3 +4030,21 @@ def atender_boton(
     mensaje = "Claro. ¿Me cuentas qué necesitas?"
     enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
     return {"respondio": True, "motivo": "boton desconocido", "handoff": False}
+
+
+def atender_boton(
+    deps: Dependencias,
+    telefono: str,
+    nombre: str,
+    boton_id: str,
+    fecha_iso: str | None = None,
+    con_ritmo: bool = True,
+    ahora: datetime | None = None,
+) -> dict:
+    """Atiende un toque de botón con el candado por teléfono (v3.20.3):
+    un cliente se atiende de a uno, para que dos toques seguidos
+    nunca dupliquen una cita. La lógica vive en _atender_boton_impl."""
+    with _candado_telefono(telefono):
+        return _atender_boton_impl(
+            deps, telefono, nombre, boton_id, fecha_iso=fecha_iso,
+            con_ritmo=con_ritmo, ahora=ahora)

@@ -64,13 +64,17 @@ R10. NO REPETIR LA RESPUESTA ENTERA (v3.20): si la respuesta es
     anterior), se reemplaza por \"¿Te ayudo con algo más?\". R7 solo
     quitaba el cierre repetido; R10 cubre la repetición completa.
     Se compara sin acentos, en minúsculas y sin espacios de más.
-R11. NINGÚN DESCUENTO INVENTADO (v3.20.2): si la respuesta promete
-    un descuento o promoción ("te hago un 20% de descuento") y el
-    Conocimiento del negocio no habla de descuentos, se desecha
-    ENTERA y se contesta con la frase segura. R9 cubre los precios;
-    R11 cubre los descuentos, que cuestan dinero al negocio. Las
-    frases negadas ("no manejamos descuentos") son honestidad y
-    pasan. Sin el texto del Conocimiento, R11 no se aplica.
+R11. NINGÚN DESCUENTO INVENTADO (v3.20.2, valor exacto v3.20.3):
+    si la respuesta promete un descuento o promoción ("te hago un
+    20% de descuento") y el Conocimiento del negocio no habla de
+    descuentos, se desecha ENTERA y se contesta con la frase segura.
+    R9 cubre los precios; R11 cubre los descuentos, que cuestan
+    dinero al negocio. Las frases negadas ("no manejamos
+    descuentos") son honestidad y pasan. Sin el texto del
+    Conocimiento, R11 no se aplica. (v3.20.3) Si el Conocimiento sí
+    habla de descuentos, solo se permiten los valores y mecánicas
+    literales (el 20% permitido no autoriza el 15%, ni el 2x1 una
+    "rebaja").
 R12. FUERA EL ROBOT-SPEAK DE 'PENDIENTES' (v3.20.2): "quedamos en
     tus pendientes" es lenguaje de sistema, no de recepcionista.
     Se quita la frase; si no queda nada, se contesta con una
@@ -398,31 +402,64 @@ def _es_negacion_descuento(normal: str) -> bool:
 
 def _tiene_descuento_inventado(texto: str, texto_conoc: str) -> bool:
     """¿La respuesta promete un descuento/promoción que el negocio
-    no conoce? (v3.20.2, R11).
+    no conoce? (v3.20.2, R11; valor exacto v3.20.3).
 
     Solo se aplica cuando se pasa el texto del Conocimiento: sin él
     no hay con qué comparar y la regla no se aplica (compatibilidad
-    con llamadas viejas, igual que R9). Si el Conocimiento menciona
-    descuentos, promociones u ofertas especiales, la IA puede hablar
-    de ellos. Una frase negada ("no manejamos descuentos") nunca es
-    invento: es honestidad, y se deja pasar.
+    con llamadas viejas, igual que R9). Una frase negada ("no
+    manejamos descuentos") nunca es invento: es honestidad, y se
+    deja pasar.
+
+    Si el Conocimiento NO habla de descuentos, cualquier promesa
+    afirmativa se desecha entera. Si SÍ habla, solo se permiten los
+    valores y mecánicas que aparecen LITERALES en el Conocimiento
+    (v3.20.3): "20% de descuento los martes" permite el 20%, no el
+    15%; "2x1" permite el 2x1, no una "rebaja". La palabra genérica
+    "descuento" sí se permite cuando el Conocimiento habla de
+    descuentos (sin prometer un valor).
     """
     if not texto_conoc:
         return False
-    if any(p in texto_conoc for p in _DESCUENTO_PALABRAS) or "%" in texto_conoc:
+    _conoc_habla = (
+        any(p in texto_conoc for p in _DESCUENTO_PALABRAS) or "%" in texto_conoc
+    )
+    if not _conoc_habla:
+        # Sin descuentos conocidos: cualquier promesa es invento.
+        for oracion in _partir_oraciones(texto):
+            normal = _sin_acentos(oracion)
+            if any(p in normal for p in _DESCUENTO_PALABRAS):
+                if not _es_negacion_descuento(normal):
+                    return True
+            # Porcentaje suelto ("te hago un 20%"): sin % en el
+            # Conocimiento, es un descuento inventado. Se excluye el
+            # "100%" de énfasis ("100% segura"), que no es un descuento.
+            for m in re.finditer(r"(\d[\d,]*)\s*%", normal):
+                if m.group(1).replace(",", "") == "100":
+                    continue
+                if not _es_negacion_descuento(normal):
+                    return True
         return False
+    # El negocio sí maneja descuentos: solo valen los porcentajes
+    # literales del Conocimiento.
+    _permitidos_pct = {
+        m.group(1).replace(",", "")
+        for m in re.finditer(r"(\d[\d,]*)\s*%", texto_conoc)
+    }
     for oracion in _partir_oraciones(texto):
         normal = _sin_acentos(oracion)
-        if any(p in normal for p in _DESCUENTO_PALABRAS):
-            if not _es_negacion_descuento(normal):
-                return True
-        # Porcentaje suelto ("te hago un 20%"): sin % en el
-        # Conocimiento, es un descuento inventado. Se excluye el
-        # "100%" de énfasis ("100% segura"), que no es un descuento.
+        if _es_negacion_descuento(normal):
+            continue
         for m in re.finditer(r"(\d[\d,]*)\s*%", normal):
             if m.group(1).replace(",", "") == "100":
                 continue
-            if not _es_negacion_descuento(normal):
+            if m.group(1).replace(",", "") not in _permitidos_pct:
+                return True
+        # Mecánicas de promoción (2x1, rebaja, oferta especial...):
+        # solo si la frase está literal en el Conocimiento. La
+        # palabra genérica "descuento" se permite cuando el
+        # Conocimiento habla de descuentos (no promete un valor).
+        for p in _DESCUENTO_PALABRAS:
+            if p in normal and p not in texto_conoc and p != "descuento":
                 return True
     return False
 
