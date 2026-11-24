@@ -18,6 +18,7 @@ import re
 import threading
 import time
 import unicodedata
+from datetime import datetime, timezone
 
 from google.auth.exceptions import GoogleAuthError
 from google.oauth2 import service_account
@@ -100,7 +101,12 @@ def leer_pestana(pestana: str, spreadsheet_id: str | None = None) -> list[dict]:
     servicio = _servicio_sheets()
     resultado = (
         servicio.values()
-        .get(spreadsheetId=clave[0], range=f"{pestana}!A1:Z1000")
+        # (v3.20.4, auditoría de datos) Antes A1:Z1000: al pasar las
+        # 1000 filas, Conversaciones perdía el historial viejo en
+        # silencio y Clientes dejaba de ver clientes (duplicados).
+        # 10000 filas cubre meses de operación; más allá, rotación
+        # de la hoja (propuesta, no implementada).
+        .get(spreadsheetId=clave[0], range=f"{pestana}!A1:Z10000")
         .execute()
     )
     valores = resultado.get("values", [])
@@ -290,74 +296,68 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = 
     al adelantarla por urgencia) de la última cita espejo que
     coincida con teléfono + fecha (v3.9; las Notas se suman en v3.10
     para guardar los datos de la otra persona). Best-effort. Sin
-    ningún dato, no hace nada."""
+    ningún dato, no hace nada.
+
+    (v3.20.4, auditoría de datos) Antes hacía hasta 6 escrituras
+    seguidas: si Google fallaba a la mitad, el espejo quedaba a
+    medias (p. ej. Estado cambiado pero Notas viejas) sin rastro
+    en la hoja. Ahora es UNA sola escritura atómica sobre F:P con
+    los valores nuevos y los viejos intactos; si falla, queda un
+    rastro en Diagnóstico además del registro del servidor."""
     try:
+        if (estado is None and notas is None and recordatorio_enviado is None
+                and urgencia is None and nueva_fecha is None
+                and nueva_hora_inicio is None and nueva_hora_fin is None):
+            return
         filas = leer_pestana("Citas")
         dia = str(fecha_cita or "")[:10]
         objetivo = str(telefono or "").strip()
         numero = None
+        fila_vieja: dict = {}
         for i, f in enumerate(filas):
             if (str(f.get("Teléfono", "") or "").strip() == objetivo
                     and str(f.get("Fecha", "") or "")[:10] == dia):
                 numero = i + 2  # +1 encabezado, +1 base 1
+                fila_vieja = f
         if numero is None:
             return
+        # Una sola escritura: F:P con lo nuevo encima de lo viejo.
+        valores = [[
+            str(nueva_fecha)[:10] if nueva_fecha is not None
+            else str(fila_vieja.get("Fecha", "") or ""),
+            str(nueva_hora_inicio) if nueva_hora_inicio is not None
+            else str(fila_vieja.get("Hora_inicio", "") or ""),
+            str(nueva_hora_fin) if nueva_hora_fin is not None
+            else str(fila_vieja.get("Hora_fin", "") or ""),
+            str(estado) if estado is not None
+            else str(fila_vieja.get("Estado", "") or ""),
+            str(fila_vieja.get("Origen", "") or ""),
+            str(recordatorio_enviado) if recordatorio_enviado is not None
+            else str(fila_vieja.get("Recordatorio_enviado", "") or ""),
+            str(fila_vieja.get("Confirmado", "") or ""),
+            str(notas) if notas is not None
+            else str(fila_vieja.get("Notas", "") or ""),
+            str(fila_vieja.get("Creado_por", "") or ""),
+            str(fila_vieja.get("Última_actualización", "") or ""),
+            str(urgencia) if urgencia is not None
+            else str(fila_vieja.get("Urgencia", "") or ""),
+        ]]
         servicio = _servicio_sheets()
-        if estado is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!I{numero}",
-                valueInputOption="RAW",
-                body={"values": [[estado]]},
-            ).execute()
-        if notas is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!M{numero}",
-                valueInputOption="RAW",
-                body={"values": [[notas]]},
-            ).execute()
-        if recordatorio_enviado is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!K{numero}",
-                valueInputOption="RAW",
-                body={"values": [[recordatorio_enviado]]},
-            ).execute()
-        if urgencia is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!P{numero}",
-                valueInputOption="RAW",
-                body={"values": [[urgencia]]},
-            ).execute()
-        # (v3.15) Mover la cita (adelantar por urgencia): Fecha,
-        # Hora_inicio y Hora_fin de la misma fila. La fila se buscó
-        # por la fecha VIEJA, así que el cambio es seguro.
-        if nueva_fecha is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!F{numero}",
-                valueInputOption="RAW",
-                body={"values": [[str(nueva_fecha)[:10]]]},
-            ).execute()
-        if nueva_hora_inicio is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!G{numero}",
-                valueInputOption="RAW",
-                body={"values": [[nueva_hora_inicio]]},
-            ).execute()
-        if nueva_hora_fin is not None:
-            servicio.values().update(
-                spreadsheetId=settings.sheet_id,
-                range=f"Citas!H{numero}",
-                valueInputOption="RAW",
-                body={"values": [[nueva_hora_fin]]},
-            ).execute()
+        servicio.values().update(
+            spreadsheetId=settings.sheet_id,
+            range=f"Citas!F{numero}:P{numero}",
+            valueInputOption="RAW",
+            body={"values": valores},
+        ).execute()
         _invalidar_cache("Citas")
     except Exception as exc:  # noqa: BLE001
         log_error(f"[citas-espejo] No se pudo actualizar la cita: {exc}")
+        try:
+            registrar_diagnostico(
+                datetime.now(timezone.utc), "citas-espejo", "FALLO",
+                str(exc)[:300], str(telefono or ""), "")
+        except Exception:  # noqa: BLE001 - el rastro nunca rompe nada
+            pass
 
 
 def leer_citas_espejo() -> list[dict]:
@@ -622,28 +622,44 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
             )
     if not nuevos and not miedos_nuevo:
         return
-    servicio = _servicio_sheets()
-    if nuevos:
-        valores = [
-            nuevos.get("resumen_conversacion", str(fila.get("resumen_conversacion", "") or "")),
-            nuevos.get("intereses", str(fila.get("intereses", "") or "")),
-            str(fila.get("calificacion", "") or ""),
-            nuevos.get("proxima_accion", str(fila.get("proxima_accion", "") or "")),
-            nuevos.get("notas", str(fila.get("notas", "") or "")),
-        ]
-        servicio.values().update(
-            spreadsheetId=settings.sheet_id,
-            range=f"Clientes!K{numero_fila}:O{numero_fila}",
-            valueInputOption="RAW",
-            body={"values": [valores]},
-        ).execute()
-    if miedos_nuevo:
-        servicio.values().update(
-            spreadsheetId=settings.sheet_id,
-            range=f"Clientes!W{numero_fila}",
-            valueInputOption="RAW",
-            body={"values": [[miedos_nuevo]]},
-        ).execute()
+    # (v3.20.4, auditoría de datos) Antes, si la escritura de W
+    # fallaba después de la de K:O, la excepción subía y el llamador
+    # la tragaba en silencio: memoria a medias sin rastro en ningún
+    # lado. Ahora cualquier fallo deja un rastro en Diagnóstico y
+    # no lanza (la memoria es best-effort: la respuesta al cliente
+    # ya salió).
+    try:
+        servicio = _servicio_sheets()
+        if nuevos:
+            valores = [
+                nuevos.get("resumen_conversacion", str(fila.get("resumen_conversacion", "") or "")),
+                nuevos.get("intereses", str(fila.get("intereses", "") or "")),
+                str(fila.get("calificacion", "") or ""),
+                nuevos.get("proxima_accion", str(fila.get("proxima_accion", "") or "")),
+                nuevos.get("notas", str(fila.get("notas", "") or "")),
+            ]
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Clientes!K{numero_fila}:O{numero_fila}",
+                valueInputOption="RAW",
+                body={"values": [valores]},
+            ).execute()
+        if miedos_nuevo:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Clientes!W{numero_fila}",
+                valueInputOption="RAW",
+                body={"values": [[miedos_nuevo]]},
+            ).execute()
+    except Exception as exc:  # noqa: BLE001 - la memoria nunca rompe nada
+        log_error(f"[memoria] No se pudo guardar la memoria de {telefono}: {exc}")
+        try:
+            registrar_diagnostico(
+                datetime.now(timezone.utc), "memoria", "FALLO",
+                str(exc)[:300], str(telefono or ""), "")
+        except Exception:  # noqa: BLE001 - el rastro nunca rompe nada
+            pass
+        return
     _invalidar_cache("Clientes")
 
 

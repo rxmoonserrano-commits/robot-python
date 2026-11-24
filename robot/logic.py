@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -150,8 +151,14 @@ def _guardar_propuesta(deps: Dependencias, telefono: str, propuesta: dict) -> No
     if guardar is not None:
         try:
             guardar(telefono, propuesta)
-        except Exception:
-            pass  # la memoria sigue valiendo; la hoja es respaldo
+        except Exception as exc:  # la memoria sigue valiendo; la hoja es respaldo
+            # (v3.20.4, auditoría de datos) Antes el fallo era
+            # invisible: si Render se reinicia, esa propuesta no se
+            # recupera y el cliente toca Confirmar en vano. Ahora
+            # queda rastro en Diagnóstico.
+            _diagnostico(deps, datetime.now(timezone.utc), "propuestas", "FALLO",
+                         f"guardar_propuesta falló (la memoria sigue): {exc}"[:300],
+                         telefono, "")
 
 
 def _borrar_propuesta(deps: Dependencias, telefono: str) -> None:
@@ -161,8 +168,83 @@ def _borrar_propuesta(deps: Dependencias, telefono: str) -> None:
     if borrar is not None:
         try:
             borrar(telefono)
+        except Exception as exc:
+            # (v3.20.4) Si el borrado falla, la fila vieja puede
+            # resucitar la propuesta al reiniciar; la reconciliación
+            # de cargar_propuestas la descarta si la cita ya existe.
+            # Aquí queda el rastro para que se vea.
+            _diagnostico(deps, datetime.now(timezone.utc), "propuestas", "FALLO",
+                         f"borrar_propuesta falló (puede resucitar al reiniciar): {exc}"[:300],
+                         telefono, "")
+
+
+def _cita_confirmada_en(filas, telefono: str, fecha_iso: str) -> bool:
+    """¿El espejo ya trae una cita Confirmada de este teléfono en
+    esa fecha y hora? (v3.20.4, reconciliación al arrancar).
+
+    Solo "Confirmada" cuenta como consumida: una cita "Pendiente"
+    significa que el calendario falló y el reintento sigue siendo
+    válido. La comparación es por fecha + hora de inicio, como las
+    escribe _fila_espejo.
+    """
+    try:
+        inicio = _parse_fecha_iso(fecha_iso)
+        if inicio is None:
+            return False
+        dia = inicio.strftime("%Y-%m-%d")
+        hora = inicio.strftime("%H:%M")
+    except (ValueError, TypeError):
+        return False
+    for f in filas or []:
+        if str(f.get("Teléfono", "") or "").strip() != str(telefono).strip():
+            continue
+        if str(f.get("Estado", "") or "").strip() != "Confirmada":
+            continue
+        if str(f.get("Fecha", "") or "")[:10] != dia:
+            continue
+        if str(f.get("Hora_inicio", "") or "")[:5] != hora:
+            continue
+        return True
+    return False
+
+
+def _propuesta_ya_consumida(deps: Dependencias, telefono: str, propuesta: dict) -> bool:
+    """¿La cita de esta propuesta ya existe? (v3.20.4).
+
+    Escenario: el cliente confirmó, la cita se creó, pero borrar la
+    propuesta de la hoja falló (o Render se reinició a la mitad). Al
+    arrancar, cargar_propuestas resucitaría una propuesta ya
+    consumida y el cliente podría "confirmar" dos veces. La
+    reconciliación solo descarta con evidencia POSITIVA (espejo
+    Confirmada o evento en el calendario, para TODAS las fechas de
+    la propuesta); ante cualquier duda, la propuesta se conserva:
+    mejor resucitar de más que perder una cita genuina.
+    """
+    fechas = [str(propuesta.get("fecha_cita") or "").strip()]
+    cita2 = propuesta.get("cita2")
+    if isinstance(cita2, dict) and str(cita2.get("fecha_cita") or "").strip():
+        fechas.append(str(cita2["fecha_cita"]).strip())
+    if not all(fechas):
+        return False
+    # Evidencia 1: el espejo ya trae la cita Confirmada.
+    try:
+        leer = getattr(deps, "leer_citas_espejo", None)
+        filas = (leer() or []) if leer is not None else []
+    except Exception:
+        filas = []
+    if filas and all(_cita_confirmada_en(filas, telefono, f) for f in fechas):
+        return True
+    # Evidencia 2: el evento ya existe en el calendario (cubre el
+    # caso de reinicio antes de escribir el espejo). Sin el método
+    # (deps viejas o de prueba), se salta.
+    existe = getattr(deps, "existe_cita_en_calendario", None)
+    if existe is not None:
+        try:
+            if all(existe(telefono, f) for f in fechas):
+                return True
         except Exception:
             pass
+    return False
 
 
 def cargar_propuestas(deps: Dependencias) -> int:
@@ -170,6 +252,11 @@ def cargar_propuestas(deps: Dependencias) -> int:
 
     Devuelve cuántas recuperó. Sin esto, un reinicio de Render de noche
     dejaba al cliente con botones que ya no llevaban a ningún lado.
+
+    (v3.20.4) Reconciliación: una propuesta cuya cita ya existe
+    (confirmación que se alcanzó a crear pero cuyo borrado falló)
+    no resucita: se borra la fila vieja y queda rastro en
+    Diagnóstico. Nunca duplicar ni perder una cita.
     """
     leer = getattr(deps, "leer_propuestas", None)
     if leer is None:
@@ -205,6 +292,15 @@ def cargar_propuestas(deps: Dependencias) -> int:
         propuesta["hora_inicio_vieja"] = extra.get("hora_inicio_vieja", "")
         propuesta["hora_fin_vieja"] = extra.get("hora_fin_vieja", "")
         propuesta["notas_vieja"] = extra.get("notas_vieja", "")
+        # (v3.20.4) Reconciliación: si la cita ya existe (la
+        # confirmación se alcanzó a crear pero el borrado falló),
+        # esta propuesta ya se consumió: no resucita.
+        if _propuesta_ya_consumida(deps, telefono, propuesta):
+            _borrar_propuesta(deps, telefono)
+            _diagnostico(deps, datetime.now(timezone.utc), "propuestas", "OK",
+                         "Propuesta ya consumida descartada al arrancar "
+                         "(la cita ya existe; no resucita).", telefono, "")
+            continue
         _CITAS_PENDIENTES[telefono] = propuesta
         n += 1
     return n
@@ -2643,6 +2739,13 @@ class Dependencias:
         True: sin verificar, la propuesta sale igual y la confirmación
         vuelve a revisar la hora."""
         return True
+
+    def existe_cita_en_calendario(self, telefono: str, fecha_iso: str) -> bool:
+        """¿Ya existe en el calendario una cita de este teléfono en esa
+        fecha/hora? (v3.20.4, reconciliación al arrancar). Por defecto
+        False: sin verificar, la propuesta se conserva (mejor
+        resucitar de más que perder una cita genuina)."""
+        return False
     def alerta_cita_confirmada(self, nombre, telefono, motivo, fecha_bonita, fecha): ...
     def alerta_lead_caliente(self, nombre, telefono, motivo, ultimo_mensaje, fecha): ...
     def alerta_cita_urgente(self, nombre, telefono, motivo, fecha_bonita, fecha, razon=""):
@@ -2689,6 +2792,44 @@ class Dependencias:
                               telefono="", contexto=""):
         """Escribe en la pestaña Diagnóstico (v2.7). Por defecto: nada."""
         ...
+
+
+# (v3.20.4) Anti-spam de correos de handoff: el mismo teléfono no
+# genera más de un correo de handoff por ventana (30 min), sin
+# importar cuántas veces toque "Hablar con persona" o pida una
+# persona por texto. El cliente SIEMPRE recibe su respuesta por
+# WhatsApp; solo se suprime el correo repetido. Las URGENCIAS
+# nunca se frenan (una segunda urgencia sí avisa) pero sí abren la
+# ventana. El estado vive en el objeto deps (instancia única en
+# producción), así un reinicio empieza de cero, como el Limitador.
+_HANDOFF_CORREO_VENTANA = 1800.0  # 30 minutos
+
+
+def _handoff_repetido(deps, telefono: str, motivo: str = "") -> bool:
+    """True si ya se mandó un correo de handoff para este teléfono
+    dentro de la ventana. Cuando devuelve False, registra el envío
+    (la llamada que sigue manda el correo)."""
+    ahora = time.monotonic()
+    ultimos = getattr(deps, "_ultimo_handoff_correo", None)
+    if ultimos is None:
+        ultimos = {}
+        try:
+            deps._ultimo_handoff_correo = ultimos
+        except Exception:  # noqa: BLE001 - sin estado, sin freno
+            return False
+    if str(motivo or "").startswith(_MOTIVO_URGENCIA):
+        ultimos[telefono] = ahora
+        return False
+    ultimo = ultimos.get(telefono, 0.0)
+    if ahora - ultimo < _HANDOFF_CORREO_VENTANA:
+        return True
+    ultimos[telefono] = ahora
+    # Limpieza perezosa: el dict no crece sin freno.
+    if len(ultimos) > 500:
+        for clave in [k for k, t in ultimos.items()
+                      if ahora - t >= _HANDOFF_CORREO_VENTANA]:
+            ultimos.pop(clave, None)
+    return False
 
 
 def _avisar_por_correo(avisar, *args, **kwargs) -> None:
@@ -2796,11 +2937,15 @@ def _atender_mensaje_impl(
                     _resumen_sil = str(_cli_sil.get("resumen_conversacion", "") or "")
                 except Exception:
                     pass
-                _avisar_por_correo(
-                    deps.alerta_handoff,
-                    nombre, telefono, motivo_handoff, texto, fecha,
-                    resumen=_resumen_sil, hilo=_hilo_sil,
-                )
+                # (v3.20.4) Anti-spam de correos: con el robot
+                # apagado para este cliente, cada mensaje suyo
+                # llegaba a mandar un correo.
+                if not _handoff_repetido(deps, telefono, motivo_handoff):
+                    _avisar_por_correo(
+                        deps.alerta_handoff,
+                        nombre, telefono, motivo_handoff, texto, fecha,
+                        resumen=_resumen_sil, hilo=_hilo_sil,
+                    )
                 deps.registrar_cliente(
                     fecha, nombre, telefono, texto[:120], "", "whatsapp",
                     "en conversacion", "si",
@@ -3435,12 +3580,15 @@ def _atender_mensaje_impl(
             # (últimos 8 mensajes): recepción ve la foto completa sin
             # abrir la hoja (Sereno función 05: "entrega el contexto").
             _hilo = _hilo_conversacion(historial)
-            _avisar_por_correo(
-                deps.alerta_handoff,
-                respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
-                resumen=str(fila_cliente.get("resumen_conversacion", "") or ""),
-                hilo=_hilo,
-            )
+            # (v3.20.4) Anti-spam de correos (las urgencias pasan
+            # siempre: el helper las exenta).
+            if not _handoff_repetido(deps, telefono, respuesta.motivo_handoff):
+                _avisar_por_correo(
+                    deps.alerta_handoff,
+                    respuesta.nombre or nombre, telefono, respuesta.motivo_handoff, texto, fecha,
+                    resumen=str(fila_cliente.get("resumen_conversacion", "") or ""),
+                    hilo=_hilo,
+                )
             # (v3.13) Urgencia con cita: después del mensaje de
             # handoff, la oferta de cita urgente con botones (la
             # propuesta se guardó al detectar la urgencia).
@@ -4018,8 +4166,12 @@ def _atender_boton_impl(
             _resumen = str(_cliente_h.get("resumen_conversacion", "") or "")
         except Exception:
             pass
-        _avisar_por_correo(deps.alerta_handoff, nombre, telefono, motivo, mensaje, fecha,
-                           resumen=_resumen, hilo=_hilo)
+        # (v3.20.4) Anti-spam: si este teléfono ya generó un correo
+        # de handoff hace menos de 30 min, no se manda otro (el
+        # cliente sí recibe su respuesta por WhatsApp arriba).
+        if not _handoff_repetido(deps, telefono, motivo):
+            _avisar_por_correo(deps.alerta_handoff, nombre, telefono, motivo, mensaje, fecha,
+                               resumen=_resumen, hilo=_hilo)
         deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", motivo)
         deps.registrar_cliente(
             fecha, nombre, telefono, motivo, "", "whatsapp", "en conversacion", "si",

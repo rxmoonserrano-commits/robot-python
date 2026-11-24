@@ -254,19 +254,15 @@ def proximos_huecos_por_profesional(
     return huecos
 
 
-def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
-    """Borra del calendario la cita de ese teléfono en esa fecha.
+def _eventos_del_dia(servicio, inicio: datetime) -> list:
+    """Eventos del calendario en el día de `inicio` (v3.20.4).
 
-    Busca en el día de la cita el evento cuyo título trae el teléfono
-    (los eventos se crean como "Cita <nombre> — <teléfono>") y lo
-    borra. Devuelve True si borró al menos uno. Si no encuentra nada,
-    no hace nada y devuelve False (no se inventa una cancelación).
+    Lo comparten cancelar_cita y existe_cita: una sola forma de
+    listar el día, para que no diverjan.
     """
-    inicio = _a_datetime(fecha_cita_iso)
     dia_inicio = inicio.replace(hour=0, minute=0, second=0, microsecond=0)
     dia_fin = dia_inicio + timedelta(days=1)
-    servicio = _servicio_calendar()
-    eventos = (
+    return (
         servicio.events()
         .list(
             calendarId=settings.calendar_id,
@@ -277,6 +273,19 @@ def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
         .execute()
         .get("items", [])
     )
+
+
+def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
+    """Borra del calendario la cita de ese teléfono en esa fecha.
+
+    Busca en el día de la cita el evento cuyo título trae el teléfono
+    (los eventos se crean como "Cita <nombre> — <teléfono>") y lo
+    borra. Devuelve True si borró al menos uno. Si no encuentra nada,
+    no hace nada y devuelve False (no se inventa una cancelación).
+    """
+    inicio = _a_datetime(fecha_cita_iso)
+    servicio = _servicio_calendar()
+    eventos = _eventos_del_dia(servicio, inicio)
     borrados = 0
     for evento in eventos:
         if str(telefono) in str(evento.get("summary", "")):
@@ -285,6 +294,31 @@ def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
             ).execute()
             borrados += 1
     return borrados > 0
+
+
+def existe_cita(telefono: str, fecha_iso: str) -> bool:
+    """¿Ya existe en el calendario una cita de este teléfono en esa
+    fecha/hora? (v3.20.4, reconciliación al arrancar).
+
+    Busca los eventos del día cuyo título trae el teléfono y cuya
+    hora de inicio coincide. Solo devuelve True con evidencia
+    positiva: si algo falla, levanta la excepción y el llamador
+    decide (la reconciliación la trata como "sin evidencia").
+    """
+    inicio = _a_datetime(fecha_iso)
+    servicio = _servicio_calendar()
+    eventos = _eventos_del_dia(servicio, inicio)
+    hora = inicio.strftime("%H:%M")
+    for evento in eventos:
+        if str(telefono) not in str(evento.get("summary", "")):
+            continue
+        start = (evento.get("start") or {}).get("dateTime", "")
+        try:
+            if _a_datetime(start).strftime("%H:%M") == hora:
+                return True
+        except Exception:  # noqa: BLE001 - evento ilegible no es evidencia
+            continue
+    return False
 
 
 def crear_cita(

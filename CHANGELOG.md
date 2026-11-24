@@ -5,6 +5,109 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.5 — Auditoría de negocio: reportes con retorno, blindaje de precios/descuentos y diseño de consentimiento (2026-11-24)
+
+Jose pidió tres auditorías de negocio antes de vender. Dos archivos
+de tests nuevos (test_auditoria_blindaje 33 casos,
+test_auditoria_reportes 17 casos) + suite completa en verde.
+
+- **Reportes con prueba de retorno (robot/report.py):** el reporte
+  semanal y el digest ahora prueban el retorno, no solo la actividad.
+  Valor estimado en pesos de las citas agendadas (desde los precios
+  de Conocimiento, cruzando por servicio; ambiguo o sin precio no
+  suma: nunca se inventan pesos), conversaciones atendidas fuera de
+  horario (con el horario de Conocimiento; sin horario no se afirma
+  nada), clientes que volvieron y agendaron (recuperados), y delta
+  de citas vs la semana anterior (desde la pestaña Reporte). Todo
+  determinista y con tests; lo que no se puede comprobar no sale en
+  el correo. Los números de retorno también van al resumen que
+  escribe la IA. Propuestas que necesitan decisión de Jose quedan
+  en auditoria-negocio-notas.md. Nota: el envío sigue dependiendo de
+  la contraseña de aplicación de Gmail en Render (pendiente de Jose).
+- **Blindaje de precios y descuentos (robot/revision.py):** casos
+  adversariales (regateo multi-turno, "el de al lado cobra $400",
+  códigos inventados, cliente burlón) reproducidos con test primero.
+  R9 ahora ve precios escritos con palabra ("mil pesos",
+  "quinientos pesos"). R11 ahora ve descuentos sin la palabra
+  "descuento" (gratis, sin costo, de regalo, cortesía, precio de
+  amigo/cliente, mitad de precio, mejorar/igualar el precio), solo
+  válidos si la frase está literal en el Conocimiento. R11 ya no
+  bloquea negaciones honestas ("jamás damos descuentos",
+  "descuentos no manejamos", "tampoco hacemos descuentos"). El
+  porcentaje escrito "20 por ciento" también se verifica contra el
+  valor permitido. El tono con IA real se calibra en la Mac de Jose
+  (batería dorada + RUBRICA-TONO-GOLDEN.md), no aquí.
+- **Aviso de privacidad y consentimiento (solo diseño):** verificado
+  que las columnas Consentimiento_mensajes/Fecha_consentimiento
+  existen pero ningún código las usa. Documento
+  aviso-privacidad-consentimiento.md (BORRADOR para Jose/abogado):
+  aviso sugerido LFPDPPP (responsable = el negocio, Sereno =
+  encargado), flujo de consentimiento en WhatsApp con registro en
+  Q/R y opt-out, y pasos de implementación sin romper flujos.
+  Sin cambios de código en esta parte.
+
+## v3.20.4 — Auditoría profunda de 7 áreas: datos, caídas, webhook, abuso, costos, multi-negocio y reportes (2026-11-24)
+
+Jose ordenó una auditoría profunda de 7 áreas antes de vender.
+Cuatro archivos de tests nuevos (test_auditoria_datos 11 casos,
+test_auditoria_webhook 6, test_auditoria_seguridad 5,
+test_auditoria_multinegocio 3) + suite completa 45/45 en verde.
+Correcciones aplicadas (cada una reproducida con test antes):
+
+- **Datos (Sheets):** `leer_pestana` leía solo A1:Z1000: al pasar
+  1000 filas, Conversaciones perdía historial viejo en silencio y
+  Clientes dejaba de ver clientes (duplicados). Ahora A1:Z10000.
+  El espejo de Citas hacía hasta 6 escrituras seguidas (fallo a la
+  mitad = espejo a medias): ahora UNA escritura atómica F:P con
+  valores viejos preservados, y cualquier fallo deja rastro en
+  Diagnóstico. La memoria (K:O + W) ya no lanza ni se pierde en
+  silencio: fallo → Diagnóstico. Guardar/borrar propuesta igual.
+- **Recuperación ante caídas:** si Render se reiniciaba justo tras
+  confirmar (cita creada en Calendar pero la propuesta no se
+  alcanzó a borrar), al arrancar la propuesta resucitaba y el
+  cliente veía "hora ocupada" tras ya confirmar. Ahora
+  `cargar_propuestas` reconcilia: descarta la propuesta solo con
+  evidencia positiva (espejo Confirmada en fecha+hora, o evento en
+  calendario vía nuevo `existe_cita`), borra la fila vieja y deja
+  rastro. Sin evidencia, se conserva (mejor resucitar de más que
+  perder una cita). `hora_libre` sigue siendo la guarda dura.
+- **Webhook de Meta:** los BOTONES no tenían dedup por wamid: un
+  reenvío de Meta atendía el mismo tap dos veces (posible correo
+  de handoff duplicado). Nuevo `Agrupador.marcar_visto`, cableado
+  en botones y en respuestas directas (audio no entendido,
+  foto/sticker). Además el webhook lanza un hilo por mensaje y
+  dos mensajes del mismo cliente podían entrar al buzón
+  desordenados: el Agrupador ahora guarda el timestamp de
+  WhatsApp y despacha el lote ordenado por él (sin timestamp:
+  orden de llegada). Persistencia en formato nuevo con
+  compatibilidad hacia atrás (carga el buzon.json viejo).
+- **Seguridad y abuso:** los botones saltaban el Limitador (tocar
+  "Hablar con persona" sin parar = un correo por toque). Ahora
+  hay `_LIMITADOR_BOTONES` (30 toques/60 s por teléfono, tap en
+  ráfaga ignorado en silencio) y `_handoff_repetido`: máximo 1
+  correo de handoff por teléfono cada 30 min (el cliente siempre
+  recibe su respuesta por WhatsApp; solo se suprime el correo
+  repetido). Las urgencias nunca se frenan. Cableado en los 3
+  sitios de handoff disparados por el cliente.
+- **Costos y límites (medición + investigación, sin código):**
+  1 llamada a Gemini por lote (memoria en el mismo JSON); prompt
+  real ≈ 5,700 tokens (el guion domina: 20.7K de 22.7K chars).
+  Meta México (tarifa 1-oct-2026): service gratis hasta 1,000
+  mensajes/mes por número, utility $0.0085/msg. Gemini free:
+  3.8-flash 5 RPM/20 RPD, flash-lite 15 RPM/500 RPD. Costo
+  marginal por cliente ≈ $0-5/mes a escala piloto; margen a
+  $3,000 MXN/mes >90%.
+- **Multi-negocio (verificación):** dos backends simulados con el
+  mismo teléfono: citas, conversaciones y memoria 100% aisladas.
+  Plantilla verificada limpia (sin datos demo). Frontera fijada
+  por test: las propuestas son estado del proceso; el aislamiento
+  es un despliegue por negocio.
+- **Recordatorios y reportes (verificación):** el fallo de la
+  plantilla recordatorio_cita cuesta $0 (Meta cobra por entregado)
+  y queda en Diagnóstico, reintentando cada hora. Reporte semanal
+  y digest salen solos al configurar Gmail en Render (el correo
+  va primero, la fila de Reporte después: sin fila huérfana).
+
 ## v3.20.3 — Pulida agrupamiento/handoff/botones: doble toque, correos que sí salen y miedos con columna propia (2026-11-24)
 
 Jose pidió una pulida profunda de los tres motores (agrupamiento,

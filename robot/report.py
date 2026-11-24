@@ -10,14 +10,23 @@ Si no hay datos, los contadores salen en cero y el correo lo dice.
 from __future__ import annotations
 
 import html as _html
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .config import settings
 from .gemini import generar_texto
-from .logic import _DIAS_NOMBRE, _MESES, contar_semana, formatear_cita_bonita
+from .logic import (
+    _DIAS_NOMBRE,
+    _MESES,
+    contar_semana,
+    formatear_cita_bonita,
+    horarios_por_dia,
+)
 from .mail import enviar_correo
 from .negocio import correo_dueno, funcion_activa, nombre_negocio
+from .revision import _montos_en_texto
 from .sheets import guardar_reporte, leer_pestana, leer_propuestas
 
 
@@ -43,6 +52,148 @@ def _en_ventana_texto(valor: str, desde: datetime, hasta: datetime) -> bool:
         return False
 
 
+# --- Métricas de retorno (v3.20.5, auditoría de negocio) -------------------
+# Lo que el cliente que paga quiere ver el lunes: cuánto valen las
+# citas que le trajo el robot, qué atendió de noche, a quiénes
+# recuperó y si va mejor que la semana pasada. Todo sale de las
+# hojas; lo que no se puede comprobar NO se afirma (None = sin dato,
+# y la línea simplemente no sale en el correo).
+
+
+def _normalizar(texto: str) -> str:
+    """Sin acentos, minúsculas, espacios simples (para cruzar el
+    motivo de la cita con el servicio de Conocimiento)."""
+    t = unicodedata.normalize("NFKD", str(texto or ""))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def _precio_servicio(motivo: str, conocimiento: list[dict]) -> int | None:
+    """Precio de un servicio desde Conocimiento, o None si no hay
+    coincidencia clara (sin servicio, sin precio, o precio ambiguo
+    con varios montos distintos en la fila). Determinista: nunca
+    adivina."""
+    objetivo = _normalizar(motivo)
+    if not objetivo:
+        return None
+    for f in conocimiento or []:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("tipo", "")).strip().lower() != "servicio":
+            continue
+        nombre = _normalizar(f.get("pregunta_o_servicio", ""))
+        if not nombre or not (objetivo in nombre or nombre in objetivo):
+            continue
+        montos = set(_montos_en_texto(" ".join(
+            str(v) for v in f.values() if isinstance(v, str))))
+        if len(montos) == 1:
+            return next(iter(montos))
+        return None  # ambiguo o sin precio: no se adivina
+    return None
+
+
+def valor_estimado_citas(citas: list[dict],
+                         conocimiento: list[dict]) -> tuple[int, int, int]:
+    """Valor estimado en pesos de las citas confirmadas, desde los
+    precios de Conocimiento. Devuelve (total, n_con_precio, n_sin).
+    Lo que no cruza con un precio conocido NO se suma: el reporte
+    nunca inventa pesos."""
+    total = 0
+    con = 0
+    sin = 0
+    for f in citas:
+        precio = _precio_servicio(str(f.get("motivo") or ""), conocimiento)
+        if precio is None:
+            sin += 1
+        else:
+            total += precio
+            con += 1
+    return total, con, sin
+
+
+def conversaciones_fuera_de_horario(conversaciones: list[dict],
+                                    conocimiento: list[dict],
+                                    desde: datetime,
+                                    hasta: datetime) -> int | None:
+    """Cuántas conversaciones atendió el robot fuera del horario del
+    negocio (el cliente escribió y el robot respondió estando
+    cerrado). None si el negocio no tiene horario en Conocimiento:
+    sin dato no se afirma nada."""
+    horarios = horarios_por_dia(conocimiento)
+    if not horarios:
+        return None
+    tz = ZoneInfo(settings.timezone)
+    n = 0
+    for f in conversaciones:
+        if f.get("quien_hablo") != "cliente":
+            continue
+        if str(f.get("robot_respondio", "")).strip() != "si":
+            continue
+        try:
+            fecha = datetime.fromisoformat(str(f.get("fecha", "")).replace("Z", "+00:00"))
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if not (desde <= fecha < hasta):
+            continue
+        local = fecha.astimezone(tz)
+        horas = horarios.get(local.weekday())
+        if horas is None:
+            n += 1  # ese día el negocio no abre
+        else:
+            minutos = local.hour * 60 + local.minute
+            if not (horas[0] <= minutos < horas[1]):
+                n += 1
+    return n
+
+
+def clientes_que_volvieron(clientes: list[dict], conversaciones: list[dict],
+                           desde: datetime, hasta: datetime) -> int:
+    """Clientes que agendaron en la ventana pero ya habían escrito
+    ANTES de ella: el robot recuperó a alguien que ya se había ido.
+    Determinista: teléfono con conversación previa a la ventana."""
+    primeras: dict[str, datetime] = {}
+    for f in conversaciones:
+        tel = str(f.get("telefono", "")).strip()
+        if not tel:
+            continue
+        try:
+            fecha = datetime.fromisoformat(str(f.get("fecha", "")).replace("Z", "+00:00"))
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if tel not in primeras or fecha < primeras[tel]:
+            primeras[tel] = fecha
+    n = 0
+    for f in clientes:
+        if str(f.get("estatus", "")).strip() != "agendado":
+            continue
+        if not _en_ventana(f, desde, hasta):
+            continue
+        tel = str(f.get("telefono", "")).strip()
+        if tel and tel in primeras and primeras[tel] < desde:
+            n += 1
+    return n
+
+
+def delta_citas_semana_anterior(filas_reporte: list[dict], desde: datetime,
+                                hasta: datetime, citas_n: int) -> int | None:
+    """Diferencia de citas vs la semana anterior, desde la pestaña
+    Reporte. None si no hay fila de la semana previa (primera
+    semana o pestaña vacía): sin dato no se afirma nada."""
+    esperada = f"{(desde - timedelta(days=7)).date()} a {desde.date()}"
+    for f in filas_reporte or []:
+        if str(f.get("semana", "")).strip() == esperada:
+            try:
+                prev = int(float(str(f.get("citas_agendadas", "")).strip()))
+            except (ValueError, TypeError):
+                return None
+            return citas_n - prev
+    return None
+
+
 def generar_resumen_manana() -> dict:
     """Resumen de la mañana: qué pasó en las últimas 24 h, por correo.
 
@@ -63,6 +214,21 @@ def generar_resumen_manana() -> dict:
     conversaciones = leer_pestana("Conversaciones")
     clientes = leer_pestana("Clientes")
     conteo = contar_semana(conversaciones, clientes, desde, hasta)
+
+    # (v3.20.5) Valor estimado de lo agendado en las últimas 24 h,
+    # con los precios de Conocimiento. Sin precio conocido, no sale
+    # la línea: el digest nunca inventa pesos.
+    _agendadas_24h = [
+        c for c in clientes
+        if _en_ventana(c, desde, hasta)
+        and str(c.get("estatus", "")).strip() == "agendado"
+    ]
+    try:
+        _conoc_24h = leer_pestana("Conocimiento")
+    except Exception:
+        _conoc_24h = []
+    _valor_24h, _con_precio_24h, _ = valor_estimado_citas(
+        _agendadas_24h, _conoc_24h)
 
     local_hoy = hasta.astimezone(ZoneInfo(settings.timezone))
     fecha_bonita = (
@@ -126,7 +292,12 @@ def generar_resumen_manana() -> dict:
         f"Mensajes atendidos: {conteo['mensajes_atendidos']}\n"
         f"Clientes nuevos: {conteo['clientes_calificados']}\n"
         f"Citas agendadas: {conteo['citas_agendadas']}\n"
-        f"Casos pasados a una persona: {conteo['handoffs']}\n\n"
+        + (
+            f"Valor estimado agendado: ${_valor_24h:,} MXN"
+            f" ({_con_precio_24h} citas con precio conocido)\n"
+            if _con_precio_24h else ""
+        )
+        + f"Casos pasados a una persona: {conteo['handoffs']}\n\n"
         + _bloque("Pendientes para hoy (necesitan una persona)", pendientes)
         + "\n"
         + _bloque("Propuestas sin contestar", propuestas)
@@ -160,7 +331,11 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                           atendidos: int, resueltas: int, pct: int, citas_n: int,
                           canceladas: int, no_show: int, horas: float,
                           sin_respuesta: int, resumen: str,
-                          confirmaciones: int = 0) -> str:
+                          confirmaciones: int = 0, valor: int = 0,
+                          citas_con_precio: int = 0,
+                          fuera_horario: int | None = None,
+                          volvieron: int = 0,
+                          delta: int | None = None) -> str:
     """Versión HTML del reporte semanal (v3.9): misma información que
     el texto, con el diseño limpio que el dueño lee en un minuto.
 
@@ -204,6 +379,36 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
             f'«Hola {e(f.get("nombre") or "")}, vi que preguntaste por {e(f.get("motivo"))}. '
             f'¿Te aparto un lugar esta semana?»</span>'
             for f in recuperar
+        )
+
+    # (v3.20.5) Filas de retorno: solo si hay dato que afirmar.
+    _filas_retorno = ""
+    if citas_con_precio:
+        _filas_retorno += (
+            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            'Valor estimado de las citas agendadas</td>'
+            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            f'<strong>${valor:,} MXN</strong> ({citas_con_precio} de {len(citas)} con precio conocido)</td></tr>'
+        )
+    if fuera_horario is not None:
+        _filas_retorno += (
+            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            'Conversaciones atendidas fuera de tu horario</td>'
+            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            f'<strong>{fuera_horario}</strong></td></tr>'
+        )
+    _filas_retorno += (
+        '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+        'Clientes que volvieron y agendaron</td>'
+        f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+        f'<strong>{volvieron}</strong></td></tr>'
+    )
+    if delta is not None:
+        _filas_retorno += (
+            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            'Citas vs semana pasada</td>'
+            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
+            f'<strong>{delta:+d}</strong></td></tr>'
         )
 
     return f"""<!DOCTYPE html>
@@ -278,7 +483,8 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Canceladas / no-show</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{canceladas} / {no_show}</strong></td></tr>
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Confirmaciones de asistencia</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{confirmaciones}</strong></td></tr>
       <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Mensajes sin respuesta del robot</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{sin_respuesta}</strong> (todos registrados)</td></tr>
-      <tr><td style="padding:7px 0;">Tiempo ahorrado estimado</td><td align="right" style="padding:7px 0;"><strong>~{horas:.1f} h</strong> (5 min por conversación resuelta)</td></tr>
+      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Tiempo ahorrado estimado</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>~{horas:.1f} h</strong> (5 min por conversación resuelta)</td></tr>
+      {_filas_retorno}
     </table>
   </td></tr>
 
@@ -374,6 +580,27 @@ def generar_reporte_semanal() -> dict:
         and "confirmó asistencia" in str(f.get("Notas", "") or "")
     )
 
+    # (v3.20.5, auditoría de negocio) Métricas de retorno para el
+    # cliente que paga: valor estimado en pesos de las citas,
+    # conversaciones fuera de horario, clientes que volvieron y
+    # agendaron, y delta vs la semana anterior. Todo sale de las
+    # hojas; lo que no se puede comprobar no se afirma.
+    try:
+        _conocimiento = leer_pestana("Conocimiento")
+    except Exception:
+        _conocimiento = []
+    valor, citas_con_precio, _citas_sin_precio = valor_estimado_citas(
+        citas, _conocimiento)
+    fuera_horario = conversaciones_fuera_de_horario(
+        conversaciones, _conocimiento, desde, hasta)
+    volvieron = clientes_que_volvieron(clientes, conversaciones, desde, hasta)
+    try:
+        _filas_reporte = leer_pestana("Reporte")
+    except Exception:
+        _filas_reporte = []
+    delta = delta_citas_semana_anterior(
+        _filas_reporte, desde, hasta, conteo["citas_agendadas"])
+
     # Métricas de valor: confirmados vs estimados, sin inventar.
     atendidos = conteo["mensajes_atendidos"]
     handoffs_n = conteo["handoffs"]
@@ -391,6 +618,17 @@ def generar_reporte_semanal() -> dict:
         ", ".join(f"{m} ({n})" for m, n in conteo["motivos_top"])
         or "sin motivos registrados"
     )
+    # (v3.20.5) Los números de retorno también van al resumen de la
+    # IA, para que el texto mencione el valor y no solo los conteos.
+    _lineas_retorno = (
+        f"Valor estimado de las citas agendadas: ${valor} MXN "
+        f"({citas_con_precio} citas con precio conocido)\n"
+        f"Conversaciones fuera de horario: "
+        f"{fuera_horario if fuera_horario is not None else 'sin dato'}\n"
+        f"Clientes que volvieron y agendaron: {volvieron}\n"
+    )
+    if delta is not None:
+        _lineas_retorno += f"Citas vs semana pasada: {delta:+d}\n"
     # (v3.0) json_mode=False: el resumen es PROSA, no JSON. En la v2.13
     # generar_texto pedía JSON siempre y el correo del lunes llegaba
     # con el texto envuelto en llaves.
@@ -405,6 +643,7 @@ def generar_reporte_semanal() -> dict:
         f"Confirmaciones de asistencia: {confirmaciones}\n"
         f"Casos pasados a una persona: {conteo['handoffs']}\n"
         f"Mensajes sin responder porque una persona atendía: {conteo['sin_respuesta_por_humano']}\n"
+        f"{_lineas_retorno}"
         f"Motivos más comunes: {motivos}",
         json_mode=False,
     )
@@ -436,6 +675,24 @@ def generar_reporte_semanal() -> dict:
     else:
         lineas_recuperar = "Nadie por recuperar esta semana."
 
+    # (v3.20.5) Líneas de retorno: solo salen si hay dato que
+    # afirmar. Sin precios conocidos en Conocimiento, no se inventa
+    # un valor en pesos; sin horario configurado, no se afirma lo
+    # de fuera de horario; sin semana previa, no hay delta.
+    _lineas_valor = ""
+    if citas_con_precio:
+        _lineas_valor += (
+            f"- Valor estimado de las citas agendadas: ${valor:,} MXN"
+            f" (precio conocido en {citas_con_precio} de {len(citas)} citas)\n"
+        )
+    if fuera_horario is not None:
+        _lineas_valor += (
+            f"- Conversaciones atendidas fuera de tu horario: {fuera_horario}\n"
+        )
+    _lineas_valor += f"- Clientes que volvieron y agendaron: {volvieron}\n"
+    if delta is not None:
+        _lineas_valor += f"- Citas vs semana pasada: {delta:+d}\n"
+
     cuerpo = (
         f"Tu semana en {nombre_neg} — {semana}\n\n"
         "Aquí está tu semana, sin que tengas que entrar a ningún lado.\n\n"
@@ -452,7 +709,8 @@ def generar_reporte_semanal() -> dict:
         f"- Tiempo ahorrado estimado: ~{horas:.1f} h"
         " (5 min por conversación resuelta)\n"
         f"- Mensajes sin respuesta del robot: {sin_respuesta}"
-        " (todos quedaron registrados en la hoja)\n\n"
+        " (todos quedaron registrados en la hoja)\n"
+        f"{_lineas_valor}\n"
         f"{resumen}\n"
     )
     html = _html_reporte_semanal(
@@ -460,7 +718,9 @@ def generar_reporte_semanal() -> dict:
         recuperar=recuperar, atendidos=atendidos, resueltas=resueltas, pct=pct,
         citas_n=conteo["citas_agendadas"], canceladas=canceladas, no_show=no_show,
         horas=horas, sin_respuesta=sin_respuesta, resumen=resumen,
-        confirmaciones=confirmaciones,
+        confirmaciones=confirmaciones, valor=valor,
+        citas_con_precio=citas_con_precio, fuera_horario=fuera_horario,
+        volvieron=volvieron, delta=delta,
     )
     enviar_correo(
         correo_dueno(),
@@ -476,4 +736,9 @@ def generar_reporte_semanal() -> dict:
         conteo["handoffs"],
         resumen,
     )
-    return {"semana": semana, **conteo, "resumen": resumen}
+    return {
+        "semana": semana, **conteo, "resumen": resumen,
+        "valor_estimado": valor, "citas_con_precio": citas_con_precio,
+        "fuera_de_horario": fuera_horario, "volvieron": volvieron,
+        "delta_citas": delta,
+    }

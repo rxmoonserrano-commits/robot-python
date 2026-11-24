@@ -194,7 +194,7 @@ def main():
         "Claro, te cuento todo con calma. Tenemos limpieza dental, blanqueamiento "
         "y ortodoncia, todos con cita previa y con facilidades de pago en efectivo "
         "o con tarjeta, y estamos de lunes a viernes de nueve a seis de la tarde. "
-        "También tenemos consultas de valoración sin costo la primera vez, y si "
+        "También tenemos consultas de valoración sin compromiso la primera vez, y si "
         "vienes con un familiar, los dos se atienden el mismo día sin problema. "
         "¿Qué día te viene mejor para agendarte?"
     )

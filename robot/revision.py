@@ -319,6 +319,26 @@ def _partir_oraciones(texto: str) -> list[str]:
 # (v3.17) Montos escritos como "$600" / "$1,800" o "600 pesos".
 _MONTO_RE = re.compile(r"\$\s*(\d[\d,]*)|(\d[\d,]*)\s*(?:pesos|mxn)\b", re.IGNORECASE)
 
+# (v3.20.5) Montos escritos con palabra ("mil pesos", "quinientos
+# pesos"): la IA puede escribir el precio así en español casual y
+# R9 debe verlo igual que "$1,000". Solo cuentan si van seguidos de
+# "pesos"/"mxn" (un "mil gracias" no es un precio).
+_PALABRA_A_MONTO = {
+    "cien": 100, "doscientos": 200, "trescientos": 300, "cuatrocientos": 400,
+    "quinientos": 500, "seiscientos": 600, "setecientos": 700,
+    "ochocientos": 800, "novecientos": 900, "mil": 1000,
+    "dos mil": 2000, "tres mil": 3000, "cuatro mil": 4000, "cinco mil": 5000,
+}
+_MONTO_PALABRA_RE = re.compile(
+    r"\b(dos mil|tres mil|cuatro mil|cinco mil|"
+    r"(?:cien|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|"
+    r"setecientos|ochocientos|novecientos|mil)"
+    r"(?:\s+(?:cien|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|"
+    r"setecientos|ochocientos|novecientos))?)"
+    r"\s*(?:pesos|mxn)\b",
+    re.IGNORECASE,
+)
+
 # (v3.17) Respuesta segura cuando la IA inventa un precio: misma
 # frase del guion para lo que no está en Conocimiento.
 _RESPUESTA_PRECIO_INVENTADO = (
@@ -327,12 +347,25 @@ _RESPUESTA_PRECIO_INVENTADO = (
 
 
 def _montos_en_texto(texto: str) -> list[int]:
-    """Montos escritos con $ o con 'pesos' en un texto (v3.17)."""
+    """Montos escritos con $ o con 'pesos' en un texto (v3.17).
+
+    (v3.20.5) También reconoce los escritos con palabra ("mil
+    pesos", "quinientos pesos"): en español casual la IA puede
+    escribir el precio así y R9 debe verlo igual que "$1,000".
+    """
     montos = []
     for m in _MONTO_RE.finditer(texto or ""):
         crudo = (m.group(1) or m.group(2) or "").replace(",", "").strip()
         if crudo.isdigit():
             montos.append(int(crudo))
+    for m in _MONTO_PALABRA_RE.finditer(texto or ""):
+        total = sum(
+            _PALABRA_A_MONTO[w]
+            for w in m.group(1).lower().split()
+            if w in _PALABRA_A_MONTO
+        )
+        if total:
+            montos.append(total)
     return montos
 
 
@@ -364,6 +397,17 @@ _DESCUENTO_PALABRAS = (
     "oferta especial", "2x1",
 )
 
+# (v3.20.5) Promesas de descuento que NO usan la palabra
+# "descuento": "gratis", "de cortesía", "precio de amigo", "a
+# mitad de precio", igualar al competidor... Cuestan dinero al
+# negocio igual que un porcentaje, así que R11 las trata igual:
+# solo valen si la frase está LITERAL en el Conocimiento.
+_DESCUENTO_EXTRA = (
+    "gratis", "sin costo", "de regalo", "te regalo", "cortesia",
+    "precio de amigo", "precio de cliente", "mitad de precio",
+    "mejoro el precio", "igualo el precio",
+)
+
 
 def texto_conocimiento(conocimiento: list[dict]) -> str:
     """El Conocimiento como un solo texto, sin acentos (v3.20.2).
@@ -387,10 +431,24 @@ def _es_negacion_descuento(normal: str) -> bool:
     descuentos" son honestidad, no invento: se dejan pasar. Un
     "descuento" ofrecido ("te hago un descuento") no trae negación
     antes de la palabra y sí se atrapa.
+
+    (v3.20.5) También cuenta la negación justo DESPUÉS de la
+    palabra ("descuentos no manejamos", "tampoco hacemos
+    descuentos", "jamás damos descuentos") y cubre las promesas
+    sin la palabra "descuento" ("no es gratis").
     """
     if re.search(
-        r"\b(no|sin|nunca)\b[^.]{0,30}(descuento|promocion|rebaja|"
-        r"precio especial|oferta especial|2x1)",
+        r"\b(no|sin|nunca|jamas|tampoco)\b[^.]{0,30}(descuento|promocion|rebaja|"
+        r"precio especial|precio de amigo|precio de cliente|oferta especial|"
+        r"2x1|gratis|sin costo|de regalo|te regalo|cortesia|mitad de precio|"
+        r"mejoro el precio|igualo el precio)",
+        normal,
+    ):
+        return True
+    # "Descuentos no manejamos" / "promociones no tenemos": la
+    # negación va justo después de la palabra clave.
+    if re.search(
+        r"\b(descuentos?|promociones?|rebajas?)\s+(no|sin|nunca|jamas|tampoco)\b",
         normal,
     ):
         return True
@@ -423,6 +481,17 @@ def _tiene_descuento_inventado(texto: str, texto_conoc: str) -> bool:
     _conoc_habla = (
         any(p in texto_conoc for p in _DESCUENTO_PALABRAS) or "%" in texto_conoc
     )
+    # (v3.20.5) Promesas sin la palabra "descuento" (gratis,
+    # cortesía, precio de amigo, mitad de precio, igualar...): solo
+    # valen si la frase está LITERAL en el Conocimiento. Una frase
+    # negada ("no es gratis") es honestidad y pasa.
+    for oracion in _partir_oraciones(texto):
+        normal = _sin_acentos(oracion)
+        if _es_negacion_descuento(normal):
+            continue
+        for p in _DESCUENTO_EXTRA:
+            if p in normal and p not in texto_conoc:
+                return True
     if not _conoc_habla:
         # Sin descuentos conocidos: cualquier promesa es invento.
         for oracion in _partir_oraciones(texto):
@@ -430,10 +499,11 @@ def _tiene_descuento_inventado(texto: str, texto_conoc: str) -> bool:
             if any(p in normal for p in _DESCUENTO_PALABRAS):
                 if not _es_negacion_descuento(normal):
                     return True
-            # Porcentaje suelto ("te hago un 20%"): sin % en el
-            # Conocimiento, es un descuento inventado. Se excluye el
-            # "100%" de énfasis ("100% segura"), que no es un descuento.
-            for m in re.finditer(r"(\d[\d,]*)\s*%", normal):
+            # Porcentaje suelto ("te hago un 20%" o "20 por ciento"):
+            # sin % en el Conocimiento, es un descuento inventado. Se
+            # excluye el "100%" de énfasis ("100% segura"), que no es
+            # un descuento.
+            for m in re.finditer(r"(\d[\d,]*)\s*(?:%|por ciento)", normal):
                 if m.group(1).replace(",", "") == "100":
                     continue
                 if not _es_negacion_descuento(normal):
@@ -443,13 +513,13 @@ def _tiene_descuento_inventado(texto: str, texto_conoc: str) -> bool:
     # literales del Conocimiento.
     _permitidos_pct = {
         m.group(1).replace(",", "")
-        for m in re.finditer(r"(\d[\d,]*)\s*%", texto_conoc)
+        for m in re.finditer(r"(\d[\d,]*)\s*(?:%|por ciento)", texto_conoc)
     }
     for oracion in _partir_oraciones(texto):
         normal = _sin_acentos(oracion)
         if _es_negacion_descuento(normal):
             continue
-        for m in re.finditer(r"(\d[\d,]*)\s*%", normal):
+        for m in re.finditer(r"(\d[\d,]*)\s*(?:%|por ciento)", normal):
             if m.group(1).replace(",", "") == "100":
                 continue
             if m.group(1).replace(",", "") not in _permitidos_pct:

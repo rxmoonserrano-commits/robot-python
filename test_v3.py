@@ -366,8 +366,11 @@ with tempfile.TemporaryDirectory() as tmp:
     assert ag1.agregar("521", "hola", wamid="w1") is False  # duplicado
     import json as _json
     guardado = _json.load(open(ruta, encoding="utf-8")) if os.path.exists(ruta) else {}
+    # (v3.20.4) El archivo guarda entradas [timestamp, seq, texto,
+    # wamid]; el texto es el tercer campo.
+    _entradas = guardado.get("pendientes", {}).get("521", {}).get("entradas", [])
     caso("(f) El buzón se guarda en disco al agregar",
-         guardado.get("pendientes", {}).get("521", {}).get("textos") == ["hola", "¿cuánto cuesta?"],
+         [e[2] for e in _entradas] == ["hola", "¿cuánto cuesta?"],
          f"guardado={guardado}")
     ag2 = Agrupador(lambda t, n, x, w: lotes2.append((t, x)), espera_segundos=60, archivo=ruta)
     n = ag2.cargar()
@@ -386,8 +389,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.20.3",
-     'version="3.20.3"' in app_txt or "VERSION = \"3.20.3\"" in app_txt,
+caso("(g) La app es la versión 3.20.5",
+     'version="3.20.5"' in app_txt or "VERSION = \"3.20.5\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt

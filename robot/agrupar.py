@@ -16,6 +16,17 @@ Cómo funciona:
   contesta dos veces lo mismo. Los wamids ya vistos viven en memoria
   (para guardarlos para siempre haría falta una base de datos; eso es
   una mejora futura, ver README).
+- (v3.20.4) Orden por timestamp: el webhook lanza un hilo por
+  mensaje, así que dos mensajes del mismo cliente pueden entrar al
+  buzón desordenados. Cada entrada guarda el timestamp que manda
+  WhatsApp y el lote se despacha ordenado por ese timestamp (sin
+  timestamp se conserva el orden de llegada). Así "no, mejor el
+  miércoles" nunca queda antes de "quiero el martes" por una
+  carrera de hilos.
+- (v3.20.4) marcar_visto(wamid): registra un wamid como visto y
+  devuelve False si ya estaba. Lo usan los botones y las respuestas
+  directas, que no pasan por el buzón: sin esto, un reenvío de Meta
+  atendía el mismo tap dos veces (p. ej. dos correos de handoff).
 
 El webhook solo mete el mensaje en el buzón y devuelve 200 enseguida;
 el trabajo pesado (Gemini, Sheets) pasa en segundo plano, en el hilo
@@ -66,6 +77,9 @@ class Agrupador:
         self.max_vistos = max(1, int(max_vistos))
         self._candado = threading.Lock()
         self._pendientes: dict[str, dict] = {}
+        # (v3.20.4) Contador de llegada: desempata el orden cuando
+        # dos entradas traen el mismo timestamp (o ninguno).
+        self._seq = 0
         # dict como conjunto ordenado (Python 3.7+): las claves salen
         # en orden de inserción, así el desalojo es FIFO.
         self._vistos: dict[str, None] = {}
@@ -75,7 +89,47 @@ class Agrupador:
     def pendientes(self) -> int:
         """Cuántos teléfonos tienen un lote esperando (para /estado)."""
         with self._candado:
-            return sum(1 for b in self._pendientes.values() if b["textos"])
+            return sum(1 for b in self._pendientes.values() if b["entradas"])
+
+    def _registrar_visto(self, wamid: str) -> bool:
+        """(Con el candado tomado) Marca un wamid como visto.
+
+        Devuelve False si ya estaba (Meta lo reenvió). Al pasar el
+        tope se desalojan los más viejos (FIFO), nunca todos.
+        """
+        if wamid in self._vistos:
+            return False
+        self._vistos[wamid] = None
+        while len(self._vistos) > self.max_vistos:
+            self._vistos.pop(next(iter(self._vistos)))
+        return True
+
+    def marcar_visto(self, wamid: str) -> bool:
+        """Registra un wamid como visto. False si ya estaba.
+
+        Para los caminos que NO pasan por el buzón (botones,
+        respuestas directas): sin esto, un reenvío de Meta atendía
+        el mismo mensaje dos veces. (v3.20.4)
+        """
+        if not wamid:
+            return True
+        with self._candado:
+            nuevo = self._registrar_visto(wamid)
+        if nuevo:
+            self._guardar()
+        return nuevo
+
+    @staticmethod
+    def _clave_orden(entrada):
+        """Clave de orden del lote: por timestamp de WhatsApp.
+
+        Las entradas sin timestamp van al final, en orden de
+        llegada (compatibilidad con llamadas viejas sin timestamp).
+        """
+        ts, seq = entrada[0], entrada[1]
+        if ts is None:
+            return (1, 0.0, seq)
+        return (0, ts, seq)
 
     def procesando(self) -> int:
         """Cuántos teléfonos tienen un lote en proceso (para /estado)."""
@@ -90,7 +144,7 @@ class Agrupador:
             with self._candado:
                 datos = {
                     "pendientes": {
-                        tel: {"textos": list(b["textos"]), "wamids": list(b["wamids"]),
+                        tel: {"entradas": [list(e) for e in b["entradas"]],
                               "nombre": b["nombre"]}
                         for tel, b in self._pendientes.items()
                     },
@@ -121,14 +175,29 @@ class Agrupador:
         restaurados = 0
         with self._candado:
             for telefono, buzon in (datos.get("pendientes") or {}).items():
-                if not buzon.get("textos"):
+                # (v3.20.4) Formato nuevo: entradas [ts, seq, texto,
+                # wamid]. Formato viejo (v3.20.3 y antes): textos +
+                # wamids sueltos; se cargan sin timestamp, en orden.
+                if buzon.get("entradas") is not None:
+                    entradas = []
+                    for e in buzon["entradas"]:
+                        e = list(e) + ["", "", ""][: max(0, 4 - len(e))]
+                        entradas.append([e[0], int(e[1] or 0), e[2], e[3]])
+                else:
+                    textos = buzon.get("textos") or []
+                    wamids = buzon.get("wamids") or []
+                    entradas = [
+                        [None, i, t, (wamids[i] if i < len(wamids) else "")]
+                        for i, t in enumerate(textos)
+                    ]
+                if not entradas:
                     continue
                 self._pendientes[telefono] = {
-                    "textos": list(buzon["textos"]),
-                    "wamids": list(buzon.get("wamids", [])),
+                    "entradas": entradas,
                     "nombre": buzon.get("nombre", ""),
                     "timer": None,
                 }
+                self._seq = max(self._seq, max(e[1] for e in entradas) + 1)
                 timer = threading.Timer(self.espera_segundos, self._disparar, args=(telefono,))
                 timer.daemon = True
                 self._pendientes[telefono]["timer"] = timer
@@ -138,31 +207,33 @@ class Agrupador:
                 self._vistos[wamid] = None
         return restaurados
 
-    def agregar(self, telefono: str, texto: str, wamid: str = "", nombre: str = "") -> bool:
+    def agregar(self, telefono: str, texto: str, wamid: str = "", nombre: str = "",
+                timestamp=None) -> bool:
         """Mete un mensaje en el buzón. Devuelve False si es un duplicado.
 
         Devuelve True si se guardó (aunque todavía no se procese).
+
+        timestamp: (v3.20.4) el timestamp que manda WhatsApp (segundos
+        desde epoch). El lote se despacha ordenado por este valor, no
+        por el orden en que los hilos del webhook alcanzaron el
+        candado. Sin timestamp, se conserva el orden de llegada.
         """
+        try:
+            ts = float(timestamp) if timestamp not in (None, "") else None
+        except (TypeError, ValueError):
+            ts = None
         with self._candado:
             if wamid:
-                if wamid in self._vistos:
+                if not self._registrar_visto(wamid):
                     return False  # Meta lo reenvió: no contestar dos veces.
-                self._vistos[wamid] = None
-                # (v3.20.3) Desalojo FIFO: se van los wamids más
-                # viejos, no todos. Antes se borraba la lista entera
-                # y un reenvío de Meta se reprocesaba (el cliente
-                # recibía la respuesta dos veces).
-                while len(self._vistos) > self.max_vistos:
-                    self._vistos.pop(next(iter(self._vistos)))
             buzon = self._pendientes.get(telefono)
             if buzon is None:
-                buzon = {"textos": [], "wamids": [], "nombre": nombre, "timer": None}
+                buzon = {"entradas": [], "nombre": nombre, "timer": None}
                 self._pendientes[telefono] = buzon
             if nombre:
                 buzon["nombre"] = nombre
-            buzon["textos"].append(texto)
-            if wamid:
-                buzon["wamids"].append(wamid)
+            buzon["entradas"].append([ts, self._seq, texto, wamid])
+            self._seq += 1
             # Reiniciar el temporizador: se espera desde el ÚLTIMO mensaje.
             if buzon["timer"] is not None:
                 buzon["timer"].cancel()
@@ -180,7 +251,7 @@ class Agrupador:
         """
         with self._candado:
             buzon = self._pendientes.get(telefono)
-            if not buzon or not buzon["textos"]:
+            if not buzon or not buzon["entradas"]:
                 return False
             if buzon["timer"] is not None:
                 buzon["timer"].cancel()
@@ -202,17 +273,23 @@ class Agrupador:
                     # más y volver a intentar (los mensajes nuevos ya están
                     # guardados en el buzón como lote nuevo).
                     buzon = self._pendientes.get(telefono)
-                    if buzon and buzon["textos"]:
+                    if buzon and buzon["entradas"]:
                         timer = threading.Timer(2.0, self._disparar, args=(telefono,))
                         timer.daemon = True
                         buzon["timer"] = timer
                         timer.start()
                     return
             buzon = self._pendientes.pop(telefono, None)
-            if not buzon or not buzon["textos"]:
+            if not buzon or not buzon["entradas"]:
                 return
             self._procesando[telefono] = time.monotonic()
-            textos, wamids, nombre = buzon["textos"], buzon["wamids"], buzon["nombre"]
+            # (v3.20.4) El lote sale ordenado por el timestamp de
+            # WhatsApp, no por el orden en que los hilos del webhook
+            # alcanzaron el candado.
+            entradas = sorted(buzon["entradas"], key=self._clave_orden)
+            textos = [e[2] for e in entradas]
+            wamids = [e[3] for e in entradas if e[3]]
+            nombre = buzon["nombre"]
         self._guardar()
         try:
             self.callback(telefono, nombre, textos, wamids)

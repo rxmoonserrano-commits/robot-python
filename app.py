@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.3"
+VERSION = "3.20.5"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -178,6 +178,15 @@ class DependenciasReales(Dependencias):
             return booking.hora_libre(fecha_iso)
         except Exception:
             return True
+
+    def existe_cita_en_calendario(self, telefono, fecha_iso):
+        # (v3.20.4) Reconciliación al arrancar: ¿la cita de esta
+        # propuesta ya existe en el calendario? Si el calendario
+        # falla, False (sin evidencia: la propuesta se conserva).
+        try:
+            return booking.existe_cita(telefono, fecha_iso)
+        except Exception:
+            return False
 
     def cancelar_cita(self, telefono, fecha_cita):
         return booking.cancelar_cita(telefono, fecha_cita)
@@ -378,6 +387,13 @@ _AGRUPADOR = Agrupador(
 # conversación, y agota la cuota gratis de Gemini.
 _LIMITADOR = Limitador()
 
+# (v3.20.4) Los botones también tienen su límite, en un contador
+# aparte (para no contaminar el de textos): 30 toques en 60 s está
+# muy por encima de cualquier flujo legítimo (una propuesta se toca
+# 1-3 veces), y frena a quien toque sin parar para inundar
+# WhatsApp y correos.
+_LIMITADOR_BOTONES = Limitador(max_mensajes=30, ventana_segundos=60.0)
+
 
 def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
     """Mete UN mensaje en el buzón (o atiende un botón). Corre en segundo plano.
@@ -425,6 +441,18 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         boton_id = boton.get("id", "")
         if not boton_id:
             return
+        # (v3.20.4) Dedup: si Meta reenvía el mismo tap (mismo
+        # wamid), no se atiende dos veces. Antes el botón no pasaba
+        # por ningún dedup: un reenvío podía mandar el correo de
+        # handoff dos veces.
+        if wamid and not _AGRUPADOR.marcar_visto(wamid):
+            return
+        # (v3.20.4) Anti-abuso también para botones: si el teléfono
+        # está en ráfaga de toques, el tap se ignora en silencio.
+        # La propuesta queda pendiente; un toque después de la
+        # ventana funciona normal.
+        if _LIMITADOR_BOTONES.registrar(telefono) != "ok":
+            return
         try:
             # (v3.20.3) Si el cliente mandó textos que aún están en
             # el buzón de agrupamiento, se atienden primero: el
@@ -452,6 +480,10 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
             # (v2.5) Un audio que no se entendió NO se ignora en silencio:
             # se le pide al cliente que lo escriba. 24/7 significa que
             # nadie se queda esperando sin saber qué pasó.
+            # (v3.20.4) Se marca el wamid como visto: si Meta reenvía
+            # este mismo audio, no se le manda el aviso dos veces.
+            if wamid:
+                _AGRUPADOR.marcar_visto(wamid)
             _responder_directo(
                 telefono,
                 "No pude escuchar tu audio, ¿me lo escribes por favor? Así te atiendo enseguida.",
@@ -466,6 +498,10 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         # cliente: si luego pregunta "¿qué recibiste?", el robot lo sabe
         # por el historial y no inventa (en vivo inventó "un sticker
         # del sistema" porque el registro decía solo "(image recibido)").
+        # (v3.20.4) Mismo dedup que el audio: un reenvío de Meta no
+        # repite la respuesta.
+        if wamid:
+            _AGRUPADOR.marcar_visto(wamid)
         _responder_directo(
             telefono,
             "Gracias, lo recibí. ¿Me cuentas con tus palabras qué necesitas? Así te ayudo mejor.",
@@ -490,7 +526,8 @@ def _ingresar_mensaje(mensaje: dict, valor: dict) -> None:
         return
     if decision == "silencio":
         return
-    _AGRUPADOR.agregar(telefono, texto, wamid=wamid, nombre=nombre)
+    _AGRUPADOR.agregar(telefono, texto, wamid=wamid, nombre=nombre,
+                       timestamp=mensaje.get("timestamp"))
 
 
 def _responder_directo(telefono: str, texto: str, motivo: str) -> None:

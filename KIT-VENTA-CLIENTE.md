@@ -1,12 +1,12 @@
 # Kit de venta — Sereno (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24. v3.20.3 "Pulida agrupamiento/handoff/botones" construida y probada en local (suite verde, zip fresco listo); v3.20.2 ya está en vivo en Render. No digas "en vivo v3.20.3" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24. v3.20.5 "Auditoría de negocio: reportes con retorno, blindaje de precios/descuentos y diseño de consentimiento" construida y probada en local (suite verde 47/47, zip fresco listo); v3.20.3 ya está en vivo en Render. No digas "en vivo v3.20.5" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Sereno (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.20.3 (ya probado: suite completa verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35)
+## Lo que trae la v3.20.5 (ya probado: suite completa 47/47 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 17/17)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
@@ -23,6 +23,9 @@ Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas
 - Seguridad: firma de Meta verificada, token de dueño, anti-abuso, interruptor general y por cliente. No inventa precios ni horarios: si no está en la hoja, pasa a humano.
 - Pulida conversacional (v3.20.2): el guion trae respuestas para miedo/fobia, cliente triste, quejas delicadas, pedidos fuera de lo normal y mensajes contradictorios; el revisor atrapa descuentos inventados (R11), el robot-speak de "pendientes" (R12) y la re-pregunta tras un "ok" (R13); "canselo"/"canbiar" ya cancelan y cambian de verdad.
 - Pulida agrupamiento/handoff/botones (v3.20.3): doble toque nunca duplica cita; el interruptor general también frena los botones; el correo de handoff siempre trae el hilo de la conversación (y por fin sale: había un bug que los perdía en silencio); R11 con valor exacto; miedos guardados en su columna (W) para atender con cuidado la próxima vez; "desagendar"/"pospon" ya cancelan y cambian de verdad.
+- Auditoría profunda de 7 áreas (v3.20.4): datos blindados (ninguna escritura crítica se pierde en silencio; si Google falla, queda rastro en Diagnóstico); si Render se reinicia tras confirmar, la cita no se duplica ni se pierde (reconciliación al arrancar); los mensajes llegan en orden y sin duplicados aunque Meta reenvíe; anti-spam de correos (máx. 1 aviso de handoff por cliente cada 30 min, las urgencias siempre avisan); costos medidos: ~$0-5/mes por negocio a escala piloto (Meta + IA gratis o centavos).
+- Reportes con prueba de retorno (v3.20.5): el correo semanal y el digest prueban el retorno, no solo la actividad — valor estimado en pesos de las citas agendadas (desde los precios de la hoja, sin inventar), conversaciones atendidas fuera de horario, clientes que volvieron y agendaron, y citas vs semana pasada. Es lo que hace que el cliente diga "esto se paga solo".
+- Blindaje de precios y descuentos (v3.20.5): ni regateando en 3 turnos, ni con "el de al lado cobra $400", ni con códigos inventados, ni con un cliente burlón, el robot suelta un precio o un descuento que no esté en la hoja — ni escritos con palabra ("mil pesos"), ni "gratis", ni "precio de amigo". Y ya no bloquea respuestas honestas ("jamás damos descuentos").
 
 ## 1. La hoja del cliente (copia de la plantilla)
 
@@ -88,11 +91,11 @@ Después comparte la copia con el correo de la cuenta de servicio de Google (el 
 
 - [ ] Aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp Manager → Plantillas, tipo utilidad, es_MX, cuerpo con {{1}} y {{2}}). Sin ella los recordatorios se rechazan y no cuestan nada, pero el paciente no recibe nada.
 - [ ] Contraseña de aplicación de Gmail en Render (`GMAIL_USER` + `GMAIL_APP_PASSWORD`): sin ella no salen los correos del dueño ni el reporte semanal.
-- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.3).
+- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.5).
 - [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): ya está el guion listo en `~/workspace/prueba-conversacional-en-vivo.md` (3 conversaciones cortas, ~10 min) — dos citas, cambio de hora, handoff, urgencia.
 - [ ] Elegir nicho y probar la oferta con 5 negocios: si 3 de 5 dicen que sí o lo piensan en serio, el precio está en buen lugar.
 
 ## Qué NO hace falta
 
-- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.3 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.20.2), con simulaciones conversacionales, adversariales y de pulida en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
+- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.5 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.20.3), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos y los reportes con retorno en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
 - **El repo `robot-whatsapp` está vacío** y apagado; el único robot real es `robot-python`. No hay nada que apagar.

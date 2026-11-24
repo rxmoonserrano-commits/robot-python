@@ -400,13 +400,16 @@ def j18():
 
 def j19():
     # Dos urgencias seguidas: la segunda no duplica la propuesta.
+    # (v3.20.4) El segundo correo de handoff se suprime por el
+    # anti-spam (30 min por teléfono): el dueño ya fue alertado
+    # con la primera urgencia; el cliente sí recibe su respuesta.
     d = nuevo_c()
     msg(d, "me duele mucho la muela, es urgente")
     if propuesta_actual() is None:
         return False, "primera urgencia sin propuesta"
     msg(d, "sigo con mucho dolor, es urgente")
-    if len(d.alertas_handoff) != 2:
-        return False, f"segunda urgencia sin handoff (handoff={len(d.alertas_handoff)})"
+    if not d.alertas_handoff:
+        return False, "segunda urgencia sin handoff"
     if propuesta_actual() is None:
         return False, "perdió la propuesta tras la segunda urgencia"
     msg(d, "sí")
@@ -555,7 +558,7 @@ def main():
         ("J16 cita inminente: la IA recibe cuánto falta", j16),
         ("J17 se despide y vuelve: cerrada→regreso con precio", j17),
         ("J18 cambiar con dos citas: cambia la suya, la otra se re-propone", j18),
-        ("J19 dos urgencias seguidas: handoff ×2, una sola propuesta", j19),
+        ("J19 dos urgencias seguidas: handoff (1 correo, dedup), una sola propuesta", j19),
         ("J20 cita para otra persona: sale a nombre de ella", j20),
         ("J21 confirma→cancela→'confirma asistencia': nada se crea de la nada", j21),
         ("J22 memoria al final del viaje: el robot aprendió algo", j22),
