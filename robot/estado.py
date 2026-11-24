@@ -140,7 +140,10 @@ def estado_cliente(
             tiene_cita = _f.date() >= _hoy
         except Exception:
             pass
-    nombre_final = nombre or str(cliente.get("nombre", "") or "")
+    # (v3.20.9) El nombre confirmado en Clientes (columna B) manda
+    # sobre el de perfil de WhatsApp: si el cliente confirmó su
+    # nombre, es con ese con el que se le trata.
+    nombre_final = str(cliente.get("nombre", "") or "").strip() or (nombre or "")
 
     # (v3.1) La oferta verbal: el último mensaje del robot ofreció
     # una cita en el texto ("¿Te la agendo para mañana a las 9:00?"),

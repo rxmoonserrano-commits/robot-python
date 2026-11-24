@@ -478,7 +478,12 @@ def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
 
     Reglas, en simple:
     - La fecha es la más reciente (la nueva).
-    - Nombre, motivo y fecha de cita: el nuevo si viene con algo, si no,
+    - Nombre (v3.20.9): el que YA hay si no está vacío. El nombre
+      confirmado por el cliente (escrito directo por
+      actualizar_nombre_cliente) nunca se pisa con el nombre de
+      perfil de WhatsApp que trae un registrar_cliente posterior;
+      un nombre nuevo solo entra si la fila no tenía ninguno.
+    - Motivo y fecha de cita: el nuevo si viene con algo, si no,
       se queda lo que ya había.
     - Estatus: nunca baja. "agendado" vale más que "calificado", y este
       más que "en conversacion". Una cita confirmada no se borra porque
@@ -497,7 +502,7 @@ def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
     )
     return [
         dato["fecha"] or viejo["fecha"],
-        dato["nombre"] or viejo["nombre"],
+        viejo["nombre"] or dato["nombre"],  # nombre: el confirmado manda
         viejo["telefono"] or dato["telefono"],
         dato["motivo"] or viejo["motivo"],
         dato["fecha_cita"] or viejo["fecha_cita"],
@@ -585,6 +590,12 @@ _COL_MIEDOS = "Miedos / sensibilidades"
 # encabezado, no se escribe nada (compatibilidad hacia atrás).
 _COL_PREFERENCIAS = "Preferencias"
 _COL_ACOMPANANTE = "Acompañante / familia"
+# (v3.20.9) Correo del cliente en su propia columna (Z, también AL
+# FINAL): dato que el cliente confirma una sola vez y el robot usa
+# sin volver a pedirlo (enviar información, cotizaciones). Misma
+# regla que W/X/Y: se lee por nombre de encabezado y si la hoja
+# aún no tiene el encabezado, no se escribe nada.
+_COL_CORREO = "Correo"
 
 
 def _acumular_hecho(viejo: str, nuevo: str) -> str | None:
@@ -604,8 +615,9 @@ def _acumular_hecho(viejo: str, nuevo: str) -> str | None:
 
 def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
                             proxima_accion: str = "", preferencias: str = "",
-                            miedos: str = "", acompanante: str = "") -> None:
-    """Guarda la memoria del cliente en Clientes (K, L, N, O, W, X, Y).
+                            miedos: str = "", acompanante: str = "",
+                            correo: str = "") -> None:
+    """Guarda la memoria del cliente en Clientes (K, L, N, O, W, X, Y, Z).
 
     No hace nada si no hay nada nuevo, y no hace nada si el teléfono
     no tiene fila (el cliente se registra primero por otro lado).
@@ -616,6 +628,10 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
     notas se siguen leyendo de ahí (respaldo en logic.py). Si la hoja
     aún no tiene el encabezado X o Y, ese hecho no se escribe (el
     resumen sigue guardando el contexto).
+
+    (v3.20.9) El correo va a su columna Z "Correo" (reemplaza: es
+    un identificador, manda el último confirmado). Si la hoja aún
+    no tiene el encabezado Z, no se escribe nada.
     """
     encontrado = _fila_cliente_por_telefono(telefono)
     if encontrado is None:
@@ -646,7 +662,12 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
     miedos_nuevo: str | None = None
     if str(miedos or "").strip() and _COL_MIEDOS in fila:
         miedos_nuevo = _acumular_hecho(fila.get(_COL_MIEDOS, ""), miedos)
-    if not nuevos and not miedos_nuevo and not prefs_nuevo and not acomp_nuevo:
+    # (v3.20.9) Correo: reemplaza (el último confirmado manda). Solo
+    # se escribe si la hoja ya tiene el encabezado Z.
+    correo_nuevo: str | None = None
+    if str(correo or "").strip() and _COL_CORREO in fila:
+        correo_nuevo = str(correo).strip()[:120]
+    if not nuevos and not miedos_nuevo and not prefs_nuevo and not acomp_nuevo and not correo_nuevo:
         return
     # (v3.20.4, auditoría de datos) Antes, si la escritura de W
     # fallaba después de la de K:O, la excepción subía y el llamador
@@ -691,8 +712,54 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
                 valueInputOption="RAW",
                 body={"values": [[acomp_nuevo]]},
             ).execute()
+        if correo_nuevo:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Clientes!Z{numero_fila}",
+                valueInputOption="RAW",
+                body={"values": [[correo_nuevo]]},
+            ).execute()
     except Exception as exc:  # noqa: BLE001 - la memoria nunca rompe nada
         log_error(f"[memoria] No se pudo guardar la memoria de {telefono}: {exc}")
+        try:
+            registrar_diagnostico(
+                datetime.now(timezone.utc), "memoria", "FALLO",
+                str(exc)[:300], str(telefono or ""), "")
+        except Exception:  # noqa: BLE001 - el rastro nunca rompe nada
+            pass
+        return
+    _invalidar_cache("Clientes")
+
+
+def actualizar_nombre_cliente(telefono: str, nombre: str) -> None:
+    """Escribe el nombre CONFIRMADO por el cliente en Clientes (B).
+
+    (v3.20.9) El nombre confirmado manda sobre el de perfil de
+    WhatsApp: cuando el cliente da su nombre (lo dijo en la
+    conversación o respondió la pregunta de registro), se escribe
+    directo aquí y fusionar_cliente ya no lo pisa con el perfil.
+    Best-effort: si la hoja falla, queda rastro en Diagnóstico y
+    el robot sigue respondiendo igual (la memoria nunca rompe
+    nada). No hace nada si el teléfono no tiene fila o el nombre
+    viene vacío.
+    """
+    nombre = str(nombre or "").strip()
+    if not nombre:
+        return
+    encontrado = _fila_cliente_por_telefono(telefono)
+    if encontrado is None:
+        return
+    numero_fila, _ = encontrado
+    try:
+        servicio = _servicio_sheets()
+        servicio.values().update(
+            spreadsheetId=settings.sheet_id,
+            range=f"Clientes!B{numero_fila}",
+            valueInputOption="RAW",
+            body={"values": [[nombre[:120]]]},
+        ).execute()
+    except Exception as exc:  # noqa: BLE001 - la memoria nunca rompe nada
+        log_error(f"[memoria] No se pudo actualizar el nombre de {telefono}: {exc}")
         try:
             registrar_diagnostico(
                 datetime.now(timezone.utc), "memoria", "FALLO",

@@ -424,6 +424,32 @@ def precios_de_conocimiento(conocimiento: list[dict]) -> set[int]:
     return precios
 
 
+def servicios_de_conocimiento(conocimiento: list[dict]) -> list[tuple[str, str]]:
+    """Servicios con precio del Conocimiento, en orden (v3.20.9).
+
+    Para R14: la lista determinista que reemplaza una respuesta
+    que deflectó sin dar precios. Solo filas tipo "servicio" cuyo
+    precio trae un dígito; el precio se muestra tal cual está en
+    la hoja (nunca se inventa ni se reformatea). Máximo 5, los
+    primeros del Conocimiento (el guion pide los más pedidos
+    primero: el orden lo pone el negocio en su hoja).
+    """
+    servicios: list[tuple[str, str]] = []
+    for fila in conocimiento or []:
+        if not isinstance(fila, dict):
+            continue
+        tipo = _sin_acentos(str(fila.get("tipo", "") or ""))
+        if tipo != "servicio":
+            continue
+        nombre = str(fila.get("pregunta_o_servicio", "") or "").strip()
+        precio = str(fila.get("respuesta_o_precio", "") or "").strip()
+        if nombre and any(c.isdigit() for c in precio):
+            servicios.append((nombre, precio))
+        if len(servicios) >= 5:
+            break
+    return servicios
+
+
 # (v3.20.2) R11: ningún descuento ni promoción inventada. R9 cubre
 # los precios ($N); esto cubre las promesas de descuento ("te hago
 # un 20% de descuento", "te aplico una promoción") que el guion
@@ -447,6 +473,24 @@ _DESCUENTO_EXTRA = (
     "gratis", "sin costo", "de regalo", "te regalo", "cortesia",
     "precio de amigo", "precio de cliente", "mitad de precio",
     "mejoro el precio", "igualo el precio", "barat", "sin intereses",
+)
+
+# (v3.20.9) R14: el cliente preguntó por los servicios. Frases
+# típicas (sin acentos) con las que pide la lista.
+_PREGUNTA_SERVICIOS = (
+    "que servicios", "servicios tienen", "servicios ofrecen",
+    "servicios manejan", "servicios hay", "servicios y precios",
+    "precios de los servicios", "cuales son los servicios",
+    "cuales servicios", "que ofrecen", "catalogo de servicios",
+)
+
+# (v3.20.9) R14: la deflexión prohibida por el guion ("¿cuál te
+# interesa?" sin dar antes los servicios con sus precios). Sin
+# acentos.
+_DEFLEXION_SERVICIOS = (
+    "cual te interesa", "cual prefieres", "cual quieres", "cual de",
+    "que servicio", "te interesa alguno", "cual le interesa",
+    "que te interesa", "cual te gustaria", "cual te acomoda",
 )
 
 
@@ -651,6 +695,7 @@ def revisar_respuesta(
     telefono: str = "",
     precios_conocidos: set[int] | None = None,
     texto_conocimiento: str = "",
+    servicios_conocidos: list[tuple[str, str]] | None = None,
 ) -> tuple[str, list[str]]:
     """Revisa una respuesta del agente y la corrige si viola una regla.
 
@@ -663,6 +708,10 @@ def revisar_respuesta(
     sin ellos, R9 no se aplica. `texto_conocimiento`: el
     Conocimiento como texto (ver texto_conocimiento()), para R11
     (ningún descuento inventado); sin él, R11 no se aplica.
+    `servicios_conocidos`: lista (nombre, precio) de servicios con
+    precio del Conocimiento (ver servicios_de_conocimiento()), para
+    R14 (la deflexión sin precios se reemplaza por la lista real);
+    sin ella, R14 no se aplica.
     """
     estado = estado or {}
     etapa = str(estado.get("etapa", "") or "")
@@ -691,6 +740,32 @@ def revisar_respuesta(
     # negadas ("no manejamos descuentos") son honestidad y pasan.
     if _tiene_descuento_inventado(texto, texto_conocimiento):
         return _RESPUESTA_PRECIO_INVENTADO, ["R11"]
+
+    # R14 (v3.20.9): el cliente preguntó por los servicios y la
+    # respuesta deflectó ("¿cuál te interesa?") sin dar ningún
+    # precio. Se reemplaza por la lista determinista desde el
+    # Conocimiento: solo nombres y precios que SÍ están en la hoja.
+    # Si no hay servicios con precio en el Conocimiento, R14 no se
+    # aplica (nunca se inventa). Exige las tres señales a la vez
+    # (preguntó servicios + sin ningún monto + deflexión) para no
+    # tocar respuestas buenas en prosa.
+    if servicios_conocidos:
+        _ultimo_cliente = _sin_acentos(
+            str(estado.get("ultimo_mensaje_cliente", "") or ""))
+        if (
+            any(p in _ultimo_cliente for p in _PREGUNTA_SERVICIOS)
+            and not _montos_en_texto(texto)
+            and any(p in _sin_acentos(texto) for p in _DEFLEXION_SERVICIOS)
+        ):
+            _lista = ", ".join(
+                f"{n} ({p})" for n, p in servicios_conocidos[:5])
+            # Sin "agend*" en el cierre a propósito: si no, R1/R2 lo
+            # tomaría por una oferta nueva y lo quitaría.
+            texto = (
+                f"Claro, estos son los servicios principales: {_lista}. "
+                "¿Cuál te gustaría?"
+            )
+            violaciones.append("R14")
 
     # R10 (v3.20): no repetir la respuesta entera. Si el texto es
     # exactamente el mismo que el último mensaje del robot (la IA

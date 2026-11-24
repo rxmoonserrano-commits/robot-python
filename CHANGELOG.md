@@ -5,6 +5,69 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.9 — Recolección dinámica de datos (el robot usa lo que el cliente confirma) (2026-11-24)
+
+Jose pidió verificar que la recolección sea dinámica e inteligente:
+cuando la persona confirme su nombre, números, correo y
+preferencias, el agente lo use sin pedir dos veces lo mismo y sin
+usar nunca el nombre del dueño. Auditoría de la batería dorada
+corrida por Jose en su Mac (15/20) incluida.
+
+- **Nombre dinámico:** el nombre confirmado por el cliente se
+  escribe en Clientes (columna B, nueva función
+  `actualizar_nombre_cliente`) y manda sobre el de perfil de
+  WhatsApp en el contexto y en estado_cliente. `fusionar_cliente`
+  ya no pisa un nombre conocido con el de perfil. Respaldo
+  determinista por regex ("me llamo X" / "mi nombre es X") por si
+  la IA no lo extrae. El guion manda llenar `nombre` cuando el
+  cliente lo dio.
+- **Números dinámicos:** el número de registro persiste en las
+  Notas del espejo ("Teléfono de registro: X", formato uniforme
+  también en `_guardar_datos_paciente`) y ahora se lee de vuelta
+  (`_telefono_registro_conocido`): las propuestas se prellenan, la
+  confirmación registra al número dado y el pedir-datos no vuelve
+  a preguntar lo conocido. Un número dado en texto libre también
+  queda en el espejo. Sin columna nueva en Clientes (solo se
+  autorizó la Z): si Jose quiere una columna AA dedicada, es un
+  add append-only pequeño.
+- **Correo (nuevo):** columna Z "Correo" en Clientes (en vivo y
+  plantilla, agregada AL FINAL). Campo `correo` en RespuestaAgente
+  + respaldo por regex; se guarda vía `guardar_memoria_cliente`,
+  va en el contexto y el guion manda pedirlo solo cuando es
+  relevante (p. ej. enviar información), en texto, confirmando de
+  vuelta lo dado. El aviso de privacidad (borrador) debe cubrirlo.
+- **Preferencias/miedos/acompañante:** verificados de punta a
+  punta (guardar → leer → contexto) sin huecos: el agente propone
+  en el horario preferido y saluda por nombre a quien vuelve.
+- **G7 (real):** el ejemplo del guion enseñaba la deflexión
+  ("¿Cuál te interesa?") contradiciendo la regla de dar servicios
+  con precios; se corrigió el ejemplo y se endureció la regla.
+  Red de seguridad R14 en el revisor: si el cliente preguntó por
+  servicios y la respuesta deflectó sin ningún precio, se
+  reemplaza por la lista determinista desde el Conocimiento
+  (nunca inventa: sin servicios con precio, R14 no se aplica).
+- **G4 (afinado):** el recordatorio con propuesta pendiente ya no
+  repite día/hora como oferta: "La propuesta del lunes sigue en
+  pie, sin compromiso." (guion afinado en agent.py y
+  guion-robot.md, sincronizados).
+- **Mejoras conversacionales (auditoría):** presuposición suave
+  en el cierre, espejo de lenguaje del cliente, prueba social
+  solo si está en Conocimiento, ejemplo de manejo de objeción de
+  precio, pequeños síes, despedida sin agendar y lenguaje
+  sensorial tranquilo en miedos. Bloque "Ejemplos de ritmo"
+  agregado a guion-robot.md; agent.py y guion-robot.md
+  sincronizados (test permanente lo vigila).
+- **G18:** `repro_g18.py` convertido en test permanente
+  (confirmar por botón pide nombre y número) y borrado.
+- **G15/G17:** fallas técnicas de Gemini (no contestó tras
+  reintentar), no bugs de contenido: se re-corren en la Mac de
+  Jose. Sin fix inventado.
+- Nuevos tests permanentes `test_recoleccion_dinamica.py` (29 casos)
+  y `test_mejoras_conversacionales.py` (4 casos: sincronización
+  del guion + mejoras de la auditoría). Suite completa en verde
+  (51/51 ejecutables; la batería dorada necesita la
+  GEMINI_API_KEY de Jose en su Mac).
+
 ## v3.20.8 — Reporte v3: el diseño aprobado por Jose (el número es el titular) (2026-11-24)
 
 Jose rechazó el diseño del reporte semanal ("pésimo marketing,

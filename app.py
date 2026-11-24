@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.8"
+VERSION = "3.20.9"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -193,10 +193,15 @@ class DependenciasReales(Dependencias):
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
                                 proxima_accion="", preferencias="", miedos="",
-                                acompanante=""):
+                                acompanante="", correo=""):
         sheets.guardar_memoria_cliente(telefono, resumen, interes,
                                        proxima_accion, preferencias, miedos,
-                                       acompanante)
+                                       acompanante, correo)
+
+    def actualizar_nombre_cliente(self, telefono, nombre):
+        # (v3.20.9) El nombre confirmado por el cliente manda sobre
+        # el de perfil de WhatsApp (se escribe directo en Clientes B).
+        sheets.actualizar_nombre_cliente(telefono, nombre)
 
     def leer_clientes(self):
         # (v3.20.7) Para el seguimiento proactivo. Sin Clientes, el

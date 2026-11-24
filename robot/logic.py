@@ -29,7 +29,12 @@ from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
 from .negocio import canal_negocio_activo, configuracion, funcion_activa
-from .revision import precios_de_conocimiento, revisar_respuesta, texto_conocimiento
+from .revision import (
+    precios_de_conocimiento,
+    revisar_respuesta,
+    servicios_de_conocimiento,
+    texto_conocimiento,
+)
 from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo, enviar_partes
 
@@ -125,7 +130,8 @@ def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgen
     if not any([respuesta.resumen_cliente, respuesta.interes_cliente,
                 respuesta.proxima_accion, respuesta.preferencias,
                 getattr(respuesta, "miedos", ""),
-                getattr(respuesta, "acompanante", "")]):
+                getattr(respuesta, "acompanante", ""),
+                getattr(respuesta, "correo", "")]):
         return
     guardar = getattr(deps, "guardar_memoria_cliente", None)
     if guardar is None:
@@ -137,16 +143,27 @@ def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgen
                     proxima_accion=respuesta.proxima_accion,
                     preferencias=respuesta.preferencias,
                     miedos=getattr(respuesta, "miedos", ""),
-                    acompanante=getattr(respuesta, "acompanante", ""))
+                    acompanante=getattr(respuesta, "acompanante", ""),
+                    correo=getattr(respuesta, "correo", ""))
         except TypeError:
-            # Dependencias viejas (tests) sin el parámetro
-            # acompanante (v3.20.7): se guarda sin él, no se pierde
-            # nada más.
-            guardar(telefono, resumen=respuesta.resumen_cliente,
-                    interes=respuesta.interes_cliente,
-                    proxima_accion=respuesta.proxima_accion,
-                    preferencias=respuesta.preferencias,
-                    miedos=getattr(respuesta, "miedos", ""))
+            # Dependencias viejas (tests) sin el parámetro correo
+            # (v3.20.9): se intenta sin él, no se pierde nada más.
+            try:
+                guardar(telefono, resumen=respuesta.resumen_cliente,
+                        interes=respuesta.interes_cliente,
+                        proxima_accion=respuesta.proxima_accion,
+                        preferencias=respuesta.preferencias,
+                        miedos=getattr(respuesta, "miedos", ""),
+                        acompanante=getattr(respuesta, "acompanante", ""))
+            except TypeError:
+                # Dependencias viejas (tests) sin el parámetro
+                # acompanante (v3.20.7): se guarda sin él, no se pierde
+                # nada más.
+                guardar(telefono, resumen=respuesta.resumen_cliente,
+                        interes=respuesta.interes_cliente,
+                        proxima_accion=respuesta.proxima_accion,
+                        preferencias=respuesta.preferencias,
+                        miedos=getattr(respuesta, "miedos", ""))
     except Exception:
         pass
 
@@ -720,6 +737,121 @@ def _extraer_telefono(texto: str, telefono_propio: str = "") -> str:
     return ""
 
 
+# (v3.20.9) Nombre dicho por el cliente: respaldo determinista por
+# si la IA no lo extrajo en respuesta.nombre. Solo frases en primera
+# persona ("me llamo X", "mi nombre es X"): "se llama X" es de otra
+# persona y nunca se toma. Conservador a propósito: 1-4 palabras,
+# sin palabras prohibidas ("me llamo la atención" no es un nombre).
+_RE_NOMBRE_DICHO = re.compile(
+    r"(?:me llamo|mi nombre es)\s+"
+    r"([a-záéíóúñü][\wáéíóúñü']*(?:\s+[a-záéíóúñü][\wáéíóúñü']*){0,3})",
+    re.IGNORECASE,
+)
+_NOMBRES_PROHIBIDOS = {
+    "la", "el", "los", "las", "de", "del", "un", "una", "uno",
+    "nuevo", "nueva", "cliente", "yo", "atencion", "bien", "mal",
+    "mucho", "poco", "igual", "asi", "esto", "eso", "aqui", "alli",
+    "hoy", "ayer", "manana", "gracias", "hola", "buenas",
+}
+
+
+def _extraer_nombre(texto: str) -> str:
+    """El nombre que el cliente dijo de sí mismo ("me llamo Ana").
+
+    Devuelve "" si no hay frase clara. El nombre sale tal cual lo
+    escribió, con primera letra mayúscula por palabra.
+    """
+    m = _RE_NOMBRE_DICHO.search(str(texto or ""))
+    if not m:
+        return ""
+    nombre = m.group(1).strip(" .,;:!?¡¿\"'")
+    palabras = nombre.split()
+    if not (1 <= len(palabras) <= 4):
+        return ""
+    if any(_sin_acentos(p) in _NOMBRES_PROHIBIDOS for p in palabras):
+        return ""
+    return " ".join(p[:1].upper() + p[1:].lower() for p in palabras)
+
+
+_RE_CORREO = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def _extraer_correo(texto: str) -> str:
+    """El primer correo que trae un mensaje, o "" si no hay ninguno.
+
+    (v3.20.9) Respaldo determinista para el correo: si el cliente
+    lo escribió en el chat, se captura aunque la IA no lo haya
+    puesto en respuesta.correo.
+    """
+    m = _RE_CORREO.search(str(texto or ""))
+    if not m:
+        return ""
+    return m.group(0).strip(" .,;:!?¡¿\"'").lower()
+
+
+_RE_TEL_REGISTRO = re.compile(r"Teléfono de registro:\s*(\d[\d\s\-()]{7,}\d)")
+
+
+def _telefono_registro_conocido(deps, telefono: str) -> str:
+    """El número de registro que el cliente ya dio en una cita pasada.
+
+    (v3.20.9) El número confirmado persiste en las Notas del espejo
+    ("Teléfono de registro: X"): aquí se lee de vuelta para no
+    volver a pedirlo y registrar futuras citas al número dado.
+    Busca la cita más reciente del teléfono con ese dato; si no hay
+    espejo o no hay dato, devuelve "".
+    """
+    leer = getattr(deps, "leer_citas_espejo", None)
+    if leer is None:
+        return ""
+    try:
+        filas = [f for f in (leer() or [])
+                 if str(f.get("Teléfono", "") or "").strip() == str(telefono).strip()]
+    except Exception:
+        return ""
+    for fila in sorted(filas, key=lambda f: str(f.get("Fecha", "") or ""), reverse=True):
+        m = _RE_TEL_REGISTRO.search(str(fila.get("Notas", "") or ""))
+        if m:
+            numero = m.group(1).strip()
+            if len(re.sub(r"\D", "", numero)) >= 10:
+                return numero
+    return ""
+
+
+def _registrar_numero_registro_espejo(deps, telefono: str, numero: str) -> None:
+    """Guarda un número de registro dado en las Notas del espejo.
+
+    (v3.20.9) Para números dados fuera de una propuesta (la
+    respuesta a "¿a qué número lo registro?" tras confirmar, o en
+    texto libre): quedan en la cita Confirmada más reciente con el
+    formato "Teléfono de registro: X", para que
+    _telefono_registro_conocido los lea de vuelta. Best-effort:
+    nunca rompe la respuesta al cliente.
+    """
+    numero = str(numero or "").strip()
+    if not numero:
+        return
+    try:
+        leer = getattr(deps, "leer_citas_espejo", None)
+        actualizar = getattr(deps, "actualizar_notas_cita", None)
+        if leer is None or actualizar is None:
+            return
+        filas = [f for f in (leer() or [])
+                 if str(f.get("Teléfono", "") or "").strip() == str(telefono).strip()
+                 and str(f.get("Estado", "") or "").strip() == "Confirmada"]
+        if not filas:
+            return
+        ultima = max(filas, key=lambda f: str(f.get("Fecha", "") or ""))
+        notas = str(ultima.get("Notas", "") or "").strip()
+        marca = f"Teléfono de registro: {numero}"
+        if marca in notas:
+            return
+        notas_nuevas = f"{notas} | {marca}" if notas else marca
+        actualizar(telefono, str(ultima.get("Fecha", "") or ""), notas_nuevas)
+    except Exception:
+        pass
+
+
 # (v3.3) Urgencia: si el cliente dice que es urgente o que le duele,
 # el robot no entretiene con preguntas: pasa a una persona en ese
 # momento. Se decide por palabras, sin llamar a la IA (rápido y
@@ -1278,8 +1410,15 @@ def _guardar_datos_paciente(deps, telefono: str, nombre_paciente: str,
             return
         ultima = max(filas, key=lambda f: str(f.get("Fecha", "") or ""))
         notas = str(ultima.get("Notas", "") or "").strip()
-        partes = [p for p in (nombre_paciente, numero_paciente) if p]
-        nuevo = ", ".join(partes)
+        # (v3.20.9) Mismo formato que al confirmar ("Teléfono de
+        # registro: X"), para que el número se pueda leer de vuelta
+        # (_telefono_registro_conocido) y no se vuelva a pedir.
+        partes = []
+        if nombre_paciente:
+            partes.append(f"Paciente: {nombre_paciente}")
+        if numero_paciente:
+            partes.append(f"Teléfono de registro: {numero_paciente}")
+        nuevo = " | ".join(partes)
         if nuevo and nuevo not in notas:
             notas = f"{notas} | {nuevo}" if notas else nuevo
         actualizar(telefono, str(ultima.get("Fecha", "") or ""), notas)
@@ -1950,6 +2089,11 @@ def _confirmar_cita_propuesta(deps: Dependencias, telefono: str, nombre: str,
         return _confirmar_mover(deps, telefono, nombre, fecha, con_ritmo)
     nombre_cita = str(propuesta.get("nombre") or "").strip()
     telefono_registro = str(propuesta.get("telefono_registro") or "").strip()
+    # (v3.20.9) Si la propuesta no trae número de registro, se usa
+    # el que el cliente ya dio en una cita pasada (Notas del espejo):
+    # la cita queda registrada al número dado y no se vuelve a pedir.
+    if not telefono_registro:
+        telefono_registro = _telefono_registro_conocido(deps, telefono)
     # (v3.13) Urgencia: si la propuesta viene de una urgencia, todas
     # sus citas se marcan URGENTE (CRM, calendario y correo con el
     # porqué). Vacío = cita normal, como siempre.
@@ -2721,8 +2865,13 @@ class Dependencias:
         return []
     def guardar_memoria_cliente(self, telefono: str, resumen: str = "", interes: str = "",
                                 proxima_accion: str = "", preferencias: str = "",
-                                miedos: str = "", acompanante: str = "") -> None:
+                                miedos: str = "", acompanante: str = "",
+                                correo: str = "") -> None:
         """Guarda lo que se aprendió del cliente en Clientes (v3.2). Por defecto: nada."""
+        ...
+
+    def actualizar_nombre_cliente(self, telefono: str, nombre: str) -> None:
+        """Escribe el nombre confirmado por el cliente en Clientes (v3.20.9). Por defecto: nada."""
         ...
     def leer_conocimiento(self) -> list[dict]: ...
     def leer_fotos(self) -> list[dict]: ...
@@ -3127,14 +3276,25 @@ def _atender_mensaje_impl(
     # modelo no tiene que calcularlo (y el revisor R4 lo corrige si
     # aun así se equivoca).
     manana = local_ahora + timedelta(days=1)
+    # (v3.20.9) La fila del cliente se lee ANTES de armar el contexto:
+    # el nombre confirmado en Clientes (columna B) manda sobre el
+    # nombre de perfil de WhatsApp, y el correo/número de registro
+    # conocidos van en la memoria. Así el robot saluda por el nombre
+    # que el cliente confirmó, no por el de WhatsApp.
+    leer_cliente_fn = getattr(deps, "leer_cliente", lambda t: None)
+    try:
+        fila_cliente = leer_cliente_fn(telefono) or {}
+    except Exception:
+        fila_cliente = {}
+    nombre_efectivo = str(fila_cliente.get("nombre", "") or "").strip() or (nombre or "")
     contexto = [
         f"Hoy es {_DIAS_NOMBRE[local_ahora.weekday()]} {local_ahora.day} de "
         f"{_MESES[local_ahora.month - 1]}, son las {local_ahora:%H:%M} (hora del negocio).",
         f"Mañana es {_DIAS_NOMBRE[manana.weekday()]} {manana.day} de {_MESES[manana.month - 1]}.",
         f"El negocio está {'ABIERTO' if abierto else 'CERRADO'}: abre {resumen_horarios}.",
     ]
-    if nombre:
-        contexto.append(f"El cliente se llama {nombre}: salúdalo por su nombre la primera vez.")
+    if nombre_efectivo:
+        contexto.append(f"El cliente se llama {nombre_efectivo}: salúdalo por su nombre la primera vez.")
     if not abierto:
         proxima_txt = formatear_cita_bonita(proxima.isoformat()) if proxima is not None else ""
         contexto.append(
@@ -3163,13 +3323,10 @@ def _atender_mensaje_impl(
     # (v2.13) Estado del cliente, calculado por código: la IA ya no
     # tiene que deducir en qué va la conversación leyendo las filas
     # crudas de la hoja. Se lo pasamos como datos, no como prosa.
-    leer_cliente_fn = getattr(deps, "leer_cliente", lambda t: None)
-    try:
-        fila_cliente = leer_cliente_fn(telefono) or {}
-    except Exception:
-        fila_cliente = {}
+    # (v3.20.9) fila_cliente ya se leyó arriba (antes del contexto);
+    # el nombre efectivo es el confirmado en Clientes si lo hay.
     estado = estado_cliente(
-        historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre,
+        historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre_efectivo,
         ahora=ahora,
     )
     # (v3.20.7) Ciclo de vida explícito: la IA no tiene que deducir
@@ -3274,6 +3431,15 @@ def _atender_mensaje_impl(
         memoria.append(
             f"Le dan miedo o le molestan: {fila_cliente['Miedos / sensibilidades']}"
         )
+    # (v3.20.9) Correo confirmado: se usa sin volver a pedirlo.
+    # Solo si la columna Z existe y trae algo.
+    if str(fila_cliente.get("Correo", "") or "").strip():
+        memoria.append(f"Su correo es {fila_cliente['Correo']}")
+    # (v3.20.9) Número de registro de citas pasadas (Notas del
+    # espejo): no se vuelve a pedir.
+    _tel_reg = _telefono_registro_conocido(deps, telefono)
+    if _tel_reg:
+        memoria.append(f"Su número de registro es {_tel_reg}")
     if memoria:
         contexto.append(
             "Lo que sabes de este cliente: " + " ".join(memoria)
@@ -3541,13 +3707,17 @@ def _atender_mensaje_impl(
         # revisor deseche cualquier precio inventado antes de mandar.
         # (v3.20.2) R11: el texto del Conocimiento, para que el
         # revisor deseche cualquier descuento inventado.
+        # (v3.20.9) R14: servicios con precio del Conocimiento, para
+        # que una deflexión sin precios se reemplace por la lista real.
         _precios_conocidos = precios_de_conocimiento(conocimiento)
         _texto_conocimiento = texto_conocimiento(conocimiento)
+        _servicios_conocidos = servicios_de_conocimiento(conocimiento)
         texto_revisado, violaciones = revisar_respuesta(
             respuesta.respuesta_texto, estado, nombre,
             ahora=local_ahora, telefono=telefono,
             precios_conocidos=_precios_conocidos,
             texto_conocimiento=_texto_conocimiento,
+            servicios_conocidos=_servicios_conocidos,
         )
         if violaciones:
             _diagnostico(
@@ -3568,6 +3738,7 @@ def _atender_mensaje_impl(
                 parte, estado, nombre, ahora=local_ahora, telefono=telefono,
                 precios_conocidos=_precios_conocidos,
                 texto_conocimiento=_texto_conocimiento,
+                servicios_conocidos=_servicios_conocidos,
             )
             partes_revisadas.append(texto_p)
             violaciones_partes.extend(viol_p)
@@ -3586,6 +3757,19 @@ def _atender_mensaje_impl(
     # pendiente: la confirmación sale con su nombre, no vacía. Y si
     # dio otro número para el registro ("regístralo al 667..."), se
     # guarda también: la cita queda registrada al número que él dio.
+    # (v3.20.9) Recolección dinámica: el nombre confirmado también
+    # se escribe en Clientes (columna B) para saludarlo por ese
+    # nombre en conversaciones futuras, y el correo dado se guarda
+    # en su columna Z. Respaldo determinista por regex si la IA no
+    # extrajo el nombre o el correo.
+    if not str(getattr(respuesta, "nombre", "") or "").strip():
+        _nombre_dicho = _extraer_nombre(texto)
+        if _nombre_dicho:
+            respuesta.nombre = _nombre_dicho
+    if not str(getattr(respuesta, "correo", "") or "").strip():
+        _correo_dado = _extraer_correo(texto)
+        if _correo_dado:
+            respuesta.correo = _correo_dado
     _pendiente = _CITAS_PENDIENTES.get(telefono)
     if _pendiente:
         # Solo se reemplaza si la propuesta trae el nombre de perfil
@@ -3601,6 +3785,32 @@ def _atender_mensaje_impl(
         if _num_registro and _num_registro != str(_pendiente.get("telefono_registro") or "").strip():
             _pendiente["telefono_registro"] = _num_registro
             _guardar_propuesta(deps, telefono, _pendiente)
+        # (v3.20.9) Si la propuesta no trae número de registro pero
+        # el cliente ya dio uno en una cita pasada, se prellena: la
+        # cita queda registrada al número dado sin volver a pedir.
+        if not str(_pendiente.get("telefono_registro") or "").strip():
+            _conocido = _telefono_registro_conocido(deps, telefono)
+            if _conocido:
+                _pendiente["telefono_registro"] = _conocido
+                _guardar_propuesta(deps, telefono, _pendiente)
+    # (v3.20.9) El nombre confirmado se escribe en Clientes (B) si
+    # difiere del de perfil de WhatsApp: manda en saludos futuros.
+    # Si es igual al perfil, ya está o entra por registrar_cliente.
+    if respuesta.nombre and respuesta.nombre.strip() != str(nombre or "").strip():
+        actualizar_nombre = getattr(deps, "actualizar_nombre_cliente", None)
+        if actualizar_nombre is not None:
+            try:
+                actualizar_nombre(telefono, respuesta.nombre.strip())
+            except Exception:
+                pass
+    # (v3.20.9) Número de registro dado fuera de una propuesta (la
+    # respuesta a "¿a qué número lo registro?" tras confirmar, o en
+    # texto libre): se guarda en las Notas del espejo para que las
+    # citas futuras lo usen sin volver a pedir.
+    if not _pendiente:
+        _num_suelto = _extraer_telefono(texto, telefono)
+        if _num_suelto:
+            _registrar_numero_registro_espejo(deps, telefono, _num_suelto)
 
     # (v3.10) Datos de la otra persona: si el agente extrajo el nombre
     # o el número de la persona de la cita (porque el robot lo pidió

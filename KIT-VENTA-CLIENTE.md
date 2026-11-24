@@ -1,12 +1,12 @@
 # Kit de venta — Sereno (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24. v3.20.8 "Reporte v3: el diseño aprobado por Jose (el número es el titular, menos pero mejor)" construida y probada en local (suite verde 49/49, zip fresco listo); v3.20.6 está en GitHub, pendiente verificar despliegue en Render. No digas "en vivo v3.20.8" a clientes hasta verificar el despliegue. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24. v3.20.9 "Recolección dinámica de datos (el robot usa lo que el cliente confirma)" está construida y probada (suite 50/50 verde); pendiente de subir a Render — la v3.20.8 sigue en vivo (verificado 2026-11-24 ~02:48 MST: /estado reporta 3.20.8, salud en verde, sin errores). El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Sereno (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.20.8 (ya probado: suite completa 49/49 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29)
+## Lo que trae la v3.20.9 (ya probado: suite completa 50/50 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29 + recolección dinámica 29/29)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
@@ -26,6 +26,10 @@ Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas
 - Auditoría profunda de 7 áreas (v3.20.4): datos blindados (ninguna escritura crítica se pierde en silencio; si Google falla, queda rastro en Diagnóstico); si Render se reinicia tras confirmar, la cita no se duplica ni se pierde (reconciliación al arrancar); los mensajes llegan en orden y sin duplicados aunque Meta reenvíe; anti-spam de correos (máx. 1 aviso de handoff por cliente cada 30 min, las urgencias siempre avisan); costos medidos: ~$0-5/mes por negocio a escala piloto (Meta + IA gratis o centavos).
 - Reportes con prueba de retorno (v3.20.5): el correo semanal y el digest prueban el retorno, no solo la actividad — valor estimado en pesos de las citas agendadas (desde los precios de la hoja, sin inventar), conversaciones atendidas fuera de horario, clientes que volvieron y agendaron, y citas vs semana pasada. Es lo que hace que el cliente diga "esto se paga solo".
 - Blindaje de precios y descuentos (v3.20.5): ni regateando en 3 turnos, ni con "el de al lado cobra $400", ni con códigos inventados, ni con un cliente burlón, el robot suelta un precio o un descuento que no esté en la hoja — ni escritos con palabra ("mil pesos"), ni "gratis", ni "precio de amigo". Y ya no bloquea respuestas honestas ("jamás damos descuentos").
+- Corrida profunda (v3.20.6): 21 bugs reales cazados y corregidos con test permanente — descuentos disfrazados de negación ("no te preocupes, te hago un descuento"), "más barato", "sin intereses" y precios pelados ("te lo dejo en 400") ya no llegan al cliente; preguntas sobre dolor ("¿el blanqueamiento causa dolor?") ya no disparan handoff falso; el reporte ya no suma pesos ambiguos.
+- Mejora del motor (v3.20.7): memoria estructurada (preferencias y acompañante/familia en sus columnas X/Y, sin adivinar), la IA decide la acción (mover/agendar/pasar a persona se ejecutan por el camino seguro), ciclo de vida explícito de cada conversación (nueva/activa/esperando/agendado/en_handoff/cerrada) y seguimiento proactivo construido detrás de un interruptor apagado (se enciende solo cuando apruebes la plantilla `seguimiento_no_agendo` en Meta).
+- Reporte v3 (v3.20.8): el diseño que aprobaste — el dinero es el titular ("$X MXN agendados esta semana"), línea de pérdida ("N llegaron fuera de tu horario. Sin el robot, eran clientes perdidos."), secciones limpias con borradores listos para copiar. Es el correo que hace que el cliente renueve.
+- Recolección dinámica (v3.20.9): el robot usa lo que el cliente confirma — su nombre confirmado manda sobre el de WhatsApp (saluda por ese nombre, incluso a quien vuelve), el número de registro dado se recuerda y no se vuelve a pedir (las citas quedan registradas al número dado), el correo se guarda en su columna Z y se usa sin volver a pedirlo, y las preferencias se respetan al proponer (propone en el horario preferido). Los servicios se dan siempre con precio (red de seguridad R14: ninguna deflexión sin precios llega al cliente).
 
 ## 1. La hoja del cliente (copia de la plantilla)
 
@@ -91,11 +95,11 @@ Después comparte la copia con el correo de la cuenta de servicio de Google (el 
 
 - [ ] Aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp Manager → Plantillas, tipo utilidad, es_MX, cuerpo con {{1}} y {{2}}). Sin ella los recordatorios se rechazan y no cuestan nada, pero el paciente no recibe nada.
 - [ ] Contraseña de aplicación de Gmail en Render (`GMAIL_USER` + `GMAIL_APP_PASSWORD`): sin ella no salen los correos del dueño ni el reporte semanal.
-- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.8).
+- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.9).
 - [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): ya está el guion listo en `~/workspace/prueba-conversacional-en-vivo.md` (3 conversaciones cortas, ~10 min) — dos citas, cambio de hora, handoff, urgencia.
 - [ ] Elegir nicho y probar la oferta con 5 negocios: si 3 de 5 dicen que sí o lo piensan en serio, el precio está en buen lugar.
 
 ## Qué NO hace falta
 
-- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.8 está construida y probada en local, pendiente de subir a Render (en vivo sigue v3.20.6), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos, los reportes con retorno y el diseño v3 del reporte semanal, la corrida profunda y la mejora del motor en verde. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
+- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.9 está construida y probada (suite 50/50 verde; pendiente de subir — la v3.20.8 sigue en vivo en Render, verificado 2026-11-24 ~02:48 MST), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos, la corrida profunda (21 bugs), la mejora del motor, los reportes con retorno, el diseño v3 del reporte semanal y la recolección dinámica de datos. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
 - **El repo `robot-whatsapp` está vacío** y apagado; el único robot real es `robot-python`. No hay nada que apagar.

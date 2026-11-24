@@ -389,8 +389,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.20.8",
-     'version="3.20.8"' in app_txt or "VERSION = \"3.20.8\"" in app_txt,
+caso("(g) La app es la versión 3.20.9",
+     'version="3.20.9"' in app_txt or "VERSION = \"3.20.9\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt
