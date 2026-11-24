@@ -64,6 +64,23 @@ R10. NO REPETIR LA RESPUESTA ENTERA (v3.20): si la respuesta es
     anterior), se reemplaza por \"¿Te ayudo con algo más?\". R7 solo
     quitaba el cierre repetido; R10 cubre la repetición completa.
     Se compara sin acentos, en minúsculas y sin espacios de más.
+R11. NINGÚN DESCUENTO INVENTADO (v3.20.2): si la respuesta promete
+    un descuento o promoción ("te hago un 20% de descuento") y el
+    Conocimiento del negocio no habla de descuentos, se desecha
+    ENTERA y se contesta con la frase segura. R9 cubre los precios;
+    R11 cubre los descuentos, que cuestan dinero al negocio. Las
+    frases negadas ("no manejamos descuentos") son honestidad y
+    pasan. Sin el texto del Conocimiento, R11 no se aplica.
+R12. FUERA EL ROBOT-SPEAK DE 'PENDIENTES' (v3.20.2): "quedamos en
+    tus pendientes" es lenguaje de sistema, no de recepcionista.
+    Se quita la frase; si no queda nada, se contesta con una
+    pregunta neutra.
+R13. NO RE-PREGUNTAR LO MISMO TRAS UN 'OK' (v3.20.2): si el cliente
+    contestó con un "ok"/"gracias" y la respuesta es casi la misma
+    pregunta que el robot ya había hecho, perdió el hilo: se
+    reemplaza por "¿Te ayudo con algo más?". Deliberadamente
+    estrecha: si el cliente repitió su pregunta, re-contestar
+    parecido es legítimo y no se toca.
 
 Devuelve (texto_final, violaciones): la lista de reglas que corrigió
 ("R1", "R2", "R3"), vacía si la respuesta estaba bien. Las
@@ -252,6 +269,18 @@ def _es_oferta(oracion: str) -> bool:
         return True
     if "agend" in bajo and "?" in texto:
         return True
+    # (v3.20.2) "Te propongo tu cita para el martes a las 9:00" es una
+    # oferta verbal tan clara como "¿Te la agendo?": sin esto, el
+    # estado no veía la oferta y el robot la repetía. Solo cuenta
+    # cuando la frase trae contexto de cita (día, hora o "cita"):
+    # "te propongo que lo pienses" no es una oferta.
+    if "te propongo" in bajo and any(
+        p in bajo for p in (
+            "cita", "lunes", "martes", "miercoles", "miércoles", "jueves",
+            "viernes", "sabado", "sábado", "domingo", " a las ",
+        )
+    ):
+        return True
     return False
 
 
@@ -320,6 +349,145 @@ def precios_de_conocimiento(conocimiento: list[dict]) -> set[int]:
     return precios
 
 
+# (v3.20.2) R11: ningún descuento ni promoción inventada. R9 cubre
+# los precios ($N); esto cubre las promesas de descuento ("te hago
+# un 20% de descuento", "te aplico una promoción") que el guion
+# prohíbe pero R9 no veía. Si el Conocimiento del negocio habla de
+# descuentos/promociones, la IA puede mencionarlos; si no, cualquier
+# promesa afirmativa se desecha entera, como R9.
+_DESCUENTO_PALABRAS = (
+    "descuento", "promocion", "rebaja", "precio especial",
+    "oferta especial", "2x1",
+)
+
+
+def texto_conocimiento(conocimiento: list[dict]) -> str:
+    """El Conocimiento como un solo texto, sin acentos (v3.20.2).
+
+    Para que el revisor sepa qué temas conoce el negocio (por
+    ejemplo, si habla de descuentos) sin pasar la lista entera.
+    """
+    partes = []
+    for fila in conocimiento or []:
+        if isinstance(fila, dict):
+            for valor in fila.values():
+                if isinstance(valor, str):
+                    partes.append(valor)
+    return _sin_acentos(" ".join(partes))
+
+
+def _es_negacion_descuento(normal: str) -> bool:
+    """¿La frase niega el descuento (en vez de ofrecerlo)?
+
+    "No manejamos descuentos" / "sin promociones" / "nunca damos
+    descuentos" son honestidad, no invento: se dejan pasar. Un
+    "descuento" ofrecido ("te hago un descuento") no trae negación
+    antes de la palabra y sí se atrapa.
+    """
+    if re.search(
+        r"\b(no|sin|nunca)\b[^.]{0,30}(descuento|promocion|rebaja|"
+        r"precio especial|oferta especial|2x1)",
+        normal,
+    ):
+        return True
+    # "Los descuentos no aplican" / "no se aplican descuentos".
+    if "no aplic" in normal:
+        return True
+    return False
+
+
+def _tiene_descuento_inventado(texto: str, texto_conoc: str) -> bool:
+    """¿La respuesta promete un descuento/promoción que el negocio
+    no conoce? (v3.20.2, R11).
+
+    Solo se aplica cuando se pasa el texto del Conocimiento: sin él
+    no hay con qué comparar y la regla no se aplica (compatibilidad
+    con llamadas viejas, igual que R9). Si el Conocimiento menciona
+    descuentos, promociones u ofertas especiales, la IA puede hablar
+    de ellos. Una frase negada ("no manejamos descuentos") nunca es
+    invento: es honestidad, y se deja pasar.
+    """
+    if not texto_conoc:
+        return False
+    if any(p in texto_conoc for p in _DESCUENTO_PALABRAS) or "%" in texto_conoc:
+        return False
+    for oracion in _partir_oraciones(texto):
+        normal = _sin_acentos(oracion)
+        if any(p in normal for p in _DESCUENTO_PALABRAS):
+            if not _es_negacion_descuento(normal):
+                return True
+        # Porcentaje suelto ("te hago un 20%"): sin % en el
+        # Conocimiento, es un descuento inventado. Se excluye el
+        # "100%" de énfasis ("100% segura"), que no es un descuento.
+        for m in re.finditer(r"(\d[\d,]*)\s*%", normal):
+            if m.group(1).replace(",", "") == "100":
+                continue
+            if not _es_negacion_descuento(normal):
+                return True
+    return False
+
+
+def _quitar_pendientes(texto: str) -> tuple[str, bool]:
+    """R12: fuera el robot-speak de 'pendientes' (v3.20.2).
+
+    El guion prohíbe "con tus pendientes" / "quedamos en tus
+    pendientes": es lenguaje de sistema, no de recepcionista. Se
+    quita la frase y se limpia el texto; si no queda nada, se
+    contesta con una pregunta neutra. "Pendiente" en singular
+    ("quedó pendiente tu cita") no se toca.
+    """
+    nuevo = re.sub(
+        r"\b(en|con|de)?\s*(tus\s+)?pendientes\b", "", texto,
+        flags=re.IGNORECASE,
+    )
+    nuevo = re.sub(r"\s+([.,;:])", r"\1", nuevo)
+    nuevo = re.sub(r"\s{2,}", " ", nuevo).strip()
+    if nuevo != texto.strip():
+        # Si solo quedó puntuación ("Tus pendientes." → "."), no
+        # hay respuesta: se contesta con una pregunta neutra.
+        if not nuevo.strip(" .,:;"):
+            return "¿Te ayudo con algo más?", True
+        return nuevo, True
+    return texto, False
+
+
+# Respuestas cortas de cortesía del cliente: si tras una de estas el
+# robot vuelve a soltar casi la misma pregunta de su último mensaje,
+# perdió el hilo (R13).
+_ACKS_CORTO = {
+    "ok", "va", "sale", "gracias", "perfecto", "claro", "si", "dale",
+    "bueno", "buenisimo", "excelente", "listo", "vale", "de acuerdo",
+    "aja", "orale", "venga", "sip", "simon", "super", "buena", "buenas",
+}
+
+
+def _tokens(texto: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", _sin_acentos(texto)))
+
+
+def _es_casi_repetida(texto: str, ultimo_robot: str, ultimo_cliente: str) -> bool:
+    """R13 (v3.20.2): el cliente acaba de contestar con un "ok" /
+    "gracias" y la respuesta es casi la misma pregunta que el robot
+    ya había hecho. Eso es perder el hilo: se reemplaza.
+
+    Es deliberadamente estrecha: solo dispara cuando el cliente dio
+    una respuesta corta de cortesía, y compara contra la ÚLTIMA
+    FRASE del robot (la pregunta), no contra el mensaje entero: si
+    el cliente repitió su pregunta, re-contestar parecido es
+    legítimo y no se toca.
+    """
+    if not ultimo_robot or not ultimo_cliente:
+        return False
+    ack = _sin_acentos(ultimo_cliente).strip().strip(".,!¡¿? ")
+    if ack not in _ACKS_CORTO:
+        return False
+    nuevo = _tokens(texto)
+    viejo = _tokens(_ultima_frase(ultimo_robot))
+    if not (3 <= len(nuevo) <= 14) or not viejo:
+        return False
+    return len(nuevo & viejo) / min(len(nuevo), len(viejo)) >= 0.8
+
+
 def revisar_respuesta(
     texto: str,
     estado: dict | None = None,
@@ -327,6 +495,7 @@ def revisar_respuesta(
     ahora: datetime | None = None,
     telefono: str = "",
     precios_conocidos: set[int] | None = None,
+    texto_conocimiento: str = "",
 ) -> tuple[str, list[str]]:
     """Revisa una respuesta del agente y la corrige si viola una regla.
 
@@ -336,7 +505,9 @@ def revisar_respuesta(
     no se aplica. `telefono`: el teléfono del cliente, para R6 (un
     número distinto es una filtración). `precios_conocidos`: los
     precios del Conocimiento, para R9 (ningún precio inventado);
-    sin ellos, R9 no se aplica.
+    sin ellos, R9 no se aplica. `texto_conocimiento`: el
+    Conocimiento como texto (ver texto_conocimiento()), para R11
+    (ningún descuento inventado); sin él, R11 no se aplica.
     """
     estado = estado or {}
     etapa = str(estado.get("etapa", "") or "")
@@ -358,6 +529,14 @@ def revisar_respuesta(
         if any(m not in precios_conocidos for m in _montos_en_texto(texto)):
             return _RESPUESTA_PRECIO_INVENTADO, ["R9"]
 
+    # R11 (v3.20.2): ningún descuento ni promoción inventada. Si el
+    # Conocimiento no habla de descuentos y la respuesta los ofrece
+    # ("te hago un 20% de descuento"), se desecha ENTERA, como R9:
+    # un descuento falso cuesta dinero al negocio. Las frases
+    # negadas ("no manejamos descuentos") son honestidad y pasan.
+    if _tiene_descuento_inventado(texto, texto_conocimiento):
+        return _RESPUESTA_PRECIO_INVENTADO, ["R11"]
+
     # R10 (v3.20): no repetir la respuesta entera. Si el texto es
     # exactamente el mismo que el último mensaje del robot (la IA
     # parroteó la respuesta anterior), se reemplaza por una pregunta
@@ -370,6 +549,19 @@ def revisar_respuesta(
         if _norm_nuevo and _norm_nuevo == _norm_viejo:
             texto = "¿Te ayudo con algo más?"
             violaciones.append("R10")
+
+    # R13 (v3.20.2): el cliente contestó con un "ok"/"gracias" y la
+    # respuesta es casi la misma pregunta que el robot ya había
+    # hecho: perdió el hilo. Se reemplaza por una pregunta neutra.
+    # Deliberadamente estrecha (ver _es_casi_repetida): si el
+    # cliente repitió su pregunta, re-contestar parecido es legítimo.
+    if _es_casi_repetida(
+        texto,
+        _ultimo_robot,
+        str(estado.get("ultimo_mensaje_cliente", "") or ""),
+    ):
+        texto = "¿Te ayudo con algo más?"
+        violaciones.append("R13")
 
     # R3: la frase de cierre, se cambie lo que se cambie después.
     if _CERRAMOS_RE.search(texto):
@@ -385,6 +577,14 @@ def revisar_respuesta(
     texto, cambio_etiqueta = _quitar_etiquetas_internas(texto)
     if cambio_etiqueta:
         violaciones.append("R5")
+
+    # R12 (v3.20.2): fuera el robot-speak de "pendientes" ("quedamos
+    # en tus pendientes"): es lenguaje de sistema, no de
+    # recepcionista. El guion ya lo prohíbe; esto lo atrapa cuando
+    # la IA lo suelta igual.
+    texto, cambio_pendientes = _quitar_pendientes(texto)
+    if cambio_pendientes:
+        violaciones.append("R12")
 
     # R1/R2: quitar la frase de la oferta cuando no toca.
     if (oferta_pendiente or etapa == "saludo") and _es_oferta(texto):

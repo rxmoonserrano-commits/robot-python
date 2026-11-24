@@ -27,7 +27,7 @@ from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
 from .estado import estado_cliente
 from .negocio import canal_negocio_activo, configuracion, funcion_activa
-from .revision import precios_de_conocimiento, revisar_respuesta
+from .revision import precios_de_conocimiento, revisar_respuesta, texto_conocimiento
 from .registro import aviso as log_aviso
 from .ritmo import enviar_con_ritmo, enviar_partes
 
@@ -657,6 +657,11 @@ _PALABRAS_QUEJA = (
     "queja", "reclamo", "reclamar", "reclamacion", "pesimo", "horrible",
     "mal servicio", "no me atendieron", "tardaron", "estafa",
     "devolverme el dinero", "nunca me contestaron", "me dejaron colgado",
+    # (v3.20.2) Quejas delicadas: cliente molesto pero sensible, sin
+    # insultos — algo salió mal en una cita pasada. Son frases
+    # inequívocas de queja de servicio.
+    "no me gusto", "quede inconforme", "me atendieron mal",
+    "me dejaron peor", "sali peor", "me dolio despues",
 )
 
 _PALABRAS_HUMANO = (
@@ -675,7 +680,17 @@ def _normalizar_para_reglas(texto: str) -> str:
 def _es_queja(texto: str) -> bool:
     """¿El cliente se está quejando (no solo hace una pregunta)?"""
     normal = _normalizar_para_reglas(texto)
-    return any(p in normal for p in _PALABRAS_QUEJA)
+    if any(p in normal for p in _PALABRAS_QUEJA):
+        return True
+    # (v3.20.2) "Me dolió después de la cita" / "me dolió la vez
+    # pasada": queja delicada sobre una cita previa. El "me dolio"
+    # solo no basta (puede ser el dolor actual, que es urgencia);
+    # con contexto de cita pasada, sí es queja.
+    if "me dolio" in normal and (
+        "cita" in normal or "vez pasada" in normal or "despues" in normal
+    ):
+        return True
+    return False
 
 
 def _pide_hablar_con_persona(texto: str) -> bool:
@@ -2020,6 +2035,12 @@ _PALABRAS_CANCELAR = (
     # Se revisa antes que cambiar, así que "no quiero esa hora"
     # sigue siendo cambiar.
     "no quiero la cita", "no quiero mi cita",
+    # (v3.20.2) Errores de dedo fuertes en mensajes clave: "canselo
+    # mi cita" / "cancelo" / "anulo" no coincidían con nada y el
+    # mensaje iba al agente: el cliente creía que canceló y la cita
+    # seguía viva. Estas variantes son inequívocas (nadie escribe
+    # "cansela" o "anulo" queriendo otra cosa).
+    "canselar", "cansela", "canselo", "cancelo", "anulo", "anula",
 )
 _PALABRAS_CAMBIAR = (
     "cambiar", "reprogramar", "reagendar", "mover la cita", "mejor no",
@@ -2031,6 +2052,10 @@ _PALABRAS_CAMBIAR = (
     # tiene). "cambia" cubre "cambiar/cambiala/cambialo" por
     # substring.
     "cambia", "cambie",
+    # (v3.20.2) Errores de dedo en "cambiar" ("canbiar", "cambair"):
+    # mismo problema que en cancelar — sin esto, el cambio se perdía
+    # y la cita vieja seguía viva sin que nadie lo notara.
+    "canbiar", "cambair",
 )
 
 
@@ -2066,10 +2091,16 @@ def _intencion_cambio(texto: str, hay_propuesta: bool = False) -> str | None:
     # Son mensajes para la IA, no para la mecánica.
     _NEG_CANCELAR = ("no quiero cancelar", "no quiero cancela", "no cancelar",
                      "no lo canceles", "no la canceles", "no me canceles",
-                     "no anules", "no lo anules", "no quiero anular", "sin cancelar")
+                     "no anules", "no lo anules", "no quiero anular", "sin cancelar",
+                     # (v3.20.2) Negaciones de las variantes con error
+                     # de dedo: "no canselo" no cancela.
+                     "no canselo", "no cansela", "no canselar", "no cancelo",
+                     "no anulo", "no anula", "no canseles", "no me canseles")
     _NEG_CAMBIAR = ("no quiero cambiar", "no cambiar", "no lo cambies",
                     "no la cambies", "no me cambies", "no me cambie",
-                    "no cambies", "no cambie", "dejalo", "dejala")
+                    "no cambies", "no cambie", "dejalo", "dejala",
+                    # (v3.20.2) Negaciones de "canbiar"/"cambair".
+                    "no canbiar", "no cambair")
     if any(n in normal for n in _NEG_CANCELAR + _NEG_CAMBIAR):
         return None
     if any(p in normal for p in _PALABRAS_CANCELAR):
@@ -3186,11 +3217,15 @@ def atender_mensaje(
     if not respuesta.falla_tecnica:
         # (v3.17) R9: precios conocidos del Conocimiento, para que el
         # revisor deseche cualquier precio inventado antes de mandar.
+        # (v3.20.2) R11: el texto del Conocimiento, para que el
+        # revisor deseche cualquier descuento inventado.
         _precios_conocidos = precios_de_conocimiento(conocimiento)
+        _texto_conocimiento = texto_conocimiento(conocimiento)
         texto_revisado, violaciones = revisar_respuesta(
             respuesta.respuesta_texto, estado, nombre,
             ahora=local_ahora, telefono=telefono,
             precios_conocidos=_precios_conocidos,
+            texto_conocimiento=_texto_conocimiento,
         )
         if violaciones:
             _diagnostico(
@@ -3210,6 +3245,7 @@ def atender_mensaje(
             texto_p, viol_p = revisar_respuesta(
                 parte, estado, nombre, ahora=local_ahora, telefono=telefono,
                 precios_conocidos=_precios_conocidos,
+                texto_conocimiento=_texto_conocimiento,
             )
             partes_revisadas.append(texto_p)
             violaciones_partes.extend(viol_p)

@@ -5,6 +5,60 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.2 — Pulida conversacional: clientes emocionales, descuentos inventados y errores de dedo (2026-11-24)
+
+Jose pidió una pulida profunda del motor conversacional con AI
+(el guion, el prompt, la memoria y el revisor) antes de subir la
+siguiente versión. Nueva `test_pulida_conversacional.py` (45
+casos) + mejoras aplicadas:
+
+- **R11 — ningún descuento inventado (revisor):** R9 cazaba los
+  precios ($N) pero no las promesas de descuento ("te hago un 20%
+  de descuento", "te aplico una promoción"). Ahora, si el
+  Conocimiento no habla de descuentos, la respuesta se desecha
+  entera y sale la frase segura. Las negaciones ("no manejamos
+  descuentos") pasan intactas; si el negocio sí maneja descuentos,
+  la IA puede mencionarlos.
+- **R12 — fuera el robot-speak de "pendientes":** "quedamos en tus
+  pendientes" es lenguaje de sistema; el guion lo prohíbe pero
+  nada lo atrapaba. Ahora se quita la frase (el "pendiente" en
+  singular, "quedó pendiente tu cita", no se toca).
+- **R13 — no re-preguntar lo mismo tras un "ok":** si el cliente
+  contestó con un "ok"/"gracias" y la respuesta es casi la misma
+  pregunta que el robot ya había hecho, se reemplaza por "¿Te
+  ayudo con algo más?". Deliberadamente estrecha: si el cliente
+  repitió su pregunta, re-contestar parecido es legítimo.
+- **"Te propongo" es una oferta verbal:** "Te propongo tu cita
+  para el martes a las 9:00" no era detectada como oferta, así que
+  el estado no veía la oferta y el robot la repetía. Ahora cuenta
+  (con contexto de cita; "te propongo que lo pienses" no).
+- **Errores de dedo en cancelar/cambiar:** "canselo mi cita",
+  "cancelo", "anulo" y "canbiar la cita" no coincidían con nada e
+  iban al agente: el cliente creía que canceló y la cita seguía
+  viva. Ahora cancelan y cambian de verdad (con sus negaciones:
+  "no canselo" no cancela).
+- **Quejas delicadas en la red de seguridad:** "no me gustó la
+  cita pasada", "quedé inconforme", "me atendieron mal", "me
+  dolió después de la cita" ahora se detectan como queja (alerta
+  al dueño cuando la IA está apagada).
+- **Guion: clientes emocionales y difíciles.** Entradas nuevas en
+  el playbook (sincronizadas en `agent.py` y `guion-robot.md`):
+  miedo/fobia (cucarachas, agujas, el dentista), cliente triste o
+  abrumado, queja delicada (escuchar, lamentar, pasar a persona,
+  sin compensar con otra cita), pedidos fuera de lo normal (en su
+  casa, trueque, descuento por grupo: no inventar, confirmar con
+  el encargado + handoff) y contradicción entre mensajes seguidos
+  (quédate con lo ÚLTIMO). Además: instrucción anti-repetición de
+  frases y miedos guardados en el resumen de memoria para atender
+  al cliente con cuidado la próxima vez.
+- **Rúbrica de tono para la batería dorada** (`RUBRICA-TONO-GOLDEN.md`):
+  lista para que Jose califique el tono de la IA real en su Mac.
+
+Suite completa: 40/40 archivos en verde (incluyendo la nueva
+`test_pulida_conversacional.py` 45/45). Pendiente: subir a Render
+(en vivo sigue v3.20.1) y correr la batería dorada con IA real en
+la Mac de Jose.
+
 ## v3.20.1 — Corrida adversarial profunda: 6 bugs reales (2026-11-24)
 
 Jose pidió una corrida profunda antes de subir la última versión.
