@@ -31,6 +31,12 @@ El estado tiene:
   pasada no cuenta como vigente (v3.11).
 - nombre: el nombre que se conoce del cliente, o "".
 - mensajes: cuántos mensajes hay en el historial.
+- ciclo_vida (v3.20.7): el estado explícito de la conversación, para
+  que la IA no tenga que deducirlo: "nueva" (nunca ha escrito),
+  "activa" (conversación viva), "esperando" (hay una oferta pendiente
+  y se espera su respuesta), "agendado" (ya tiene cita), "en_handoff"
+  (el último mensaje del robot fue un pase a persona) o "cerrada"
+  (la conversación quedó resuelta y marcada como cerrada).
 
 Reglas puras, sin internet: se prueban solas en test_v2_13.py.
 """
@@ -161,8 +167,34 @@ def estado_cliente(
     else:
         etapa = "pregunto"
 
+    # (v3.20.7) Ciclo de vida explícito: la IA ya no tiene que
+    # deducir en qué va la conversación. Se calcula aquí, con los
+    # mismos datos de siempre. Orden de prioridad: cerrada manda
+    # (quedó resuelta), luego en_handoff (una persona lo atiende),
+    # luego esperando (hay una oferta y se espera respuesta),
+    # luego agendado, y al final nueva/activa según el historial.
+    _prox = str(cliente.get("proxima_accion", "") or "").strip().lower()
+    _ultimo_motivo_robot = ""
+    for fila in reversed(filas):
+        if str(fila.get("quien_hablo", "")) == "robot":
+            _ultimo_motivo_robot = str(fila.get("motivo", "") or "").strip().lower()
+            break
+    if _prox == "cerrada":
+        ciclo_vida = "cerrada"
+    elif _ultimo_motivo_robot == "handoff":
+        ciclo_vida = "en_handoff"
+    elif ya_ofrecio:
+        ciclo_vida = "esperando"
+    elif tiene_cita:
+        ciclo_vida = "agendado"
+    elif not filas:
+        ciclo_vida = "nueva"
+    else:
+        ciclo_vida = "activa"
+
     return {
         "etapa": etapa,
+        "ciclo_vida": ciclo_vida,
         "ya_ofrecio_cita": ya_ofrecio,
         "oferta_fecha_bonita": str((propuesta or {}).get("fecha_bonita", "") or ""),
         "ultimo_mensaje_robot": ultimo_robot,

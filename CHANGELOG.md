@@ -5,6 +5,100 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.8 — Reporte v3: el diseño aprobado por Jose (el número es el titular) (2026-11-24)
+
+Jose rechazó el diseño del reporte semanal ("pésimo marketing,
+pésimo diseño, pésima redacción") y aprobó la vista previa v3
+(~/workspace/reporte-preview-v3.html). Solo cambia presentación y
+textos en robot/report.py; las funciones de datos
+(valor_estimado_citas, conversaciones_fuera_de_horario,
+clientes_que_volvieron, delta_citas_semana_anterior) y el digest
+matutino quedan intactos. Suite 49/49 en verde; tests de reportes
+20/20 (3 casos nuevos de render E3–E5).
+
+- **HTML nuevo (_html_reporte_semanal):** menos pero mejor
+  (Dieter Rams): sin cajas ni tablas densas; encabezado con
+  negocio + semana, el número ES el titular ($ total estimado
+  grande + MXN, o el conteo de citas si no hay precio conocido —
+  nunca se inventan pesos), línea "N citas confirmadas. X
+  conversaciones atendidas, Y resueltas sin pasar a humano." y
+  línea de pérdida "N llegaron fuera de tu horario. Sin el robot,
+  eran clientes perdidos." (solo si hay dato). Secciones: Citas
+  confirmadas (lista simple con líneas), Necesita tu atención
+  (handoff + por recuperar con borradores en bloque claro listo
+  para copiar), Tu semana en una línea (el resumen), Tu semana en
+  números (lista compacta con líneas: canceladas/no-show,
+  confirmaciones, tiempo ahorrado, sin respuesta, volvieron,
+  delta — la información se conserva, solo cambia la forma) y
+  pie Sereno + nota de estimado. Paleta Sereno #2E5266 + Arial,
+  tablas y estilos en línea para correo.
+- **Texto plano con la misma jerarquía:** el cuerpo abre con el
+  titular ("Esta semana tu robot agendó N citas por un valor
+  estimado de $X MXN." + línea de pérdida si hay dato) y luego
+  citas, atención y números. Sin precio conocido, no sale línea
+  de pesos; sin horario, no sale línea de fuera de horario.
+- **Tests:** test_auditoria_reportes.py E3 (render v3 completo:
+  $, secciones, borrador, pérdida, pie, Arial), E4 (sin precio:
+  ningún "$" inventado, sin línea de pérdida, "Nada pendiente"),
+  E5 (escape de HTML del texto del negocio); E1/E2 ajustados al
+  nuevo render. Bugs encontrados al hacerlo y corregidos con
+  test: NameError citas_n en el cuerpo nuevo y encabezados de
+  sección en mayúsculas para consistencia.
+
+## v3.20.7 — Mejora del motor: memoria estructurada, la IA decide la acción, ciclo de vida y seguimiento proactivo (2026-11-24)
+
+Jose autorizó la mejora del motor ("Sí, corre la mejora del motor
+cuando termine la auditoría") con la visión de que el robot actúe
+como una persona de recepción de clínica: coherente, con contexto,
+memoria, conciencia de circunstancias y tiempo transcurrido, sin
+una base de datos gigante. Test nuevo permanente:
+test_mejora_motor.py (29 casos); suite 49/49 en verde.
+
+- **Memoria estructurada (Clientes X/Y):** las preferencias ya no
+  se entierran en notas (O): van a su columna X "Preferencias" y
+  el acompañante/familia a la Y "Acompañante / familia", con la
+  misma acumulación/dedupe que los miedos (W). Encabezados
+  agregados AL FINAL en la hoja en vivo y en la plantilla
+  (verificados por lectura); sin el encabezado, no se escribe nada
+  (compatibilidad hacia atrás). El contexto lee X primero y
+  respalda en notas para datos viejos. La IA recibe
+  "Prefiere ..." y "Acompañante/familia: ..." sin adivinar.
+- **La IA decide la acción (profundiza v3.16):** accion "mover"
+  ejecuta el cambio por el camino seguro (_atender_cambio_cancelacion)
+  si hay propuesta o cita futura y la confianza no es baja; con
+  confianza baja no se mueve nada. "pasar_persona" garantiza el
+  handoff y "agendar" garantiza quiere_agendar aunque el modelo no
+  los haya marcado (en producción _normalizar ya lo hace). Las
+  invariantes NO se tocaron: nunca confirmar sin propuesta, nunca
+  inventar precios/descuentos, tope de 2 citas. Los atajos
+  deterministas quedan como "Pistas del sistema" en el contexto
+  (señales, no órdenes).
+- **Ciclo de vida explícito:** estado_cliente devuelve ciclo_vida
+  (nueva, activa, esperando, agendado, en_handoff, cerrada) y el
+  contexto lo dice en una línea: la IA ya no tiene que deducir en
+  qué va la conversación.
+- **Seguimiento proactivo (robot/seguimiento.py, NUEVO):** el
+  mecanismo para escribirle a los que preguntaron y no agendaron,
+  detrás del interruptor `seguimiento_proactivo` APAGADO por
+  defecto (vacío = NO). Solo sigue a clientes sin cita, sin cerrar,
+  sin handoff, con robot activo, consentimiento SI, inactivos >3
+  días y sin seguimiento previo; manda la plantilla
+  `seguimiento_no_agendo` (es_MX) y registra motivo "seguimiento".
+  Job horario en app.py (id="seguimiento"). NO manda nada real sin
+  plantilla aprobada en Meta + interruptor en SI + opt-in del
+  cliente. Especificación para Jose en PLANTILLA-SEGUIMIENTO-META.md.
+- **Bug real encontrado y corregido:** _handoff_repetido usaba
+  time.monotonic() con default 0.0: con la máquina recién
+  encendida (monotonic < 30 min, frecuente en Render free que se
+  reinicia), el PRIMER correo de handoff de cada cliente se
+  descartaba como "repetido". Ahora el default es None (nunca
+  mandado = no repetido). Reproducido con test primero (D4b).
+- **Propuestas para Jose (sin implementar):** calibración de tono
+  con IA real en su Mac (batería dorada + RUBRICA-TONO-GOLDEN.md,
+  no verificable aquí); adelgazar el guion para velocidad (necesita
+  calibración en Mac); aprobar la plantilla `seguimiento_no_agendo`
+  en Meta cuando quiera encender el seguimiento.
+
 ## v3.20.6 — Corrida profunda: blindaje reforzado (negación lejana, "barato"/"sin intereses", precios pelados), urgencia sin falsos positivos y ROI sin ambigüedad (2026-11-24)
 
 Jose ordenó "sube la última versión y haz la corrida profunda" +

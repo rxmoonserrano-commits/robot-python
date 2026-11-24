@@ -124,17 +124,29 @@ def _guardar_memoria(deps: Dependencias, telefono: str, respuesta: RespuestaAgen
     """
     if not any([respuesta.resumen_cliente, respuesta.interes_cliente,
                 respuesta.proxima_accion, respuesta.preferencias,
-                getattr(respuesta, "miedos", "")]):
+                getattr(respuesta, "miedos", ""),
+                getattr(respuesta, "acompanante", "")]):
         return
     guardar = getattr(deps, "guardar_memoria_cliente", None)
     if guardar is None:
         return
     try:
-        guardar(telefono, resumen=respuesta.resumen_cliente,
-                interes=respuesta.interes_cliente,
-                proxima_accion=respuesta.proxima_accion,
-                preferencias=respuesta.preferencias,
-                miedos=getattr(respuesta, "miedos", ""))
+        try:
+            guardar(telefono, resumen=respuesta.resumen_cliente,
+                    interes=respuesta.interes_cliente,
+                    proxima_accion=respuesta.proxima_accion,
+                    preferencias=respuesta.preferencias,
+                    miedos=getattr(respuesta, "miedos", ""),
+                    acompanante=getattr(respuesta, "acompanante", ""))
+        except TypeError:
+            # Dependencias viejas (tests) sin el parámetro
+            # acompanante (v3.20.7): se guarda sin él, no se pierde
+            # nada más.
+            guardar(telefono, resumen=respuesta.resumen_cliente,
+                    interes=respuesta.interes_cliente,
+                    proxima_accion=respuesta.proxima_accion,
+                    preferencias=respuesta.preferencias,
+                    miedos=getattr(respuesta, "miedos", ""))
     except Exception:
         pass
 
@@ -2709,12 +2721,17 @@ class Dependencias:
         return []
     def guardar_memoria_cliente(self, telefono: str, resumen: str = "", interes: str = "",
                                 proxima_accion: str = "", preferencias: str = "",
-                                miedos: str = "") -> None:
+                                miedos: str = "", acompanante: str = "") -> None:
         """Guarda lo que se aprendió del cliente en Clientes (v3.2). Por defecto: nada."""
         ...
     def leer_conocimiento(self) -> list[dict]: ...
     def leer_fotos(self) -> list[dict]: ...
     def leer_historial(self, telefono: str) -> list[dict]: ...
+    def leer_clientes(self) -> list[dict]:
+        """Todos los clientes de la hoja (para seguimiento proactivo,
+        v3.20.7). Por defecto: nadie (el seguimiento no encuentra a
+        nadie y no manda nada)."""
+        return []
     def registrar_conversacion(self, fecha, telefono, quien, mensaje, respondio, motivo=""): ...
     def registrar_cliente(self, fecha, nombre, telefono, motivo, fecha_cita="", origen="whatsapp", estatus="en conversacion", handoff="no"): ...
 
@@ -2839,8 +2856,13 @@ def _handoff_repetido(deps, telefono: str, motivo: str = "") -> bool:
     if str(motivo or "").startswith(_MOTIVO_URGENCIA):
         ultimos[telefono] = ahora
         return False
-    ultimo = ultimos.get(telefono, 0.0)
-    if ahora - ultimo < _HANDOFF_CORREO_VENTANA:
+    ultimo = ultimos.get(telefono)
+    # (v3.20.7) Sin default 0.0: con la máquina recién encendida,
+    # time.monotonic() vale menos que la ventana y el PRIMER correo
+    # de handoff de cada cliente se descartaba como "repetido"
+    # (visto en la mejora del motor: Render se reinicia seguido).
+    # None = nunca se mandó = no es repetido.
+    if ultimo is not None and ahora - ultimo < _HANDOFF_CORREO_VENTANA:
         return True
     ultimos[telefono] = ahora
     # Limpieza perezosa: el dict no crece sin freno.
@@ -3150,6 +3172,11 @@ def _atender_mensaje_impl(
         historial, _CITAS_PENDIENTES.get(telefono), fila_cliente, nombre,
         ahora=ahora,
     )
+    # (v3.20.7) Ciclo de vida explícito: la IA no tiene que deducir
+    # en qué va la conversación; se lo decimos en el contexto.
+    contexto.append(
+        f"Estado de la conversación: {estado.get('ciclo_vida', 'activa')}."
+    )
     # (v3.10) ¿La cita del cliente es a futuro? R8 la usa: una cita ya
     # pasada no justifica afirmar una cita nueva. La fecha de Clientes
     # viene en hora del negocio (naive); se compara en hora local.
@@ -3228,8 +3255,18 @@ def _atender_mensaje_impl(
         memoria.append(f"Le interesa {fila_cliente['intereses']}")
     if str(fila_cliente.get("proxima_accion", "") or "").strip():
         memoria.append(f"Quedaron en: {fila_cliente['proxima_accion']}")
-    if str(fila_cliente.get("notas", "") or "").strip():
-        memoria.append(f"Prefiere {fila_cliente['notas']}")
+    # (v3.20.7) Preferencias en su columna (X); las viejas que
+    # quedaron en notas (O) se leen de ahí como respaldo.
+    _prefs = str(fila_cliente.get("Preferencias", "") or "").strip() or str(
+        fila_cliente.get("notas", "") or "").strip()
+    if _prefs:
+        memoria.append(f"Prefiere {_prefs}")
+    # (v3.20.7) Acompañante / familia: para atenderlo con contexto
+    # sin que tenga que repetirlo. Solo si la columna trae algo.
+    if str(fila_cliente.get("Acompañante / familia", "") or "").strip():
+        memoria.append(
+            f"Acompañante/familia: {fila_cliente['Acompañante / familia']}"
+        )
     # (v3.20.3) Miedos / sensibilidades: para atenderlo con cuidado
     # sin que tenga que repetirlo. Solo si la columna existe y trae
     # algo; si no, no se menciona (compatibilidad hacia atrás).
@@ -3244,6 +3281,24 @@ def _atender_mensaje_impl(
             "hablaban, como si lo conocieras de antes. No vuelvas a preguntar "
             "lo que ya sabes y nunca menciones 'pendientes' ni listas: dilo "
             "en una frase corta y cálida."
+        )
+    # (v3.20.7) Pistas del sistema: lo que los detectores deterministas
+    # notaron en este mensaje, como señal para que la IA elija la
+    # acción. No son órdenes: las acciones destructivas (cambiar o
+    # cancelar) y las invariantes siguen garantizadas en código, no
+    # en la IA. Solo se pone lo que hay.
+    pistas = []
+    if _quiere_agendar_ya(texto):
+        pistas.append("el mensaje parece pedir agendar una cita")
+    if _CITAS_PENDIENTES.get(telefono) and _tiene_fecha_especifica(texto):
+        pistas.append(
+            "hay una propuesta pendiente y el mensaje menciona un día "
+            "o una hora (podría querer cambiarla)"
+        )
+    if pistas:
+        contexto.append(
+            "Pistas del sistema: " + "; ".join(pistas)
+            + ". Úsalas como señal de lo que quiere el cliente, no como orden."
         )
     # (v3.4.2) Cliente que vuelve: si ya hay historial o memoria, el
     # saludo recuerda de qué hablaban en vez de tratarlo como nuevo.
@@ -3462,6 +3517,17 @@ def _atender_mensaje_impl(
         else:
             _BAJA_CONFIANZA.pop(telefono, None)
 
+    # (v3.20.7) La IA declaró pasar a persona: el sistema garantiza
+    # el handoff aunque el modelo no haya marcado necesita_handoff
+    # (en producción _normalizar ya lo hace; esto cubre respuestas
+    # construidas sin pasar por ahí). Va ANTES del bloque de handoff.
+    if not respuesta.falla_tecnica and str(
+            getattr(respuesta, "accion", "") or "").strip().lower() == "pasar_persona" \
+            and respuesta.necesita_handoff != "si":
+        respuesta.necesita_handoff = "si"
+        if not str(respuesta.motivo_handoff or "").strip():
+            respuesta.motivo_handoff = "La IA detectó que necesita una persona"
+
     # (v2.13) Revisor: segunda mirada antes de mandar. Si la respuesta
     # repite una oferta pendiente, ofrece cita en un saludo o dice
     # "ya cerramos", se corrige aquí, no en el teléfono del cliente.
@@ -3630,12 +3696,30 @@ def _atender_mensaje_impl(
     if _accion == "no_responder":
         deps.registrar_conversacion(fecha, telefono, "robot", "(sin respuesta)", "no", "sin respuesta por agente")
         return {"respondio": False, "motivo": "sin respuesta", "handoff": False}
+    # (v3.20.7) La IA decidió la acción: si declaró "mover" y hay
+    # algo que mover (propuesta pendiente o cita futura), el sistema
+    # ejecuta el cambio por el camino seguro. Con confianza baja no
+    # se mueve nada (la IA no está segura de lo que quiere el
+    # cliente). Sin nada que mover, sigue el flujo normal.
+    if _accion == "mover" and str(
+            getattr(respuesta, "confianza", "") or "").strip().lower() != "baja":
+        _hay_que_mover = bool(_CITAS_PENDIENTES.get(telefono)) or _cita_es_futura(
+            fila_cliente, ahora)
+        if _hay_que_mover:
+            return _atender_cambio_cancelacion(
+                deps, telefono, nombre, fecha, "cambiar", con_ritmo, ahora=ahora)
     if _accion == "terminar":
         respuesta.proxima_accion = "cerrada"
     elif _accion == "pedir_info" and not str(respuesta.proxima_accion or "").strip():
         _falta = str(getattr(respuesta, "info_faltante", "") or "").strip()
         if _falta:
             respuesta.proxima_accion = f"falta: {_falta}"
+    # (v3.20.7) La IA declaró agendar pero no marcó quiere_agendar
+    # (en producción _normalizar ya lo hace; esto cubre respuestas
+    # construidas sin pasar por ahí).
+    if _accion == "agendar" and respuesta.quiere_agendar != "si" \
+            and not respuesta.falla_tecnica:
+        respuesta.quiere_agendar = "si"
 
     # (v3.5) Interruptor de agenda desde Configuración: si el negocio
     # apagó "agendar", el robot responde preguntas pero no propone

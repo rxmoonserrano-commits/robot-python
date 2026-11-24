@@ -298,7 +298,7 @@ def e1():
             "Valor estimado de las citas agendadas: $2,400 MXN" in cuerpo
             and "Clientes que volvieron y agendaron: 1" in cuerpo
             and "Citas vs semana pasada: +1" in cuerpo
-            and "$2,400 MXN" in html
+            and "$2,400" in html and "MXN" in html
             and resultado.get("valor_estimado") == 2400
             and resultado.get("delta_citas") == 1
         )
@@ -326,6 +326,7 @@ def e2():
 
         def enviar_fake(dest, asunto, cuerpo, html=None):
             capturado["cuerpo"] = cuerpo
+            capturado["html"] = html
 
         mp.setattr(report_mod, "leer_pestana", leer_fake)
         mp.setattr(report_mod, "generar_texto", lambda *a, **k: "Resumen de prueba.")
@@ -337,16 +338,95 @@ def e2():
 
         resultado = report_mod.generar_reporte_semanal()
         cuerpo = capturado.get("cuerpo", "")
+        html = capturado.get("html", "") or ""
         ok = (
             "Valor estimado de las citas agendadas" not in cuerpo
             and "fuera de tu horario" not in cuerpo
             and "CITAS CONFIRMADAS" in cuerpo
+            and "$" not in html
+            and "llegaron fuera de tu horario" not in html
             and resultado.get("valor_estimado") == 0
             and resultado.get("fuera_de_horario") is None
         )
         return ok, f"cuerpo={cuerpo[:400]!r}"
     finally:
         mp.restore()
+
+
+# ---------------------------------------------------------------------------
+# F. Render v3 (v3.20.8): el diseño aprobado por Jose
+# ---------------------------------------------------------------------------
+
+def e3():
+    # Render directo con datos completos: el número es el titular,
+    # están las secciones v3, la línea de pérdida y el pie.
+    html = report_mod._html_reporte_semanal(
+        nombre_neg="Clínica de prueba", semana="2026-11-17 a 2026-11-24",
+        citas=[{"nombre": "Ana", "motivo": "Limpieza dental",
+                "fecha_cita": "2026-11-25T10:00:00-07:00"}],
+        humanos=[{"nombre": "Roberto", "motivo": "dolor de muela",
+                  "fecha": "2026-11-23T08:15:00-07:00"}],
+        recuperar=[{"nombre": "Sofía", "motivo": "blanqueamiento"}],
+        atendidos=46, resueltas=41, pct=89, citas_n=1,
+        canceladas=0, no_show=0, horas=3.4, sin_respuesta=0,
+        resumen="Resumen de prueba.",
+        confirmaciones=4, valor=3800, citas_con_precio=1,
+        fuera_horario=6, volvieron=2, delta=2,
+    )
+    ok = (
+        "$3,800" in html and "MXN" in html
+        and "Clínica de prueba" in html
+        and "2026-11-17 a 2026-11-24" in html
+        and "CITAS CONFIRMADAS" in html and "Ana" in html
+        and "NECESITA TU ATENCIÓN" in html and "Roberto" in html
+        and "¿Te aparto un lugar esta semana?" in html
+        and "TU SEMANA EN UNA LÍNEA" in html
+        and "Resumen de prueba." in html
+        and "6 llegaron fuera de tu horario" in html
+        and "Sereno · tu recepcionista digital" in html
+        and "Valores estimados con base en tus precios." in html
+        and "font-family:Arial" in html
+    )
+    return ok, html[:300]
+
+
+def e4():
+    # Sin precio conocido ni fuera de horario: el HTML no inventa
+    # pesos (ningún "$") ni afirma la línea de pérdida.
+    html = report_mod._html_reporte_semanal(
+        nombre_neg="Clínica de prueba", semana="2026-11-17 a 2026-11-24",
+        citas=[{"nombre": "Ana", "motivo": "Servicio sin precio",
+                "fecha_cita": "2026-11-25T10:00:00-07:00"}],
+        humanos=[], recuperar=[],
+        atendidos=3, resueltas=3, pct=100, citas_n=1,
+        canceladas=0, no_show=0, horas=0.2, sin_respuesta=0,
+        resumen="Resumen de prueba.",
+        valor=0, citas_con_precio=0, fuera_horario=None,
+    )
+    ok = (
+        "$" not in html
+        and "llegaron fuera de tu horario" not in html
+        and "1 cita confirmada" in html
+        and "Nada pendiente esta semana." in html
+    )
+    return ok, html[:300]
+
+
+def e5():
+    # El texto del negocio se escapa: nada de HTML inyectado.
+    html = report_mod._html_reporte_semanal(
+        nombre_neg="<script>alert(1)</script>",
+        semana="2026-11-17 a 2026-11-24",
+        citas=[], humanos=[], recuperar=[],
+        atendidos=0, resueltas=0, pct=0, citas_n=0,
+        canceladas=0, no_show=0, horas=0.0, sin_respuesta=0,
+        resumen="<b>resumen</b>",
+    )
+    ok = (
+        "&lt;script&gt;" in html and "<script>alert" not in html
+        and "&lt;b&gt;resumen" in html and "<b>resumen</b>" not in html
+    )
+    return ok, html[:300]
 
 
 def main():
@@ -368,6 +448,9 @@ def main():
         ("D3 fila de otra semana no se usa", d3),
         ("E1 reporte semanal con líneas de retorno", e1),
         ("E2 sin datos de retorno el correo sale sin afirmar", e2),
+        ("E3 render v3: número, secciones y línea de pérdida", e3),
+        ("E4 sin precio: sin $ inventado ni línea de pérdida", e4),
+        ("E5 el HTML escapa el texto del negocio", e5),
     ]:
         caso(nombre, fn)
     fallos = [n for n, ok in RESULTADOS if not ok]

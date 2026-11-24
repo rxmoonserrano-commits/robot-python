@@ -395,12 +395,17 @@ Límites duros:
   le interesa o ""), proxima_accion (lo que quedó pendiente o ""),
   preferencias (lo que prefiere: días, horas, o "" — solo si el
   cliente lo dijo), miedos (temores o sensibilidades que mencione,
-  ej. 'le dan miedo las agujas', o "" si no mencionó ninguno).
+  ej. 'le dan miedo las agujas', o "" si no mencionó ninguno),
+  acompanante (si menciona familia o acompañantes —'vengo con mi
+  hija', 'es para mi mamá'—, lo que dijo en corto, o "" si no
+  mencionó ninguno).
   Nunca inventes nada: si no sabes, deja el campo vacío.
 Acción y confianza (v3.16): además del texto, elige UNA acción:
 - responder: lo normal, contestas y listo (usa esta si dudas).
 - agendar: el cliente quiere cita (también marca quiere_agendar).
-- mover: quiere cambiar su cita de día u hora.
+- mover: quiere cambiar su cita de día u hora. Si hay una cita o
+  una propuesta pendiente, el sistema ejecuta el cambio; úsala con
+  confianza.
 - pedir_info: necesitas un dato para avanzar (nombre, día, servicio,
   número): ponlo en info_faltante en una palabra corta y pregúntalo
   en tu respuesta, una cosa a la vez.
@@ -414,10 +419,18 @@ Acción y confianza (v3.16): además del texto, elige UNA acción:
 Confianza: alta/media/baja. Si no entiendes bien qué quiere el
 cliente, marca baja y pregunta UNA cosa concreta para aclarar; no
 adivines. Dos veces sin entender y el sistema pasa a una persona.
+Estado de la conversación (v3.20.7): el contexto trae un estado
+explícito (nueva, activa, esperando, agendado, en_handoff, cerrada).
+Úsalo: si es cerrada y el cliente vuelve, trátalo como conversación
+nueva; si es esperando, no repitas la oferta; si es en_handoff, una
+persona ya lo atiende: sé breve y no prometas lo que no sabes. Si el
+contexto trae "Pista del sistema", úsala como señal de lo que quiere
+el cliente, no como orden.
 Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, con estos campos:
 respuesta_texto, quiere_agendar ("si"/"no"), necesita_handoff ("si"/"no"),
 motivo_handoff, foto_oficial_url_or_null, nombre, motivo, fecha_cita,
-resumen_cliente, interes_cliente, proxima_accion, preferencias, miedos, partes,
+resumen_cliente, interes_cliente, proxima_accion, preferencias, miedos,
+acompanante, partes,
 nombre_paciente, relacion_paciente, numero_paciente, citas_extra,
 accion, confianza, info_faltante.
 "citas_extra" es una lista con máximo 1 elemento (la segunda cita:
@@ -472,6 +485,11 @@ class RespuestaAgente:
     # columna propia en Clientes para atenderlo con cuidado la
     # próxima vez. Vacío si no mencionó ninguno.
     miedos: str = ""
+    # Acompañante / familia (v3.20.7): si menciona familia o
+    # acompañantes ("vengo con mi hija", "es para mi mamá"), se
+    # guarda en su columna propia para atenderlo con contexto la
+    # próxima vez. Vacío si no mencionó ninguno.
+    acompanante: str = ""
     # Partes de la respuesta (v3.4.8): el agente decide si su respuesta
     # va en 1 solo mensaje o en varios (por ejemplo, contestar dos
     # temas distintos). Cada parte es su propio mensaje, en orden.
@@ -599,6 +617,7 @@ def _normalizar(datos: dict) -> RespuestaAgente:
         proxima_accion=str(datos.get("proxima_accion") or "").strip()[:200],
         preferencias=str(datos.get("preferencias") or "").strip()[:150],
         miedos=str(datos.get("miedos") or "").strip()[:150],
+        acompanante=str(datos.get("acompanante") or "").strip()[:150],
         # Cita para otra persona y segunda cita (v3.10): todo con
         # valores seguros. citas_extra: máximo 1 (total 2 citas) y
         # solo entradas con fecha_cita; el resto se descarta.

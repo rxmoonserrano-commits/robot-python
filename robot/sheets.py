@@ -578,15 +578,44 @@ def registrar_cliente(
 # El código la lee por nombre de encabezado: si la hoja aún no la
 # tiene, simplemente no se usa (los miedos siguen en el resumen).
 _COL_MIEDOS = "Miedos / sensibilidades"
+# (v3.20.7) Memoria estructurada: preferencias y acompañante con
+# su propia columna (X e Y, también AL FINAL). Hechos que la IA lee
+# sin adivinar, en vez de enterrados en notas. Misma regla que W:
+# se leen por nombre de encabezado y si la hoja aún no tiene el
+# encabezado, no se escribe nada (compatibilidad hacia atrás).
+_COL_PREFERENCIAS = "Preferencias"
+_COL_ACOMPANANTE = "Acompañante / familia"
+
+
+def _acumular_hecho(viejo: str, nuevo: str) -> str | None:
+    """Acumula un hecho estructurado (preferencias, miedos, acompañante).
+
+    Si ya estaba, no se duplica; si no, se agrega con '; '. Devuelve
+    el texto a escribir, o None si no hay nada nuevo que escribir.
+    """
+    nuevo = str(nuevo or "").strip()[:150]
+    if not nuevo:
+        return None
+    viejo = str(viejo or "").strip()
+    if nuevo.lower() in viejo.lower():
+        return None
+    return (viejo + "; " + nuevo).strip("; ")[:300] if viejo else nuevo
 
 
 def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
                             proxima_accion: str = "", preferencias: str = "",
-                            miedos: str = "") -> None:
-    """Guarda la memoria del cliente en Clientes (K, L, N, O y W).
+                            miedos: str = "", acompanante: str = "") -> None:
+    """Guarda la memoria del cliente en Clientes (K, L, N, O, W, X, Y).
 
     No hace nada si no hay nada nuevo, y no hace nada si el teléfono
     no tiene fila (el cliente se registra primero por otro lado).
+
+    (v3.20.7) Las preferencias ya NO se acumulan en notas (O): van a
+    su columna X "Preferencias", y el acompañante/familia a la Y
+    "Acompañante / familia". Las preferencias viejas que quedaron en
+    notas se siguen leyendo de ahí (respaldo en logic.py). Si la hoja
+    aún no tiene el encabezado X o Y, ese hecho no se escribe (el
+    resumen sigue guardando el contexto).
     """
     encontrado = _fila_cliente_por_telefono(telefono)
     if encontrado is None:
@@ -601,26 +630,23 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
         nuevos["intereses"] = str(interes).strip()[:150]
     if str(proxima_accion or "").strip():
         nuevos["proxima_accion"] = str(proxima_accion).strip()[:200]
-    if str(preferencias or "").strip():
-        viejo = str(fila.get("notas", "") or "").strip()
-        nuevo_pref = str(preferencias).strip()[:150]
-        if nuevo_pref.lower() not in viejo.lower():
-            nuevos["notas"] = (
-                (viejo + "; " + nuevo_pref).strip("; ")[:300] if viejo else nuevo_pref
-            )
+    # (v3.20.7) Preferencias y acompañante: hechos estructurados en
+    # sus columnas (X e Y), con la misma acumulación que los miedos.
+    # Si la hoja aún no tiene el encabezado, no se escribe nada.
+    prefs_nuevo: str | None = None
+    if str(preferencias or "").strip() and _COL_PREFERENCIAS in fila:
+        prefs_nuevo = _acumular_hecho(fila.get(_COL_PREFERENCIAS, ""), preferencias)
+    acomp_nuevo: str | None = None
+    if str(acompanante or "").strip() and _COL_ACOMPANANTE in fila:
+        acomp_nuevo = _acumular_hecho(fila.get(_COL_ACOMPANANTE, ""), acompanante)
     # (v3.20.3) Miedos: se acumulan como las preferencias (si ya
     # está, no se duplica) y se escriben en la columna W, aparte.
     # Si la hoja aún no tiene el encabezado, no se escribe nada
     # (compatibilidad hacia atrás: el miedo sigue en el resumen).
     miedos_nuevo: str | None = None
     if str(miedos or "").strip() and _COL_MIEDOS in fila:
-        viejo_m = str(fila.get(_COL_MIEDOS, "") or "").strip()
-        nuevo_m = str(miedos).strip()[:150]
-        if nuevo_m.lower() not in viejo_m.lower():
-            miedos_nuevo = (
-                (viejo_m + "; " + nuevo_m).strip("; ")[:300] if viejo_m else nuevo_m
-            )
-    if not nuevos and not miedos_nuevo:
+        miedos_nuevo = _acumular_hecho(fila.get(_COL_MIEDOS, ""), miedos)
+    if not nuevos and not miedos_nuevo and not prefs_nuevo and not acomp_nuevo:
         return
     # (v3.20.4, auditoría de datos) Antes, si la escritura de W
     # fallaba después de la de K:O, la excepción subía y el llamador
@@ -650,6 +676,20 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
                 range=f"Clientes!W{numero_fila}",
                 valueInputOption="RAW",
                 body={"values": [[miedos_nuevo]]},
+            ).execute()
+        if prefs_nuevo:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Clientes!X{numero_fila}",
+                valueInputOption="RAW",
+                body={"values": [[prefs_nuevo]]},
+            ).execute()
+        if acomp_nuevo:
+            servicio.values().update(
+                spreadsheetId=settings.sheet_id,
+                range=f"Clientes!Y{numero_fila}",
+                valueInputOption="RAW",
+                body={"values": [[acomp_nuevo]]},
             ).execute()
     except Exception as exc:  # noqa: BLE001 - la memoria nunca rompe nada
         log_error(f"[memoria] No se pudo guardar la memoria de {telefono}: {exc}")

@@ -187,6 +187,10 @@ FILA_CLIENTE = {
     "intereses": "Limpieza dental", "calificacion": "Tibio",
     "proxima_accion": "", "notas": "Solo en las mañanas",
     "robot_activo": "SI",
+    # (v3.20.7) Memoria estructurada: las preferencias viven en su
+    # columna X; notas (O) queda como respaldo para datos viejos.
+    "Preferencias": "Solo en las mañanas",
+    "Acompañante / familia": "",
 }
 
 
@@ -225,12 +229,15 @@ def main():
             TELEFONO, resumen="Quiere limpieza y blanqueamiento.",
             interes="Blanqueamiento", proxima_accion="Confirmar sábado 10:00",
             preferencias="Prefiere sábados")
-    caso("(a) La memoria se escribe en Clientes K:O, sin tocar la calificación",
-         len(servicio.valores.updates) == 1
+    caso("(a) La memoria se escribe en Clientes K:O y las preferencias en X (la calificación M no se toca)",
+         len(servicio.valores.updates) == 2
          and servicio.valores.updates[0]["range"] == "Clientes!K2:O2"
          and servicio.valores.updates[0]["values"][0] == [
              "Quiere limpieza y blanqueamiento.", "Blanqueamiento", "Tibio",
-             "Confirmar sábado 10:00", "Solo en las mañanas; Prefiere sábados"],
+             "Confirmar sábado 10:00", "Solo en las mañanas"]
+         and servicio.valores.updates[1]["range"] == "Clientes!X2"
+         and servicio.valores.updates[1]["values"] == [
+             ["Solo en las mañanas; Prefiere sábados"]],
          f"salió: {servicio.valores.updates}")
     servicio = _ServicioFalso()
     with patch.object(sheets_mod, "_servicio_sheets", lambda: servicio), \

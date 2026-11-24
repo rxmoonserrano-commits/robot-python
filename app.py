@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.6"
+VERSION = "3.20.8"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -192,9 +192,20 @@ class DependenciasReales(Dependencias):
         return booking.cancelar_cita(telefono, fecha_cita)
 
     def guardar_memoria_cliente(self, telefono, resumen="", interes="",
-                                proxima_accion="", preferencias="", miedos=""):
+                                proxima_accion="", preferencias="", miedos="",
+                                acompanante=""):
         sheets.guardar_memoria_cliente(telefono, resumen, interes,
-                                       proxima_accion, preferencias, miedos)
+                                       proxima_accion, preferencias, miedos,
+                                       acompanante)
+
+    def leer_clientes(self):
+        # (v3.20.7) Para el seguimiento proactivo. Sin Clientes, el
+        # seguimiento no encuentra a nadie y no manda nada.
+        try:
+            return sheets.leer_pestana("Clientes")
+        except Exception as exc:  # noqa: BLE001 - sin clientes, no hay seguimiento
+            aviso(f"[clientes] {exc}")
+            return []
 
     def guardar_propuesta(self, telefono, propuesta):
         sheets.guardar_propuesta(telefono, propuesta)
@@ -823,6 +834,20 @@ def enviar_recordatorios_programados():
         aviso(f"[recordatorios] {exc}")
 
 
+def enviar_seguimientos_programados():
+    """Seguimiento proactivo (v3.20.7): clientes que preguntaron y no
+    agendaron. Apagado por defecto: el interruptor
+    `seguimiento_proactivo` de Configuración decide, y sin plantilla
+    aprobada en Meta no manda nada real.
+    """
+    try:
+        from robot import seguimiento
+
+        seguimiento.enviar_seguimientos_pendientes(_DEPS)
+    except Exception as exc:  # noqa: BLE001 - el job nunca tumba el robot
+        aviso(f"[seguimiento] {exc}")
+
+
 scheduler = BackgroundScheduler(timezone=settings.timezone)
 scheduler.add_job(
     generar_reporte_semanal,
@@ -840,6 +865,12 @@ scheduler.add_job(
     enviar_recordatorios_programados,
     IntervalTrigger(hours=1),
     id="recordatorios",
+    replace_existing=True,
+)
+scheduler.add_job(
+    enviar_seguimientos_programados,
+    IntervalTrigger(hours=1),
+    id="seguimiento",
     replace_existing=True,
 )
 

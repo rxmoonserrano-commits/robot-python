@@ -347,8 +347,9 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                           fuera_horario: int | None = None,
                           volvieron: int = 0,
                           delta: int | None = None) -> str:
-    """Versión HTML del reporte semanal (v3.9): misma información que
-    el texto, con el diseño limpio que el dueño lee en un minuto.
+    """Versión HTML del reporte semanal (v3.20.8): diseño v3 aprobado
+    por Jose — el número ES el titular, jerarquía por tipografía y
+    espacios, sin cajas densas. Misma información que el texto.
 
     Los datos salen de las hojas; lo estimado va marcado como
     estimado. Todo el texto del negocio se escapa antes de meterlo
@@ -357,70 +358,120 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
     def e(v) -> str:
         return _html.escape(str(v or ""))
 
+    # --- El número: titular. Sin precio conocido no se inventa $. ---
+    if citas_con_precio:
+        _numero_grande = (
+            f"${valor:,}"
+            ' <span style="font-size:22px; font-weight:normal; '
+            'color:#8A99A3;">MXN</span>'
+        )
+    else:
+        _numero_grande = f"{citas_n}"
+    _plural_citas = "s" if citas_n != 1 else ""
+    _linea_perdida = ""
+    if fuera_horario:
+        _linea_perdida = (
+            '<div style="font-size:15px; line-height:1.65; color:#44565F; '
+            f'margin-top:8px;">{fuera_horario} llegaron fuera de tu horario. '
+            'Sin el robot, eran clientes perdidos.</div>'
+        )
+
     def _filas_citas() -> str:
         if not citas:
-            return ('<tr><td style="padding:8px 10px; color:#6B7280;">'
-                    'Ninguna esta semana.</td></tr>')
+            return ('<div style="font-size:15px; color:#8A99A3; '
+                    'margin-top:14px;">Ninguna esta semana.</div>')
         filas = []
         for i, f in enumerate(citas):
-            fondo = ' style="background:#F9FAFB;"' if i % 2 else ""
+            estilo = "padding:12px 0; font-size:15px;"
+            if i < len(citas) - 1:
+                estilo += " border-bottom:1px solid #F0F3F5;"
             filas.append(
-                f'<tr{fondo}><td style="padding:8px 10px; border-bottom:1px solid #E5E7EB;">'
-                f'{e(f.get("nombre") or f.get("telefono"))} — {e(f.get("motivo") or "cita")}</td>'
-                f'<td align="right" style="padding:8px 10px; border-bottom:1px solid #E5E7EB;">'
-                f'{e(formatear_cita_bonita(str(f.get("fecha_cita", ""))))}</td></tr>'
+                f'<div style="{estilo}">'
+                f'{e(f.get("nombre") or f.get("telefono"))}'
+                f' <span style="color:#8A99A3;">· '
+                f'{e(f.get("motivo") or "cita")}</span>'
+                f'<span style="float:right; color:#8A99A3;">'
+                f'{e(formatear_cita_bonita(str(f.get("fecha_cita", ""))))}'
+                '</span></div>'
             )
         return "".join(filas)
 
-    def _lista_humanos() -> str:
+    def _bloque_humanos() -> str:
         if not humanos:
-            return "Ninguna esta semana."
-        return "<br>".join(
-            f'• <strong>{e(f.get("nombre") or f.get("telefono"))}</strong>'
-            f' — {e(f.get("motivo") or "sin motivo")} ({e(_fecha_corta(str(f.get("fecha", ""))))})'
-            for f in humanos
-        )
+            return ""
+        items = []
+        for f in humanos:
+            items.append(
+                '<div style="font-size:15px; line-height:1.65; margin-top:14px;">'
+                f'<strong>{e(f.get("nombre") or f.get("telefono"))}</strong> '
+                f'<span style="color:#8A99A3;">— '
+                f'{e(f.get("motivo") or "sin motivo")}'
+                f' ({e(_fecha_corta(str(f.get("fecha", ""))))})</span></div>'
+            )
+        return "".join(items)
 
-    def _lista_recuperar() -> str:
+    def _bloque_recuperar() -> str:
         if not recuperar:
-            return "Nadie por recuperar esta semana."
-        return "<br>".join(
-            f'<strong>{e(f.get("nombre") or f.get("telefono"))}</strong> preguntó por '
-            f'{e(f.get("motivo"))}.<br><span style="color:#6B7280;">Borrador listo para copiar: '
-            f'«Hola {e(f.get("nombre") or "")}, vi que preguntaste por {e(f.get("motivo"))}. '
-            f'¿Te aparto un lugar esta semana?»</span>'
-            for f in recuperar
+            return ""
+        partes = []
+        for f in recuperar:
+            nombre = e(f.get("nombre") or f.get("telefono"))
+            motivo = e(f.get("motivo") or "")
+            partes.append(
+                '<div style="font-size:15px; line-height:1.65; margin-top:18px;">'
+                f'<strong>{nombre}</strong> '
+                f'<span style="color:#8A99A3;">preguntó por {motivo} '
+                'y no agendó.</span></div>'
+                '<div style="font-size:14px; line-height:1.65; color:#33424D; '
+                'background:#F4F8FA; border-radius:10px; padding:12px 16px; '
+                'margin-top:8px;">'
+                f'«Hola {e(f.get("nombre") or "")}, vi que preguntaste por '
+                f'{motivo}. ¿Te aparto un lugar esta semana?»</div>'
+            )
+        return "".join(partes)
+
+    if humanos or recuperar:
+        _bloque_atencion = _bloque_humanos() + _bloque_recuperar()
+    else:
+        _bloque_atencion = (
+            '<div style="font-size:15px; color:#8A99A3; margin-top:14px;">'
+            'Nada pendiente esta semana.</div>'
         )
 
-    # (v3.20.5) Filas de retorno: solo si hay dato que afirmar.
-    _filas_retorno = ""
+    # --- En números: lista compacta con líneas, sin tabla densa. ---
+    _filas_numeros = [
+        ("Conversaciones atendidas", str(atendidos)),
+        ("Resueltas sin pasar a humano", f"{resueltas} ({pct}%)"),
+        ("Citas confirmadas", str(citas_n)),
+        ("Canceladas / no-show", f"{canceladas} / {no_show}"),
+        ("Confirmaciones de asistencia", str(confirmaciones)),
+        ("Tiempo ahorrado estimado", f"~{horas:.1f} h"),
+        ("Mensajes sin respuesta del robot",
+         f"{sin_respuesta} (todos registrados)"),
+        ("Clientes que volvieron y agendaron", str(volvieron)),
+    ]
     if citas_con_precio:
-        _filas_retorno += (
-            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            'Valor estimado de las citas agendadas</td>'
-            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            f'<strong>${valor:,} MXN</strong> ({citas_con_precio} de {len(citas)} con precio conocido)</td></tr>'
+        _filas_numeros.append(
+            ("Valor estimado de las citas agendadas",
+             f"${valor:,} MXN ({citas_con_precio} de {len(citas)} "
+             "con precio conocido)")
         )
     if fuera_horario is not None:
-        _filas_retorno += (
-            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            'Conversaciones atendidas fuera de tu horario</td>'
-            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            f'<strong>{fuera_horario}</strong></td></tr>'
+        _filas_numeros.append(
+            ("Conversaciones atendidas fuera de tu horario",
+             str(fuera_horario))
         )
-    _filas_retorno += (
-        '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-        'Clientes que volvieron y agendaron</td>'
-        f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-        f'<strong>{volvieron}</strong></td></tr>'
-    )
     if delta is not None:
-        _filas_retorno += (
-            '<tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            'Citas vs semana pasada</td>'
-            f'<td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;">'
-            f'<strong>{delta:+d}</strong></td></tr>'
+        _filas_numeros.append(
+            ("Citas vs semana pasada", f"{delta:+d}")
         )
+    _filas_numeros_html = "".join(
+        f'<div style="padding:10px 0; font-size:15px;'
+        f'{" border-bottom:1px solid #F0F3F5;" if i < len(_filas_numeros) - 1 else ""}">'
+        f'{e(etiqueta)}<span style="float:right; font-weight:bold; '
+        f'color:#2E5266;">{e(dato)}</span></div>'
+        for i, (etiqueta, dato) in enumerate(_filas_numeros)
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -429,88 +480,59 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tu semana en {e(nombre_neg)} — {e(semana)}</title>
 </head>
-<body style="margin:0; padding:0; background:#F3F5F6; font-family:Arial, Helvetica, sans-serif;">
+<body style="margin:0; padding:0; background:#F7F9FA; font-family:Arial, Helvetica, sans-serif; color:#1F2A33;">
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F5F6; padding:24px 0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FA; padding:40px 16px;">
 <tr><td align="center">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#FFFFFF; border-radius:12px; overflow:hidden; border:1px solid #E5E7EB;">
 
-  <tr><td style="background:#2E5266; padding:24px 28px;">
-    <div style="font-size:13px; letter-spacing:2px; color:#9FC5CE; text-transform:uppercase;">Reporte semanal</div>
-    <div style="font-size:22px; font-weight:bold; color:#FFFFFF; margin-top:6px;">Tu semana en {e(nombre_neg)}</div>
-    <div style="font-size:14px; color:#D7E5EA; margin-top:4px;">{e(semana)} · llega por correo los lunes 08:00</div>
-  </td></tr>
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#FFFFFF; border-radius:16px;">
 
-  <tr><td style="padding:22px 28px 6px 28px; font-size:15px; color:#374151; line-height:1.55;">
-    Aquí está tu semana, <strong>sin que tengas que entrar a ningún lado</strong>. Los números salen de tus conversaciones reales; nada está inventado.
-  </td></tr>
-
-  <tr><td style="padding:16px 28px 4px 28px;">
+  <tr><td style="padding:28px 36px 0 36px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td width="33%" align="center" style="padding:8px;">
-          <div style="font-size:26px; font-weight:bold; color:#2E5266;">{atendidos}</div>
-          <div style="font-size:12px; color:#6B7280;">Conversaciones<br>atendidas</div>
-        </td>
-        <td width="33%" align="center" style="padding:8px;">
-          <div style="font-size:26px; font-weight:bold; color:#2E5266;">{citas_n}</div>
-          <div style="font-size:12px; color:#6B7280;">Citas<br>creadas</div>
-        </td>
-        <td width="33%" align="center" style="padding:8px;">
-          <div style="font-size:26px; font-weight:bold; color:#2E5266;">~{horas:.1f} h</div>
-          <div style="font-size:12px; color:#6B7280;">Tiempo ahorrado<br>estimado</div>
-        </td>
+        <td style="font-size:15px; font-weight:bold; color:#2E5266;">{e(nombre_neg)}</td>
+        <td align="right" style="font-size:13px; color:#8A99A3;">{e(semana)}</td>
       </tr>
     </table>
+    <div style="border-top:1px solid #E7ECEE; margin-top:20px;"></div>
   </td></tr>
 
-  <tr><td style="padding:14px 28px 4px 28px;">
-    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #2E5266; padding-left:10px;">📅 CITAS CONFIRMADAS ({len(citas)})</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; font-size:14px; color:#374151;">
-      {_filas_citas()}
-    </table>
+  <tr><td style="padding:36px 36px 0 36px;">
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#8A99A3; font-weight:bold;">Esta semana tu robot agendó</div>
+    <div style="font-size:60px; line-height:1; font-weight:bold; color:#2E5266; margin-top:10px;">{_numero_grande}</div>
+    <div style="font-size:15px; line-height:1.65; color:#44565F; margin-top:14px;">{citas_n} cita{_plural_citas} confirmada{_plural_citas}. {atendidos} conversaciones atendidas, {resueltas} resueltas sin pasar a humano.</div>
+    {_linea_perdida}
   </td></tr>
 
-  <tr><td style="padding:22px 28px 4px 28px;">
-    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #D97706; padding-left:10px;">🙋 NECESITARON ATENCIÓN HUMANA ({len(humanos)})</div>
-    <div style="font-size:14px; color:#374151; margin-top:10px; line-height:1.6;">
-      {_lista_humanos()}
+  <tr><td style="padding:40px 36px 0 36px;">
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">CITAS CONFIRMADAS</div>
+    {_filas_citas()}
+  </td></tr>
+
+  <tr><td style="padding:40px 36px 0 36px;">
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">NECESITA TU ATENCIÓN</div>
+    {_bloque_atencion}
+  </td></tr>
+
+  <tr><td style="padding:40px 36px 0 36px;">
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">TU SEMANA EN UNA LÍNEA</div>
+    <div style="font-size:15px; line-height:1.75; color:#33424D; margin-top:12px;">{e(resumen)}</div>
+  </td></tr>
+
+  <tr><td style="padding:40px 36px 0 36px;">
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">TU SEMANA EN NÚMEROS</div>
+    <div style="margin-top:6px;">{_filas_numeros_html}</div>
+  </td></tr>
+
+  <tr><td style="padding:40px 36px 32px 36px;">
+    <div style="border-top:1px solid #E7ECEE; padding-top:20px;">
+      <div style="font-size:13px; color:#8A99A3;">Sereno · tu recepcionista digital, trabajando 24/7.</div>
+      <div style="font-size:12px; color:#B4C0C7; margin-top:4px;">Valores estimados con base en tus precios.</div>
     </div>
-  </td></tr>
-
-  <tr><td style="padding:22px 28px 4px 28px;">
-    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #059669; padding-left:10px;">💬 CLIENTES POR RECUPERAR ({len(recuperar)})</div>
-    <div style="font-size:14px; color:#374151; margin-top:10px; line-height:1.6;">
-      {_lista_recuperar()}
-    </div>
-  </td></tr>
-
-  <tr><td style="padding:22px 28px 6px 28px;">
-    <div style="font-size:16px; font-weight:bold; color:#1F2937; border-left:4px solid #2E5266; padding-left:10px;">📊 TU SEMANA EN NÚMEROS</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; font-size:14px; color:#374151;">
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Conversaciones atendidas</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{atendidos}</strong></td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Resueltas sin pasar a humano</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{resueltas} ({pct}%)</strong></td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Citas confirmadas</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{citas_n}</strong></td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Canceladas / no-show</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{canceladas} / {no_show}</strong></td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Confirmaciones de asistencia</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{confirmaciones}</strong></td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Mensajes sin respuesta del robot</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>{sin_respuesta}</strong> (todos registrados)</td></tr>
-      <tr><td style="padding:7px 0; border-bottom:1px solid #F3F4F6;">Tiempo ahorrado estimado</td><td align="right" style="padding:7px 0; border-bottom:1px solid #F3F4F6;"><strong>~{horas:.1f} h</strong> (5 min por conversación resuelta)</td></tr>
-      {_filas_retorno}
-    </table>
-  </td></tr>
-
-  <tr><td style="padding:20px 28px;">
-    <div style="background:#E8F1F2; border-radius:8px; padding:16px 18px; font-size:14px; color:#374151; line-height:1.6;">
-      <strong>Resumen de la semana:</strong> {e(resumen)}
-    </div>
-  </td></tr>
-
-  <tr><td style="background:#2E5266; padding:18px 28px; font-size:13px; color:#D7E5EA; text-align:center; line-height:1.6;">
-    Este correo llega automáticamente cada lunes a las 08:00.<br>
-    ¿Quieres pausarlo o cambiar el destino? Responde a este correo o avisa a tu contacto.
   </td></tr>
 
 </table>
+
 </td></tr>
 </table>
 
@@ -686,10 +708,21 @@ def generar_reporte_semanal() -> dict:
     else:
         lineas_recuperar = "Nadie por recuperar esta semana."
 
-    # (v3.20.5) Líneas de retorno: solo salen si hay dato que
-    # afirmar. Sin precios conocidos en Conocimiento, no se inventa
-    # un valor en pesos; sin horario configurado, no se afirma lo
-    # de fuera de horario; sin semana previa, no hay delta.
+    # (v3.20.8) Cuerpo de texto con la misma jerarquía que el HTML
+    # v3: el número primero, luego citas, atención y resumen.
+    # Las líneas de retorno solo salen si hay dato que afirmar.
+    citas_n = conteo["citas_agendadas"]
+    _titular_valor = (
+        f" por un valor estimado de ${valor:,} MXN"
+        if citas_con_precio else ""
+    )
+    _plural = "s" if citas_n != 1 else ""
+    _linea_fuera = ""
+    if fuera_horario:
+        _linea_fuera = (
+            f"{fuera_horario} llegaron fuera de tu horario. "
+            "Sin el robot, eran clientes perdidos.\n"
+        )
     _lineas_valor = ""
     if citas_con_precio:
         _lineas_valor += (
@@ -706,7 +739,10 @@ def generar_reporte_semanal() -> dict:
 
     cuerpo = (
         f"Tu semana en {nombre_neg} — {semana}\n\n"
-        "Aquí está tu semana, sin que tengas que entrar a ningún lado.\n\n"
+        f"Esta semana tu robot agendó {citas_n} cita{_plural}{_titular_valor}.\n"
+        f"{atendidos} conversaciones atendidas, {resueltas} ({pct}%) "
+        "resueltas sin pasar a humano.\n"
+        f"{_linea_fuera}\n"
         f"📅 CITAS CONFIRMADAS ({len(citas)})\n{lineas_citas}\n\n"
         f"🙋 NECESITARON ATENCIÓN HUMANA ({len(humanos)})\n{lineas_humanos}\n\n"
         f"💬 CLIENTES POR RECUPERAR ({len(recuperar)})\n{lineas_recuperar}\n\n"
@@ -724,6 +760,7 @@ def generar_reporte_semanal() -> dict:
         f"{_lineas_valor}\n"
         f"{resumen}\n"
     )
+
     html = _html_reporte_semanal(
         nombre_neg=nombre_neg, semana=semana, citas=citas, humanos=humanos,
         recuperar=recuperar, atendidos=atendidos, resueltas=resueltas, pct=pct,
