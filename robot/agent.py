@@ -633,6 +633,11 @@ class RespuestaAgente:
     # Qué modelo contestó (v2.13): para saber en Diagnóstico si las
     # respuestas malas vienen del modelo chico de respaldo.
     modelo: str = ""
+    # (v3.20.14) Aviso de JSON rescatado: la respuesta salió de un JSON
+    # roto del que solo se pudo sacar respuesta_texto. El cliente
+    # recibió la respuesta real; logic.py lo deja en Diagnóstico como
+    # AVISO (no FALLO) para ver con qué frecuencia pasa.
+    aviso_json: str = ""
 
     @classmethod
     def segura(cls, texto: str, falla_tecnica: bool = False) -> "RespuestaAgente":
@@ -661,6 +666,45 @@ def _limpiar_json(texto: str) -> dict:
     if not isinstance(datos, dict):
         raise ValueError("Gemini no devolvió un objeto JSON")
     return datos
+
+
+def _extraer_respuesta_texto(texto: str) -> str:
+    """(v3.20.14) Saca respuesta_texto de un JSON roto o truncado.
+
+    Cuando Gemini devuelve el JSON a medias (truncado por el tope de
+    tokens, comillas sin escapar, texto de más al final), json.loads
+    falla y el cliente recibía el genérico "dame un momento" aunque
+    la respuesta real estaba ahí. Esto busca el valor de
+    "respuesta_texto" y lo captura hasta la comilla de cierre o hasta
+    el fin del texto (JSON truncado a media frase). Devuelve "" si no
+    hay nada rescatable.
+    """
+    m = re.search(r'"respuesta_texto"\s*:\s*"', texto)
+    if not m:
+        return ""
+    resto = texto[m.end():]
+    salida: list[str] = []
+    i = 0
+    escapes = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/"}
+    while i < len(resto):
+        c = resto[i]
+        if c == "\\" and i + 1 < len(resto):
+            nxt = resto[i + 1]
+            if nxt == "u" and i + 6 <= len(resto):
+                try:
+                    salida.append(chr(int(resto[i + 2:i + 6], 16)))
+                    i += 6
+                    continue
+                except ValueError:
+                    pass
+            salida.append(escapes.get(nxt, nxt))
+            i += 2
+            continue
+        if c == '"':
+            break
+        salida.append(c)
+        i += 1
+    return "".join(salida).strip()
 
 
 def _normalizar(datos: dict) -> RespuestaAgente:
@@ -781,9 +825,12 @@ def preguntar_agente(
        ignoran la instrucción de JSON y responden conversando): ESA
        prosa ES la respuesta al cliente. No se tira a la basura por
        no venir en JSON; se manda tal cual, sin agendar nada.
-    3. Gemini contesta algo roto (JSON a medias): respuesta segura,
-       con un pedazo de lo que devolvió en el motivo, para verlo en
-       Diagnóstico.
+    3. Gemini contesta algo roto (JSON a medias): si se puede rescatar
+       respuesta_texto, el cliente recibe la respuesta real (sin campos
+       estructurados este turno: no agenda ni pasa a persona; la
+       conversación sigue y el siguiente mensaje puede agendar) y queda
+       un AVISO en Diagnóstico; si no hay nada rescatable, respuesta
+       segura con un pedazo de lo que devolvió en el motivo.
     Además el historial que se le manda se recorta a los últimos 8
     mensajes (v3.20; antes 5): con 20 el prompt era enorme y el
     modelo tardaba más.
@@ -827,7 +874,22 @@ def preguntar_agente(
             # Prosa, no JSON: es una respuesta válida del modelo. Se
             # manda tal cual, sin agendar ni pasar a una persona.
             return RespuestaAgente(respuesta_texto=limpio[:1000], modelo=ultimo_modelo())
-        # JSON roto: respuesta segura, con un pedazo de lo que devolvió.
+        # (v3.20.14) JSON roto pero con respuesta_texto rescatable: el
+        # cliente recibe la respuesta real (sin campos estructurados
+        # este turno). Queda AVISO en Diagnóstico, no FALLO: no fue una
+        # falla, fue un rescate. Visto en vivo 2026-11-25: el primer
+        # mensaje real del número nuevo cayó aquí y el cliente recibió
+        # el genérico en vez de la respuesta.
+        rescatado = _extraer_respuesta_texto(texto)
+        if len(rescatado) >= 15:
+            return RespuestaAgente(
+                respuesta_texto=rescatado[:1000],
+                modelo=ultimo_modelo(),
+                aviso_json="JSON de Gemini roto o truncado; se rescató "
+                "respuesta_texto y el cliente recibió la respuesta real.",
+            )
+        # JSON roto sin rescate posible: respuesta segura, con un
+        # pedazo de lo que devolvió en el motivo.
         return RespuestaAgente(
             respuesta_texto="Dame un momento, por favor. Estoy revisando tu mensaje y "
             "te atiendo enseguida.",

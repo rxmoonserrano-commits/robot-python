@@ -53,7 +53,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.13"
+VERSION = "3.20.14"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -880,6 +880,95 @@ scheduler.add_job(
 )
 
 
+def _mensajes_sin_respuesta(filas, ahora=None, ventana_horas: float = 12.0) -> dict:
+    """(v3.20.14) Mensajes de cliente sin respuesta, para recuperar.
+
+    Función pura (sin Sheets ni red): recibe las filas de Conversaciones
+    (dicts con fecha, telefono, quien_hablo, mensaje, robot_respondio,
+    motivo) y devuelve {telefono: [textos sin respuesta, en orden]}.
+
+    Reglas:
+    - Solo filas dentro de la ventana (últimas `ventana_horas` horas):
+      un reinicio mata mensajes de minutos, no de días; sin esto se
+      resucitarían pruebas viejas.
+    - Un mensaje de cliente cuenta como respondido si DESPUÉS hay una
+      fila de robot o humano para ese teléfono.
+    - Se saltan los silencios intencionales (robot_respondio == "no":
+      pausa humana, robot apagado, canal apagado): reprocesarlos solo
+      volvería a callar. Los botones ("(botón ...)" con "no") también
+      quedan fuera por la misma regla.
+    """
+    ahora = ahora or datetime.now(timezone.utc)
+    desde = ahora.timestamp() - ventana_horas * 3600
+    por_telefono: dict[str, list[dict]] = {}
+    for fila in filas or []:
+        try:
+            fecha = datetime.fromisoformat(str(fila.get("fecha") or ""))
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+            ts = fecha.timestamp()
+        except (ValueError, TypeError):
+            continue
+        if ts < desde:
+            continue
+        telefono = str(fila.get("telefono") or "").strip()
+        if not telefono:
+            continue
+        por_telefono.setdefault(telefono, []).append(fila)
+    sin_respuesta: dict[str, list[str]] = {}
+    for telefono, lista in por_telefono.items():
+        ultimo_indice_respuesta = -1
+        for i, fila in enumerate(lista):
+            if str(fila.get("quien_hablo") or "").strip() in ("robot", "humano"):
+                ultimo_indice_respuesta = i
+        pendientes = []
+        for fila in lista[ultimo_indice_respuesta + 1:]:
+            if str(fila.get("quien_hablo") or "").strip() != "cliente":
+                continue
+            if str(fila.get("robot_respondio") or "").strip().lower() == "no":
+                continue  # silencio intencional: no se recupera
+            texto = str(fila.get("mensaje") or "").strip()
+            if texto:
+                pendientes.append(texto)
+        if pendientes:
+            sin_respuesta[telefono] = pendientes
+    return sin_respuesta
+
+
+def _recuperar_sin_respuesta() -> None:
+    """(v3.20.14) Recupera mensajes que un reinicio dejó sin respuesta.
+
+    El buzón en disco (buzon.json) solo guarda lotes PENDIENTES (en la
+    ventana de agrupamiento); si Render se reinicia a mitad de un lote
+    en proceso, ese mensaje se perdía (visto en vivo 2026-11-25: dos
+    mensajes quedaron registrados sin respuesta). La hoja
+    Conversaciones sí sobrevive a cualquier reinicio: aquí se busca
+    ahí lo que quedó sin respuesta y se vuelve a meter al Agrupador,
+    como si acabara de llegar. Best-effort: nunca tumba el arranque.
+    """
+    try:
+        filas = sheets.leer_pestana("Conversaciones")
+        pendientes = _mensajes_sin_respuesta(filas)
+        if not pendientes:
+            return
+        total = 0
+        for telefono, textos in pendientes.items():
+            for texto in textos:
+                _AGRUPADOR.agregar(telefono, texto)
+                total += 1
+        info(f"Recuperé {total} mensaje(s) sin respuesta de "
+             f"{len(pendientes)} teléfono(s) de la hoja.")
+        try:
+            sheets.registrar_diagnostico(
+                datetime.now(timezone.utc), "recuperacion", "AVISO",
+                f"Recuperé {total} mensaje(s) sin respuesta de {len(pendientes)} "
+                "teléfono(s) (reinicio a mitad de lote).", "", "")
+        except Exception:
+            pass
+    except Exception as exc:  # noqa: BLE001 - la recuperación nunca tumba el arranque
+        aviso(f"No pude recuperar mensajes sin respuesta de la hoja: {exc}")
+
+
 def arrancar():
     """Al arrancar: avisa si faltan claves, recupera lo pendiente y
     revisa la salud de cada pieza (ver robot/salud.py). Nada de esto
@@ -910,6 +999,11 @@ def arrancar():
             info(f"Recuperé {n} lote(s) pendiente(s) del buzón.")
     except Exception as exc:  # noqa: BLE001 - sin buzón, el robot sigue igual
         aviso(f"No pude recuperar el buzón: {exc}")
+    # (v3.20.14) Recuperar de la hoja los mensajes que un reinicio dejó
+    # sin respuesta: el buzón en disco no guarda lotes en proceso, y
+    # Render (plan gratuito) se reinicia seguido. Conversaciones sí
+    # sobrevive a cualquier reinicio.
+    _recuperar_sin_respuesta()
     # (v3.0) Revisión de salud en segundo plano: Gemini, hoja,
     # calendario, token de WhatsApp, Gmail y claves de seguridad.
     # Antes solo se probaba Gemini; lo demás se descubría de noche.

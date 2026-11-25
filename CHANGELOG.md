@@ -5,6 +5,36 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.14 — Rescate de JSON roto y recuperación de mensajes (2026-11-25)
+
+Primer mensaje real del número nuevo (+52 669 100 1402), visto en vivo
+el 2026-11-25 ~22:00 UTC, destapó dos fallas:
+
+- **La respuesta de la IA se rompía:** Gemini devolvió el JSON truncado
+  (el tope era 600 tokens y el JSON trae la respuesta más todos los
+  campos de memoria) y el cliente recibió el genérico "Dame un
+  momento..." en vez de la respuesta real. Ahora:
+  - **Tope subido a 1500 tokens** en la llamada a Gemini.
+  - **Rescate automático:** si el JSON viene roto o truncado pero se
+    puede sacar `respuesta_texto`, el cliente recibe la respuesta real
+    (sin campos estructurados ese turno: no agenda ni pasa a persona;
+    la conversación sigue y el siguiente mensaje puede agendar).
+    Queda un **AVISO `gemini` en Diagnóstico**, no un FALLO.
+  - Sin rescate posible, el comportamiento es el de siempre
+    ("dame un momento" + handoff + FALLO con el detalle).
+- **Un reinicio de Render se comió mensajes:** el buzón en disco solo
+  guarda lotes pendientes (en la ventana de agrupamiento); si Render
+  se reinicia a mitad de un lote en proceso, ese mensaje se perdía.
+  Visto en vivo: dos mensajes quedaron registrados en Conversaciones
+  sin respuesta. Ahora, **al arrancar el robot busca en
+  Conversaciones los mensajes de cliente sin respuesta** (últimas 12 h,
+  sin silencios intencionales ni respondidos por humano) y los vuelve
+  a meter al Agrupador. Queda constancia en Diagnóstico como
+  `recuperacion` AVISO. La hoja sobrevive a cualquier reinicio.
+- **Prueba permanente** `test_rescate_recuperacion.py` (20 casos:
+  extractor tolerante, rescate en el agente sin regresiones, escaneo
+  de recuperación). Suite completa 54/54 verde.
+
 ## v3.20.13 — Suscripción automática a la cuenta de WhatsApp (2026-11-25)
 
 El número nuevo quedó registrado por API (Diagnóstico

@@ -3669,6 +3669,14 @@ def _atender_mensaje_impl(
     else:
         respuesta = deps.preguntar_agente(mensaje_agente, conocimiento, fotos, historial)
 
+    # (v3.20.14) JSON rescatado: si la respuesta de Gemini vino rota
+    # pero se pudo sacar respuesta_texto, el cliente recibió la
+    # respuesta real; queda constancia en Diagnóstico como AVISO
+    # (no FALLO) para ver con qué frecuencia pasa.
+    _aviso_json = str(getattr(respuesta, "aviso_json", "") or "").strip()
+    if _aviso_json:
+        _diagnostico(deps, fecha, "gemini", "AVISO", _aviso_json, telefono, texto)
+
     # (v3.16) Confianza baja dos veces seguidas: el robot no está
     # entendiendo al cliente. La primera vez deja pasar su pregunta
     # de aclaración; la segunda, pasa a una persona (no adivina).

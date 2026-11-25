@@ -106,7 +106,11 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
     bloqueo o un tropiezo.
     """
     url = f"{_API}/{modelo}:generateContent?key={settings.gemini_api_key}"
-    config = {"temperature": 0.3, "maxOutputTokens": 600}
+    # (v3.20.14) 1500, no 600: el JSON del agente trae respuesta_texto
+    # más todos los campos de memoria; con 600 se truncaba a media
+    # respuesta y el cliente recibía el genérico "dame un momento"
+    # (visto en vivo 2026-11-25 22:00 UTC, primer mensaje real).
+    config = {"temperature": 0.3, "maxOutputTokens": 1500}
     if json_mode:
         config["response_mime_type"] = "application/json"
     cuerpo = {"contents": [{"parts": partes}], "generationConfig": config}

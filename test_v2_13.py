@@ -256,9 +256,9 @@ def main():
         with patch.object(gemini_mod.requests, "post", post_falso):
             gemini_mod.generar_texto("Responde solo con la palabra hola.")
         config = cargas[0]["generationConfig"]
-        caso("(c) generar_texto pide JSON con temperatura 0.3 y tope de 600",
+        caso("(c) generar_texto pide JSON con temperatura 0.3 y tope de 1500",
              config.get("temperature") == 0.3
-             and config.get("maxOutputTokens") == 600
+             and config.get("maxOutputTokens") == 1500
              and config.get("response_mime_type") == "application/json",
              f"config={config}")
         cargas.clear()
