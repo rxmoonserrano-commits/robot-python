@@ -61,7 +61,7 @@ El precio piloto se negocia en esa llamada, no por mensaje. Referencia interna (
 
 ## Lo que NO hace falta
 
-- No construir nada más del robot: v3.20.12 está construida y probada (suite 52/52 verde); está pilot-ready.
+- No construir nada más del robot: v3.20.13 está construida y probada (suite 53/53 verde); está pilot-ready.
 - No mandar 10 mensajes de golpe: 3–4 por noche en tu ventana de 1 hora, anotando al momento.
 - No cambiar el mensaje a mitad de las 10: si lo cambias, ya no sabes qué funcionó.
 

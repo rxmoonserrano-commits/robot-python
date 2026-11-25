@@ -260,6 +260,25 @@ def registrar_numero(pin: str = "") -> dict:
     return respuesta.json()
 
 
+def suscribir_waba(waba_id: str) -> dict:
+    """Suscribe la app a una cuenta de WhatsApp Business (POST /{waba}/subscribed_apps).
+
+    Sin esta suscripción, Meta NO reenvía al webhook los mensajes de los
+    números que viven en esa cuenta, aunque estén registrados por API
+    (v3.20.13). Es idempotente: suscribir dos veces no hace daño.
+    """
+    respuesta = requests.post(
+        f"{_API}/{waba_id}/subscribed_apps",
+        headers=_headers(),
+        timeout=30,
+    )
+    if respuesta.status_code not in (200, 201):
+        raise WhatsAppError(
+            f"WhatsApp devolvió {respuesta.status_code}: {respuesta.text[:300]}"
+        )
+    return respuesta.json()
+
+
 def descargar_audio(media_id: str) -> tuple[bytes, str]:
     """Descarga un audio de WhatsApp y devuelve (bytes, tipo mime).
 

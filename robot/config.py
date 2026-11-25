@@ -50,6 +50,12 @@ class Settings:
     # PIN de 6 dígitos para registrar el número en la Cloud API (opcional).
     # Sin él, el registro se hace sin PIN de dos pasos (v3.20.12).
     whatsapp_register_pin: str = os.getenv("WHATSAPP_REGISTER_PIN", "")
+    # ID de la cuenta de WhatsApp Business (WABA) donde vive el número real.
+    # La app debe suscribirse a ESA cuenta para que Meta reenvíe los mensajes
+    # al webhook; sin esto, los números agregados por WhatsApp Manager no
+    # entregan nada aunque estén registrados (v3.20.13). Se encuentra en
+    # Business Settings → WhatsApp accounts → la cuenta (en la URL).
+    whatsapp_waba_id: str = os.getenv("WHATSAPP_WABA_ID", "")
     # Palabra secreta que inventas tú para verificar el webhook. Meta la pide.
     verify_token: str = os.getenv("VERIFY_TOKEN", "robot-whatsapp-verifica")
 

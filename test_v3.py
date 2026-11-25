@@ -302,9 +302,11 @@ def _salud_con(gemini_ok=True, sheets_ok=True, calendar_ok=True,
 
 d, res = _salud_con()
 estados = {r["componente"]: r["estado"] for r in res}
-caso("(d) Salud todo bien: 9 componentes en OK y en Diagnóstico",
-     len(res) == 9 and all(e == "OK" for e in estados.values())
-     and len(d.diagnostico) == 9,
+caso("(d) Salud todo bien: 10 componentes (9 OK + suscripción AVISO sin WABA ID)",
+     len(res) == 10
+     and sum(1 for e in estados.values() if e == "OK") == 9
+     and estados.get("suscripcion_waba") == "AVISO"
+     and len(d.diagnostico) == 10,
      f"estados={estados}")
 
 d, res = _salud_con(gemini_ok=False, whatsapp_status=401, gmail=False, admin=False, meta=False)
@@ -411,8 +413,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.20.12",
-     'version="3.20.12"' in app_txt or "VERSION = \"3.20.12\"" in app_txt,
+caso("(g) La app es la versión 3.20.13",
+     'version="3.20.13"' in app_txt or "VERSION = \"3.20.13\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt

@@ -126,6 +126,32 @@ def revisar_salud(deps, ahora: datetime | None = None) -> list[dict]:
         anotar("registro_numero", "AVISO",
                f"No se pudo consultar el estado del número: {str(exc)[:200]}")
 
+    # Suscripción de la app a la cuenta de WhatsApp (v3.20.13): sin ella,
+    # Meta no reenvía al webhook los mensajes de los números que viven en
+    # esa cuenta (los agregados por WhatsApp Manager), aunque estén
+    # registrados. Best-effort: nunca rompe el arranque.
+    try:
+        from . import whatsapp as _wa2
+
+        if not settings.whatsapp_waba_id:
+            anotar("suscripcion_waba", "AVISO",
+                   "Falta WHATSAPP_WABA_ID en Render: la app no se suscribe a la "
+                   "cuenta real de WhatsApp y Meta no reenvía los mensajes. "
+                   "Configúrala (Business Settings → WhatsApp accounts → la cuenta).")
+        else:
+            try:
+                _wa2.suscribir_waba(settings.whatsapp_waba_id)
+                anotar("suscripcion_waba", "OK",
+                       f"App suscrita a la cuenta de WhatsApp {settings.whatsapp_waba_id}: "
+                       "Meta reenvía los mensajes al webhook.")
+            except Exception as exc:
+                anotar("suscripcion_waba", "AVISO",
+                       f"Suscripción a la cuenta {settings.whatsapp_waba_id} falló: "
+                       f"{str(exc)[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        anotar("suscripcion_waba", "AVISO",
+               f"No se pudo suscribir la app a la cuenta de WhatsApp: {str(exc)[:200]}")
+
     # Gmail: sin él, los handoffs y el reporte no llegan (en silencio).
     if settings.gmail_user and settings.gmail_app_password:
         anotar("gmail", "OK", "Gmail configurado: handoffs y reporte llegan.")

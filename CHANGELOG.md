@@ -5,6 +5,26 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.13 — Suscripción automática a la cuenta de WhatsApp (2026-11-25)
+
+El número nuevo quedó registrado por API (Diagnóstico
+`registro_numero` OK), pero Meta seguía sin reenviar los mensajes
+al webhook (0 webhooks, aunque en WhatsApp se vieran entregados).
+Causa: la app del robot solo está suscrita a la cuenta de PRUEBA;
+el número real vive en la cuenta de WhatsApp Business de la empresa
+y Meta exige suscribir la app a ESA cuenta para reenviar mensajes.
+Ahora el robot lo hace solo al arrancar:
+
+- **Suscripción automática:** POST /{waba}/subscribed_apps con el
+  ID de la cuenta desde `WHATSAPP_WABA_ID` (Render). Idempotente:
+  suscribir dos veces no hace daño.
+- **Diagnóstico `suscripcion_waba`:** OK si la suscripción pasó;
+  AVISO si falta `WHATSAPP_WABA_ID` (con instrucciones) o si Meta
+  devuelve error. Best-effort: nunca rompe el arranque.
+- **Salud ahora 10 componentes** (era 9). Prueba permanente
+  `test_suscripcion_waba.py` (8 casos: URL/header, errores,
+  integración con salud en los 3 caminos).
+
 ## v3.20.12 — Registro automático del número en Meta (2026-11-25)
 
 El número nuevo (+52 669 100 1402) quedó agregado en WhatsApp
