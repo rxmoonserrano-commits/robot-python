@@ -1,12 +1,12 @@
 # Kit de venta — Sereno (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24, actualizado 2026-11-25. v3.20.14 "Rescate de JSON roto y recuperación de mensajes" está construida y probada (suite 54/54 verde); en vivo en Render sigue la v3.20.13 (commit 4ddbe131) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24, actualizado 2026-11-25. v3.20.15 "Recuperación sin saturar la memoria" está construida y probada (suite 54/54 verde); en vivo en Render corre la v3.20.14 (commit 46d7396e) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Sereno (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.20.14 (ya probado: suite completa 54/54 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29 + recolección dinámica 29/29 + mejoras conversacionales 5/5 con 14 escenarios nuevos de marketing/ventas/psicología/PNL + batería dorada expandida a 34 conversaciones con IA real + registro automático del número 11/11 + suscripción a la cuenta 8/8 + rescate de JSON y recuperación 20/20)
+## Lo que trae la v3.20.15 (ya probado: suite completa 54/54 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29 + recolección dinámica 29/29 + mejoras conversacionales 5/5 con 14 escenarios nuevos de marketing/ventas/psicología/PNL + batería dorada expandida a 34 conversaciones con IA real + registro automático del número 11/11 + suscripción a la cuenta 8/8 + rescate de JSON y recuperación 25/25)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
@@ -95,11 +95,11 @@ Después comparte la copia con el correo de la cuenta de servicio de Google (el 
 
 - [ ] Aprobar la plantilla `recordatorio_cita` en Meta (WhatsApp Manager → Plantillas, tipo utilidad, es_MX, cuerpo con {{1}} y {{2}}). Sin ella los recordatorios se rechazan y no cuestan nada, pero el paciente no recibe nada.
 - [ ] Contraseña de aplicación de Gmail en Render (`GMAIL_USER` + `GMAIL_APP_PASSWORD`): sin ella no salen los correos del dueño ni el reporte semanal.
-- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.14).
+- [ ] Correr la batería dorada con IA real en tu Mac (cubre v3.4.8–v3.20.15).
 - [ ] Prueba en vivo con el número de prueba (decidiste seguir con ese por ahora): ya está el guion listo en `~/workspace/prueba-conversacional-en-vivo.md` (3 conversaciones cortas, ~10 min) — dos citas, cambio de hora, handoff, urgencia.
 - [ ] Elegir nicho y probar la oferta con 5 negocios: si 3 de 5 dicen que sí o lo piensan en serio, el precio está en buen lugar.
 
 ## Qué NO hace falta
 
-- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.14 está construida y probada (suite 54/54 verde), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos, la corrida profunda (21 bugs), la mejora del motor, los reportes con retorno, el diseño v3 del reporte semanal, la recolección dinámica de datos, el playbook ampliado con 14 escenarios nuevos de marketing/ventas/psicología/PNL, la batería dorada expandida a 34 conversaciones con IA real, el registro automático del número en Meta, la suscripción automática a la cuenta de WhatsApp, el rescate de JSON roto y la recuperación de mensajes tras reinicios. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
+- **No hay que construir nada más:** el robot ya pasó la puerta dorada; la v3.20.15 está construida y probada (suite 54/54 verde), con simulaciones conversacionales, adversariales, de pulida, la auditoría de 7 áreas, el blindaje de precios/descuentos, la corrida profunda (21 bugs), la mejora del motor, los reportes con retorno, el diseño v3 del reporte semanal, la recolección dinámica de datos, el playbook ampliado con 14 escenarios nuevos de marketing/ventas/psicología/PNL, la batería dorada expandida a 34 conversaciones con IA real, el registro automático del número en Meta, la suscripción automática a la cuenta de WhatsApp, el rescate de JSON roto y la recuperación de mensajes tras reinicios sin saturar la memoria. La IA gratuita (Gemini) ya funciona; una IA mejor cuesta por mensaje y se cobra en el precio — se mejora cuando un cliente pague.
 - **El repo `robot-whatsapp` está vacío** y apagado; el único robot real es `robot-python`. No hay nada que apagar.

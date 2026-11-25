@@ -5,6 +5,28 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.15 — Recuperación sin saturar la memoria (2026-11-25)
+
+La v3.20.14 metió la recuperación de mensajes al arrancar, y al
+primer arranque real destapó un bucle: el servicio se reiniciaba
+cada ~2 minutos. Render confirmó por correo la causa: el Web
+Service `robot-whatsapp-python` superó su límite de memoria (OOM).
+La recuperación reinyectaba todos los mensajes pendientes al mismo
+tiempo que el chequeo de salud (Gemini + Sheets + WhatsApp), y ese
+pico tumbaba el proceso; cada reinicio volvía a recuperar y
+re-registrar los mismos mensajes (2 → 3 → 4 sin respuesta).
+
+Correcciones:
+- La recuperación ya NO corre durante el arranque: corre en un
+  hilo después de que el chequeo de salud termina (tope ~5 min).
+- Los lotes recuperados se procesan de a UN teléfono
+  (`procesar_ahora` espera a que cada lote termine): nunca corren
+  en paralelo entre sí.
+- El escaneo quita textos duplicados por teléfono: un mensaje
+  re-registrado por reinicios se recupera una sola vez.
+- Pruebas nuevas en test_rescate_recuperacion.py (casos u–y):
+  duplicados, orden en serie y espera de salud con tope.
+
 ## v3.20.14 — Rescate de JSON roto y recuperación de mensajes (2026-11-25)
 
 Primer mensaje real del número nuevo (+52 669 100 1402), visto en vivo

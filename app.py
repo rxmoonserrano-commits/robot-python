@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -53,7 +54,7 @@ from robot.report import generar_reporte_semanal, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.14"
+VERSION = "3.20.15"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -930,9 +931,39 @@ def _mensajes_sin_respuesta(filas, ahora=None, ventana_horas: float = 12.0) -> d
             texto = str(fila.get("mensaje") or "").strip()
             if texto:
                 pendientes.append(texto)
+        # (v3.20.15) Sin duplicados: si un reinicio re-registró el
+        # mismo mensaje (visto 2026-11-25: el bucle de reinicios
+        # registró "Hola buenas tardes" varias veces), no se
+        # recupera varias veces. Se conserva el orden.
+        vistos_texto: set[str] = set()
+        unicos: list[str] = []
+        for texto in pendientes:
+            if texto not in vistos_texto:
+                vistos_texto.add(texto)
+                unicos.append(texto)
+        pendientes = unicos
         if pendientes:
             sin_respuesta[telefono] = pendientes
     return sin_respuesta
+
+
+def _esperar_salud_para_recuperar(intentos: int = 60,
+                                  espera_segundos: float = 5.0) -> None:
+    """(v3.20.15) Espera a que el chequeo de salud termine, con tope.
+
+    Al arrancar, el chequeo de salud ya hace llamadas a
+    Gemini/Sheets/WhatsApp. Si la recuperación de mensajes mete
+    lotes en el mismo momento, el pico de memoria supera el límite
+    del plan gratuito de Render y el servicio se reinicia en bucle
+    (visto en vivo 2026-11-25). Por eso la recuperación espera a
+    que la salud esté lista. El tope (60 × 5 s = 5 min) evita que
+    un chequeo colgado deje los mensajes sin recuperar para
+    siempre: pasado el tope, se recupera igual.
+    """
+    for _ in range(intentos):
+        if estado_servidor.foto().get("salud_lista"):
+            return
+        time.sleep(espera_segundos)
 
 
 def _recuperar_sin_respuesta() -> None:
@@ -945,6 +976,10 @@ def _recuperar_sin_respuesta() -> None:
     Conversaciones sí sobrevive a cualquier reinicio: aquí se busca
     ahí lo que quedó sin respuesta y se vuelve a meter al Agrupador,
     como si acabara de llegar. Best-effort: nunca tumba el arranque.
+    (v3.20.15) Se procesa de a un teléfono (procesar_ahora espera a
+    que cada lote termine) y sin textos duplicados: la primera
+    versión metía todos los lotes a la vez al arrancar y el pico de
+    memoria reiniciaba el servicio en bucle.
     """
     try:
         filas = sheets.leer_pestana("Conversaciones")
@@ -955,7 +990,12 @@ def _recuperar_sin_respuesta() -> None:
         for telefono, textos in pendientes.items():
             for texto in textos:
                 _AGRUPADOR.agregar(telefono, texto)
-                total += 1
+            # (v3.20.15) De a un teléfono, en este hilo: procesar_ahora
+            # despacha el lote ya y espera a que termine, así los lotes
+            # recuperados nunca corren en paralelo entre sí (el pico
+            # de memoria tumbó el servicio el 2026-11-25).
+            _AGRUPADOR.procesar_ahora(telefono)
+            total += len(textos)
         info(f"Recuperé {total} mensaje(s) sin respuesta de "
              f"{len(pendientes)} teléfono(s) de la hoja.")
         try:
@@ -1003,7 +1043,15 @@ def arrancar():
     # sin respuesta: el buzón en disco no guarda lotes en proceso, y
     # Render (plan gratuito) se reinicia seguido. Conversaciones sí
     # sobrevive a cualquier reinicio.
-    _recuperar_sin_respuesta()
+    # (v3.20.15) La recuperación NO corre durante el arranque: se
+    # difiere en un hilo hasta que el chequeo de salud termine, para
+    # que los lotes recuperados nunca se sumen al pico de memoria
+    # del arranque (OOM + reinicio en bucle, 2026-11-25).
+    def _recuperar_tras_salud():
+        _esperar_salud_para_recuperar()
+        _recuperar_sin_respuesta()
+
+    threading.Thread(target=_recuperar_tras_salud, daemon=True).start()
     # (v3.0) Revisión de salud en segundo plano: Gemini, hoja,
     # calendario, token de WhatsApp, Gmail y claves de seguridad.
     # Antes solo se probaba Gemini; lo demás se descubría de noche.

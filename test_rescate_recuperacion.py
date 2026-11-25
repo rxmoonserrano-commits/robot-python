@@ -197,5 +197,87 @@ filas = [
 caso("(t) Filas rotas se ignoran sin romper",
      _mensajes_sin_respuesta(filas, ahora=AHORA) == {"521888": ["buenas tardes"]})
 
+# (u) Mismo mensaje re-registrado por reinicios → se recupera una vez.
+filas = [
+    fila(iso(AHORA - timedelta(minutes=5)), "521999", "cliente", "Hola buenas tardes"),
+    fila(iso(AHORA - timedelta(minutes=4)), "521999", "cliente", "Hola buenas tardes"),
+    fila(iso(AHORA - timedelta(minutes=3)), "521999", "cliente", "Hola buenas tardes"),
+]
+caso("(u) Mismo mensaje re-registrado por reinicios → se recupera una vez",
+     _mensajes_sin_respuesta(filas, ahora=AHORA) == {"521999": ["Hola buenas tardes"]})
+
+# (v) Duplicado intercalado → orden conservado, sin repetir.
+filas = [
+    fila(iso(AHORA - timedelta(minutes=5)), "521999", "cliente", "hola"),
+    fila(iso(AHORA - timedelta(minutes=4)), "521999", "cliente", "cuánto cuesta?"),
+    fila(iso(AHORA - timedelta(minutes=3)), "521999", "cliente", "hola"),
+]
+caso("(v) Duplicado intercalado → orden conservado, sin repetir",
+     _mensajes_sin_respuesta(filas, ahora=AHORA)
+     == {"521999": ["hola", "cuánto cuesta?"]})
+
+# ---------- D. Recuperación en serie (v3.20.15) ----------
+
+import app as app_mod  # noqa: E402
+
+
+class AgrupadorFalso:
+    """Registra el orden de llamadas: para probar que la recuperación
+    procesa de a un teléfono (agregar + procesar_ahora por teléfono),
+    nunca todos los lotes a la vez."""
+
+    def __init__(self):
+        self.llamadas = []
+
+    def agregar(self, telefono, texto, **_kw):
+        self.llamadas.append(("agregar", telefono, texto))
+        return True
+
+    def procesar_ahora(self, telefono):
+        self.llamadas.append(("procesar_ahora", telefono))
+        return True
+
+
+filas_rec = [
+    fila(iso(AHORA - timedelta(minutes=3)), "521999", "cliente", "hola buenas tardes"),
+    fila(iso(AHORA - timedelta(minutes=2)), "521999", "cliente", "hola buenas tardes"),
+    fila(iso(AHORA - timedelta(minutes=2)), "521888", "cliente", "okay gracias"),
+]
+falso = AgrupadorFalso()
+leer_viejo = app_mod.sheets.leer_pestana
+diag_viejo = app_mod.sheets.registrar_diagnostico
+agrupador_viejo = app_mod._AGRUPADOR
+try:
+    app_mod.sheets.leer_pestana = lambda pestana, **_kw: filas_rec
+    app_mod.sheets.registrar_diagnostico = lambda *a, **kw: None
+    app_mod._AGRUPADOR = falso
+    app_mod._recuperar_sin_respuesta()
+finally:
+    app_mod.sheets.leer_pestana = leer_viejo
+    app_mod.sheets.registrar_diagnostico = diag_viejo
+    app_mod._AGRUPADOR = agrupador_viejo
+
+caso("(w) Recuperación en serie: un teléfono a la vez, sin duplicados",
+     falso.llamadas == [
+         ("agregar", "521999", "hola buenas tardes"),
+         ("procesar_ahora", "521999"),
+         ("agregar", "521888", "okay gracias"),
+         ("procesar_ahora", "521888"),
+     ], f"llamadas={falso.llamadas}")
+
+# ---------- E. Espera de salud antes de recuperar (v3.20.15) ----------
+
+from robot import estado_servidor  # noqa: E402
+
+# Con salud no lista y tope corto: termina por el tope, sin colgarse.
+app_mod._esperar_salud_para_recuperar(intentos=2, espera_segundos=0)
+caso("(x) Espera de salud con tope: no se cuelga si salud nunca termina", True)
+
+# Con salud lista: regresa de inmediato.
+estado_servidor.marcar_salud_lista()
+app_mod._esperar_salud_para_recuperar(intentos=2, espera_segundos=0)
+caso("(y) Espera de salud: con salud lista regresa al instante",
+     estado_servidor.foto().get("salud_lista") is True)
+
 print(f"\n{pasadas} OK, {fallidas} fallidas")
 sys.exit(1 if fallidas else 0)
