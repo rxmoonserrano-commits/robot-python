@@ -5,6 +5,25 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.20.12 — Registro automático del número en Meta (2026-11-25)
+
+El número nuevo (+52 669 100 1402) quedó agregado en WhatsApp
+Manager pero en estado "Pendiente": Meta no entregaba mensajes al
+webhook (0 webhooks, mensaje con una sola palomita). El propio
+aviso de Meta lo dice: hay que registrar el número con la API de
+registro. Ahora el robot lo hace solo al arrancar:
+
+- **Consulta de estado:** GET del número (status, verificación,
+  nombre) al arrancar; queda en Diagnóstico como `registro_numero`.
+- **Registro automático:** si el número no está "Connected", el
+  robot llama POST /{id}/register (con PIN opcional desde
+  `WHATSAPP_REGISTER_PIN`; sin él, registro sin PIN de dos pasos).
+- **Best-effort:** si algo falla, queda AVISO en Diagnóstico y el
+  robot arranca igual. Si ya está conectado, no registra nada.
+- Nueva prueba permanente `test_registro_numero.py` (11 casos:
+  consulta, registro con/sin pin, errores, integración en salud).
+  La salud ahora tiene 9 componentes (test_v3 actualizado).
+
 ## v3.20.11 — Batería dorada expandida (34 conversaciones con IA real) (2026-11-24)
 
 Jose aprobó expandir la batería dorada, que se había quedado en

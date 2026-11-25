@@ -28,6 +28,7 @@ import robot.report as report_mod
 import robot.revision as revision_mod
 import robot.salud as salud_mod
 import robot.sheets as sheets_mod
+import robot.whatsapp as wa_mod
 from robot.agrupar import Agrupador
 from robot.config import settings
 from robot.seguridad import token_admin_ok, verificar_firma_meta
@@ -231,6 +232,7 @@ def _salud_con(gemini_ok=True, sheets_ok=True, calendar_ok=True,
     orig_sheets = salud_mod.sheets.leer_control
     orig_booking = salud_mod.booking.hora_libre
     orig_requests = salud_mod.requests
+    orig_wa_requests = wa_mod.requests
     orig_vals = (settings.gmail_user, settings.gmail_app_password,
                  settings.owner_email, settings.admin_token, settings.meta_app_secret)
 
@@ -258,10 +260,29 @@ def _salud_con(gemini_ok=True, sheets_ok=True, calendar_ok=True,
         def get(self, url, headers=None, timeout=None):
             return _Resp(whatsapp_status)
 
+    class _RespWA:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.text = "{}" if status == 200 else "error"
+
+        def json(self):
+            return self._payload
+
+    class _WaRequests:
+        def get(self, url, headers=None, params=None, timeout=None):
+            return _RespWA(200, {"status": "Connected",
+                                 "code_verification_status": "VERIFIED",
+                                 "verified_name": "Negocio Demo"})
+
+        def post(self, url, headers=None, json=None, timeout=None):
+            return _RespWA(200, {"success": True})
+
     salud_mod.gemini.generar_texto = texto_falso
     salud_mod.sheets.leer_control = control_falso
     salud_mod.booking.hora_libre = libre_falso
     salud_mod.requests = _Requests()
+    wa_mod.requests = _WaRequests()
     settings.gmail_user = "dueno@gmail.com" if gmail else ""
     settings.gmail_app_password = "clave-app" if gmail else ""
     settings.owner_email = owner
@@ -274,15 +295,16 @@ def _salud_con(gemini_ok=True, sheets_ok=True, calendar_ok=True,
         salud_mod.sheets.leer_control = orig_sheets
         salud_mod.booking.hora_libre = orig_booking
         salud_mod.requests = orig_requests
+        wa_mod.requests = orig_wa_requests
         (settings.gmail_user, settings.gmail_app_password, settings.owner_email,
          settings.admin_token, settings.meta_app_secret) = orig_vals
 
 
 d, res = _salud_con()
 estados = {r["componente"]: r["estado"] for r in res}
-caso("(d) Salud todo bien: 8 componentes en OK y en Diagnóstico",
-     len(res) == 8 and all(e == "OK" for e in estados.values())
-     and len(d.diagnostico) == 8,
+caso("(d) Salud todo bien: 9 componentes en OK y en Diagnóstico",
+     len(res) == 9 and all(e == "OK" for e in estados.values())
+     and len(d.diagnostico) == 9,
      f"estados={estados}")
 
 d, res = _salud_con(gemini_ok=False, whatsapp_status=401, gmail=False, admin=False, meta=False)
@@ -389,8 +411,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.20.11",
-     'version="3.20.11"' in app_txt or "VERSION = \"3.20.11\"" in app_txt,
+caso("(g) La app es la versión 3.20.12",
+     'version="3.20.12"' in app_txt or "VERSION = \"3.20.12\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt

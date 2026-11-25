@@ -213,6 +213,53 @@ def enviar_plantilla(
         )
 
 
+def consultar_estado_numero() -> dict:
+    """GET del número en Meta: estado de conexión y verificación.
+
+    Sirve para Diagnóstico: un número agregado en WhatsApp Manager puede
+    quedar 'Pendiente' (sin registrar por API) y Meta no entrega mensajes
+    al webhook hasta registrarlo. Devuelve el JSON de Meta.
+    """
+    respuesta = requests.get(
+        f"{_API}/{settings.whatsapp_phone_number_id}",
+        headers=_headers(),
+        params={
+            "fields": "status,display_phone_number,verified_name,code_verification_status"
+        },
+        timeout=15,
+    )
+    if respuesta.status_code != 200:
+        raise WhatsAppError(
+            f"WhatsApp devolvió {respuesta.status_code}: {respuesta.text[:300]}"
+        )
+    return respuesta.json()
+
+
+def registrar_numero(pin: str = "") -> dict:
+    """Registra el número en la Cloud API (POST /{id}/register).
+
+    Un número agregado en WhatsApp Manager queda 'Pendiente' y Meta no
+    entrega mensajes al webhook hasta registrarlo por API (v3.20.12).
+    Si ya está registrado, Meta devuelve error y quien llama lo registra
+    en Diagnóstico. El pin es opcional (6 dígitos); sin él, Meta registra
+    el número sin PIN de dos pasos.
+    """
+    cuerpo = {"messaging_product": "whatsapp"}
+    if pin:
+        cuerpo["pin"] = pin
+    respuesta = requests.post(
+        f"{_API}/{settings.whatsapp_phone_number_id}/register",
+        headers=_headers(),
+        json=cuerpo,
+        timeout=30,
+    )
+    if respuesta.status_code not in (200, 201):
+        raise WhatsAppError(
+            f"WhatsApp devolvió {respuesta.status_code}: {respuesta.text[:300]}"
+        )
+    return respuesta.json()
+
+
 def descargar_audio(media_id: str) -> tuple[bytes, str]:
     """Descarga un audio de WhatsApp y devuelve (bytes, tipo mime).
 

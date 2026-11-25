@@ -86,7 +86,7 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_simulado.py` … `test_escenarios_100.py` | 29 archivos de pruebas sin internet (758 casos): `python test_escenarios_100.py` y sus hermanas |
 | `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
 | `test_escenarios_100.py` | 100 escenarios conversacionales (149 casos) contra el código real: saludo, precios, agendar, dos citas, terceros, memoria, cambio/cancelación, handoff, fallas, paquetes |
-| `test_conversaciones_doradas.py` | 20 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
+| `test_conversaciones_doradas.py` | 34 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
 
 ## La inteligencia artificial: gratis y funcional
 
@@ -451,7 +451,7 @@ a mano, genera una con `python3 -c "import secrets; print(secrets.token_urlsafe(
 uvicorn app:app --port 8000
 ```
 
-Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.20.11", ...}`.
+Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.20.12", ...}`.
 Para que Meta pueda llamar a tu webhook, tu computadora necesita una URL
 pública: usa `ngrok http 8000` mientras pruebas (gratis), y pon esa URL
 en Meta como `https://tu-url.ngrok.io/webhook`.

@@ -98,6 +98,34 @@ def revisar_salud(deps, ahora: datetime | None = None) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         anotar("whatsapp", "FALLO", str(exc)[:300])
 
+    # Registro del número en la Cloud API (v3.20.12): un número agregado en
+    # WhatsApp Manager queda 'Pendiente' y Meta no entrega mensajes al
+    # webhook hasta registrarlo por API. Se consulta el estado y, si no
+    # está conectado, se intenta registrar. Best-effort: nunca rompe el
+    # arranque y todo queda en Diagnóstico.
+    try:
+        from . import whatsapp as _wa
+
+        estado = _wa.consultar_estado_numero()
+        status = estado.get("status", "")
+        verif = estado.get("code_verification_status", "")
+        nombre = estado.get("verified_name", "")
+        if status == "Connected":
+            anotar("registro_numero", "OK",
+                   f"Número conectado en Meta (verificación: {verif or '?'}, nombre: {nombre or '?'}).")
+        else:
+            try:
+                _wa.registrar_numero(pin=settings.whatsapp_register_pin)
+                anotar("registro_numero", "OK",
+                       f"Número registrado en Meta (antes: {status or 'sin estado'}).")
+            except Exception as exc:
+                anotar("registro_numero", "AVISO",
+                       f"Número en estado {status or '?'} (verificación: {verif or '?'}); "
+                       f"registro automático falló: {str(exc)[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        anotar("registro_numero", "AVISO",
+               f"No se pudo consultar el estado del número: {str(exc)[:200]}")
+
     # Gmail: sin él, los handoffs y el reporte no llegan (en silencio).
     if settings.gmail_user and settings.gmail_app_password:
         anotar("gmail", "OK", "Gmail configurado: handoffs y reporte llegan.")

@@ -47,6 +47,9 @@ class Settings:
     # --- WhatsApp Cloud API (Meta for Developers) ---
     whatsapp_token: str = os.getenv("WHATSAPP_TOKEN", "")
     whatsapp_phone_number_id: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    # PIN de 6 dígitos para registrar el número en la Cloud API (opcional).
+    # Sin él, el registro se hace sin PIN de dos pasos (v3.20.12).
+    whatsapp_register_pin: str = os.getenv("WHATSAPP_REGISTER_PIN", "")
     # Palabra secreta que inventas tú para verificar el webhook. Meta la pide.
     verify_token: str = os.getenv("VERIFY_TOKEN", "robot-whatsapp-verifica")
 

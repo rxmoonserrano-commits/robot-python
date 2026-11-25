@@ -1,6 +1,6 @@
 # Rúbrica de tono — Batería dorada con IA real (para tu Mac)
 
-La batería dorada (`test_conversaciones_doradas.py`) corre 20
+La batería dorada (`test_conversaciones_doradas.py`) corre 34
 conversaciones con la IA real (Gemini) y servicios falsos. Tú la
 corres en tu Mac porque tu `GEMINI_API_KEY` vive en tu `.env`. Esta
 rúbrica es para calificar el TONO de cada respuesta como si fueras
@@ -10,21 +10,31 @@ suena a robot?
 ## Cómo correrla en tu Mac
 
 ```bash
-cd ~/Desktop/robot-python
-python3 test_conversaciones_doradas.py
+cd ~/Desktop/"robot-python 6" && grep VERSION app.py
+cd ~/Desktop/"robot-python 6" && python3 test_conversaciones_doradas.py
 ```
+
+- El primer comando confirma que la carpeta es la v3.20.12 (`VERSION = "3.20.12"`). Si tu Mac la nombró distinto, usa el nombre exacto de la carpeta del zip.
 
 - Sale código 0 si todo pasó, 1 si algo falló (imprime el caso
   exacto), 2 si falta la clave en tu `.env`.
+- Si sale código 2 ("falta GEMINI_API_KEY"), no reescribas el `.env` a mano: pega esto, que lee la clave que ya está guardada en tu archivo y la presenta bien (no lleva tu clave en el comando):
+
+```bash
+cd ~/Desktop/"robot-python 6"
+export GEMINI_API_KEY=$(cut -d= -f2 .env)
+python3 test_conversaciones_doradas.py
+```
+
 - Tarda unos minutos (llama a Gemini de verdad).
-- El zip fresco para tu Mac: `robot-python-v3.20.11.zip` (descomprímelo
-  sobre `~/Desktop/robot-python`).
+- El zip fresco para tu Mac: `robot-python-v3.20.12.zip` (descomprímelo
+  en el Escritorio; queda en `~/Desktop/"robot-python 6"`).
 
 ## Rúbrica (1 a 5 por respuesta)
 
 Califica cada respuesta del robot en estos 4 ejes. 5 = excelente,
 1 = mal. Si algo saca 2 o menos, anótalo con el número de caso
-(G1–G20) y la frase exacta que sonó mal.
+(G1–G34) y la frase exacta que sonó mal.
 
 | Eje | 5 (excelente) | 3 (aceptable) | 1 (mal) |
 | --- | --- | --- | --- |
