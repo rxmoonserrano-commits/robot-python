@@ -493,10 +493,11 @@ def test_k_correo_urgente():
                                      razon="Urgencia del cliente: me duele mucho la muela")
     finally:
         mail_mod.enviar_correo = original
-    caso("(k) Correo urgente: asunto Aloara Priority y cuerpo con el porqué",
+    caso("(k) Correo urgente: prioridad sin detalles de salud",
          correos and "Atención prioritaria requerida" in correos[0][1]
          and "Tu equipo necesita intervenir" in correos[0][2]
-         and "me duele mucho la muela" in correos[0][2],
+         and "me duele mucho la muela" not in correos[0][2]
+         and "me duele la muela" not in correos[0][2],
          f"{correos}")
 
 

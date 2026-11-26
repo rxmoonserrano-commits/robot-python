@@ -18,9 +18,7 @@ class Settings:
     """Un solo lugar con todos los ajustes. Cambia aquí, no en cada archivo."""
 
     # --- Google Sheets: el documento oficial del negocio (ya es el de Jose) ---
-    sheet_id: str = os.getenv(
-        "GOOGLE_SHEETS_ID", "1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo"
-    )
+    sheet_id: str = os.getenv("GOOGLE_SHEETS_ID", "")
     # Archivo JSON de la cuenta de servicio de Google (Sheets + Calendar).
     # Se comparte la hoja con el correo de esa cuenta (ver README, paso 3).
     google_credentials_json: str = os.getenv(
@@ -29,20 +27,11 @@ class Settings:
 
     # --- Inteligencia artificial gratis: Google Gemini ---
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    # (v2.9) Modelos VIGENTES y gratis a noviembre de 2026. El 12 de
-    # noviembre el robot se quedó sin cerebro porque Google retiró
-    # gemini-2.0-flash y gemini-2.5-flash (404 "no longer available").
-    # La v2.7 pasó a gemini-3.8-flash, que SÍ contestó la autoprueba,
-    # pero a las 22:19 devolvió 503 "high demand": el modelo gratis
-    # estaba saturado. La v2.9 cambia el principal a Gemini 4 Hydrogen
-    # (gratis, lanzado el 12 de noviembre de 2026, misma clave de
-    # Google, sin hacer nada nuevo) y deja 3.8-flash y 3.6-flash de
-    # respaldo; el robot además siempre prueba Flash-Lite al final.
-    # Si Google retira otro modelo, el robot lee el modelo que Google
-    # sugiere en el error y lo prueba solo (ver robot/gemini.py).
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-4-hydrogen")
-    # Si Google retira el modelo de arriba, se prueba este, también gratis.
-    gemini_model_fallback: str = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.8-flash")
+    # Los modelos y sus tarifas dependen de la cuenta de Google. Se
+    # configuran explícitamente después de verificarlos; no se inventa
+    # un modelo por defecto ni se declara que sea gratuito o vigente.
+    gemini_model: str = os.getenv("GEMINI_MODEL", "").strip()
+    gemini_model_fallback: str = os.getenv("GEMINI_MODEL_FALLBACK", "").strip()
 
     # --- WhatsApp Cloud API (Meta for Developers) ---
     whatsapp_token: str = os.getenv("WHATSAPP_TOKEN", "")
@@ -115,7 +104,7 @@ class Settings:
     admin_token: str = os.getenv("ADMIN_TOKEN", "")
     # Secreto de la app de Meta (Meta for Developers → tu app → Configuración
     # básica → Secreto de la app): verifica la firma de cada webhook.
-    # Si está vacío, el webhook acepta sin verificar y lo avisa al arrancar.
+    # Si está vacío, el webhook rechaza solicitudes con 503.
     meta_app_secret: str = os.getenv("META_APP_SECRET", "")
     # Segundos que el robot espera, después del ÚLTIMO mensaje del cliente,
     # antes de contestar. Si llega otro mensaje, el contador se reinicia.

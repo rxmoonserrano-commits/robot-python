@@ -257,7 +257,7 @@ def generar_resumen_manana() -> dict:
     pendientes = [
         f"{str(c.get('nombre') or c.get('telefono', '')).strip()} "
         f"({str(c.get('telefono', '')).strip()}): "
-        f"{str(c.get('motivo') or 'necesita una persona').strip()}"
+        "necesita atención humana"
         for c in clientes
         if str(c.get("handoff", "")).strip().lower() == "si"
         and _en_ventana(c, desde, hasta)
@@ -270,11 +270,8 @@ def generar_resumen_manana() -> dict:
         linea = (
             f"{str(p.get('nombre') or p.get('telefono', '')).strip()} "
             f"({str(p.get('telefono', '')).strip()}): "
-            f"{str(p.get('motivo') or 'cita').strip()}, "
-            f"{str(p.get('fecha_bonita') or '').strip()}"
+            "propuesta de cita"
         )
-        if str(p.get("apartado", "")).strip().lower() == "si":
-            linea += f" (apartado hasta {str(p.get('aparta_hasta', '')).strip()})"
         propuestas.append(linea)
     # Citas de hoy: agendadas y con fecha_cita en la fecha local de hoy.
     citas_hoy = []
@@ -295,8 +292,7 @@ def generar_resumen_manana() -> dict:
         citas_hoy.append(
             f"{str(c.get('nombre') or c.get('telefono', '')).strip()} "
             f"({str(c.get('telefono', '')).strip()}): "
-            f"{str(c.get('motivo') or 'cita').strip()}, "
-            f"{fecha_local:%H:%M}"
+            "cita confirmada"
         )
 
     def _bloque(titulo: str, lineas: list[str]) -> str:
@@ -518,7 +514,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                 f'<div style="{estilo}">'
                 f'{e(f.get("nombre") or f.get("telefono"))}'
                 f' <span style="color:{_gris};">· '
-                f'{e(f.get("motivo") or "cita")}</span>'
+                'Cita confirmada</span>'
                 f'<span style="float:right; color:{_gris};">'
                 f'{e(formatear_cita_bonita(str(f.get("fecha_cita", ""))))}'
                 '</span></div>'
@@ -534,7 +530,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                 '<div style="font-size:15px; line-height:1.65; margin-top:14px;">'
                 f'<strong>{e(f.get("nombre") or f.get("telefono"))}</strong> '
                 f'<span style="color:{_gris};">— '
-                f'{e(f.get("motivo") or "sin motivo")}'
+                'Atención humana'
                 f' ({e(_fecha_corta(str(f.get("fecha", ""))))})</span></div>'
             )
         return "".join(items)
@@ -545,7 +541,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
         partes = []
         for f in recuperar:
             nombre = e(f.get("nombre") or f.get("telefono"))
-            motivo = e(f.get("motivo") or "")
+            motivo = "una cita"
             partes.append(
                 '<div style="font-size:15px; line-height:1.65; margin-top:18px;">'
                 f'<strong>{nombre}</strong> '
@@ -834,10 +830,6 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
     _es_mes = periodo == "mensual"
     _palabra = "mes" if _es_mes else "semana"
     _siguiente = "próximo mes" if _es_mes else "próxima semana"
-    motivos = (
-        ", ".join(f"{m} ({n})" for m, n in conteo["motivos_top"])
-        or "sin motivos registrados"
-    )
     # (v3.20.5) Los números de retorno también van al resumen de la
     # IA, para que el texto mencione el valor y no solo los conteos.
     _lineas_retorno = (
@@ -865,15 +857,14 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         f"Casos pasados a una persona: {conteo['handoffs']}\n"
         f"Mensajes sin responder porque una persona atendía: {conteo['sin_respuesta_por_humano']}\n"
         f"Saludaron y no agendaron: {saludaron_sin_agendar}\n"
-        f"{_lineas_retorno}"
-        f"Motivos más comunes: {motivos}",
+        f"{_lineas_retorno}",
         json_mode=False,
     )
 
     nombre_neg = nombre_negocio() or "tu negocio"
     if citas:
         lineas_citas = "\n".join(
-            f"- {f.get('nombre') or f.get('telefono')} — {f.get('motivo') or 'cita'}"
+            f"- {f.get('nombre') or f.get('telefono')} — Cita confirmada"
             f" — {formatear_cita_bonita(str(f.get('fecha_cita', '')))}"
             for f in citas
         )
@@ -881,7 +872,7 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         lineas_citas = f"Ninguna este {_palabra}."
     if humanos:
         lineas_humanos = "\n".join(
-            f"- {f.get('nombre') or f.get('telefono')} — {f.get('motivo') or 'sin motivo'}"
+            f"- {f.get('nombre') or f.get('telefono')} — Atención humana"
             f" ({_fecha_corta(str(f.get('fecha', '')))})"
             for f in humanos
         )
@@ -889,9 +880,9 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         lineas_humanos = f"Ninguna este {_palabra}."
     if recuperar:
         lineas_recuperar = "\n".join(
-            f"- {f.get('nombre') or f.get('telefono')} preguntó por {f.get('motivo')}."
-            f" Borrador listo para copiar: \"Hola {f.get('nombre') or ''}, vi que"
-            f" preguntaste por {f.get('motivo')}. ¿Te aparto un lugar esta semana?\""
+            f"- {f.get('nombre') or f.get('telefono')} mostró interés en una cita."
+            f" Borrador listo para copiar: \"Hola {f.get('nombre') or ''}, ¿te"
+            f" aparto un lugar esta semana?\""
             for f in recuperar
         )
     else:

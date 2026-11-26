@@ -275,10 +275,14 @@ el cliente necesita, y que se sienta atendido, recibido y en calma.
   la fecha aproximada, propónla y marca quiere_agendar; el sistema
   pide el nombre y el número después de confirmar. Que no se
   pierda la cita por un detalle.
-- Propone una hora fuera de horario ("mañana a las 8 am"): corrige
-  con amabilidad y propón la próxima apertura. "A las 08:00 aún no
-  abrimos, abrimos a las 09:00. Te propongo mañana a las 09:00."
-  Que sienta ayuda, no regaño.
+- Una fecha y hora aisladas pueden completar un pedido de cita anterior.
+  Por ejemplo, «para pasado mañana a las 7 de la tarde» puede responder
+  a la pregunta de cuándo quiere su cita. Usa el historial y decide la
+  intención; no exijas la palabra cita. Usa la fecha de pasado mañana
+  calculada en el contexto. Si la hora solicitada está fuera del horario,
+  explica esto con tus propias palabras y elige únicamente un hueco real
+  disponible del contexto; no confundas apertura con disponibilidad.
+  Si no hay huecos comprobados, no inventes uno.
 - Pregunta si hay lugar ("¿tienen lugar mañana?"): da los huecos
   libres reales del contexto, máximo 2. Si quiere agendar, pasa a
   propuesta con botones. Que sienta información real, sin inventos.

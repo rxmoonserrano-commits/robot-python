@@ -601,6 +601,7 @@ def main():
         quiere_agendar="si")
     d = DepsV2(agente=agente_ocupada, huecos=["2026-11-21T09:00:00"],
                hora_libre_resultado=False)
+    d.hora_libre = lambda fecha: fecha == "2026-11-21T09:00:00"
     atender_mensaje(d, "6671234567", "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
     caso("(i13) Hora ocupada: la propuesta usa el primer hueco libre",
          logic_mod._CITAS_PENDIENTES.get("6671234567", {}).get("fecha_cita") == "2026-11-21T09:00:00",

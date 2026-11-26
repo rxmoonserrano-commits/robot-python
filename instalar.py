@@ -38,7 +38,10 @@ ENV_EXAMPLE = os.path.join(RAIZ, ".env.example")
 
 # (clave en el .env, pregunta, ¿es secreta?, ¿obligatoria?)
 PREGUNTAS = [
-    ("GEMINI_API_KEY", "Tu clave gratis de Gemini (Google AI Studio, aistudio.google.com)", True, True),
+    ("GEMINI_API_KEY", "Tu clave de Gemini (Google AI Studio)", True, True),
+    ("GEMINI_MODEL", "Modelo de Gemini habilitado para tu cuenta y con costos verificados", False, True),
+    ("GEMINI_MODEL_FALLBACK", "Modelo de respaldo habilitado y revisado (opcional)", False, False),
+    ("GOOGLE_SHEETS_ID", "ID de la hoja independiente de este negocio", False, True),
     ("WHATSAPP_TOKEN", "Tu token de WhatsApp (Meta for Developers, el token del número)", True, True),
     ("WHATSAPP_PHONE_NUMBER_ID", "El Phone Number ID de WhatsApp (solo números, en Meta)", False, True),
     ("VERIFY_TOKEN", "Una palabra secreta que inventes para verificar el webhook (p. ej. robot-whatsapp-verifica)", False, True),
@@ -49,7 +52,7 @@ PREGUNTAS = [
     ("NEGOCIO_NOMBRE", "El nombre del negocio (opcional, Enter para saltarlo)", False, False),
     ("NEGOCIO_TIPO", "El tipo de negocio, con artículo: una clínica, un restaurante, un taller... (Enter = una clínica)", False, False),
     ("RECEPCIONISTA_NOMBRE", "El nombre de la recepcionista (Enter = Ana)", False, False),
-    ("META_APP_SECRET", "El secreto de la app de Meta (opcional: verifica el webhook; está en Meta → tu app → Configuración básica)", True, False),
+    ("META_APP_SECRET", "Secreto obligatorio de la app de Meta para verificar la firma del webhook", True, True),
 ]
 
 
@@ -70,10 +73,10 @@ def correr(comando: list[str], descripcion: str) -> tuple[bool, str]:
 
 
 def revisar_python() -> bool:
-    """¿Tienes Python 3.10 o más?"""
+    """¿Tienes Python 3.11 o más?"""
     version = sys.version_info
-    if version < (3, 10):
-        decir(f"❌ Tu Python es {version.major}.{version.minor}. El robot necesita 3.10 o más.")
+    if version < (3, 11):
+        decir(f"❌ Tu Python es {version.major}.{version.minor}. El robot necesita 3.11 o más.")
         decir("   Descarga uno nuevo en python.org y vuelve a correr: python instalar.py")
         return False
     decir(f"✓ Python {version.major}.{version.minor}.{version.micro} — bien.")
@@ -140,19 +143,15 @@ def probar_todo() -> bool:
         decir(salida[-1500:])
         return False
     decir("✓ El código compila sin errores.")
-    # (v2.7) Los modelos de Gemini deben ser vigentes: los retirados
-    # (2.0-flash, 2.5-flash) dejaron al robot sin cerebro en noviembre
-    # de 2026. Si el .env trae uno viejo, avisar antes de desplegar.
+    # Solo comprobar configuración; la vigencia y tarifa requieren
+    # verificar la cuenta y hacer la prueba real con consentimiento.
     ok, salida = correr(
         [sys.executable, "-c",
-         "from robot.config import settings; "
-         "retirados = {'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'}; "
-         "malos = [m for m in (settings.gemini_model, settings.gemini_model_fallback) if m in retirados]; "
-         "import sys; sys.exit('MODELOS RETIRADOS: ' + ', '.join(malos)) if malos else print('modelos Gemini vigentes: ' + settings.gemini_model + ' / ' + settings.gemini_model_fallback)"],
-        "revisar modelos Gemini")
+         "from robot.config import settings; import sys; "
+         "sys.exit('Falta GEMINI_MODEL') if not settings.gemini_model else print('Modelo configurado; vigencia y costo sin verificar')"],
+        "revisar configuración Gemini")
     if not ok:
         decir("❌ " + salida.strip().splitlines()[-1])
-        decir("   Cambia GEMINI_MODEL a gemini-4-hydrogen y GEMINI_MODEL_FALLBACK a gemini-3.8-flash.")
         return False
     decir("✓ " + salida.strip().splitlines()[-1])
     pruebas = sorted(f for f in os.listdir(RAIZ)
@@ -240,7 +239,8 @@ def modo_check() -> int:
     bien = instalar_librerias() and bien
     bien = probar_todo() and bien
     if bien:
-        decir("\n✓ Todo en orden. Puedes correr: python instalar.py")
+        decir("\n✓ Comprobación local terminada. Las doradas e integraciones reales no se validaron con --check.")
+        decir("  Antes de publicar ejecuta python verificar_calidad.py y valida los servicios reales.")
         return 0
     decir("\n❌ Hay algo que arreglar (ver arriba).")
     return 1
@@ -299,33 +299,10 @@ def main() -> int:
         decir("Revisa el error de arriba y vuelve a correr: python instalar.py")
         return 1
 
-    decir("\n" + "=" * 60)
-    decir("  ¡Listo! Tu robot está instalado en tu computadora.")
-    decir("=" * 60)
-    decir("\nLo que sigue (3 pasos):")
-    decir("  1. DESPLIEGA el robot para tener una dirección pública.")
-    decir("     Lo más fácil: Render gratis (ver DESPLEGAR.md). Cuando")
-    decir("     termine, Render te da una dirección como:")
-    decir("       https://robot-whatsapp-xxxx.onrender.com")
-    decir("     Tu webhook es esa dirección + /webhook:")
-    decir("       https://robot-whatsapp-xxxx.onrender.com/webhook")
-    decir("     Mientras pruebas en tu computadora, puedes usar ngrok:")
-    decir("       ngrok http 8000  →  https://tu-url.ngrok.io/webhook")
-    decir("  2. PEGA esa dirección en Meta for Developers, en WhatsApp")
-    decir("     → Configuración del webhook, junto con tu VERIFY_TOKEN")
-    decir("     (la palabra secreta que acabas de inventar). Meta te va")
-    decir("     a pedir que verifiques: si el robot está prendido, pasa.")
-    decir("  3. MANDA un mensaje de prueba al número de Meta y revisa")
-    decir("     PROBARLO.md: el visto, el 'escribiendo...', la espera de")
-    decir("     15 segundos si mandas varios mensajes, y los botones de")
-    decir("     Confirmar / Cambiar hora / Hablar con una persona.")
-    decir("\nPara arrancar el robot en tu computadora (pruebas):")
-    decir("  uvicorn app:app --port 8000")
-    decir("  y abre http://localhost:8000/health — debes ver {\"ok\": true}")
-    decir("\nY recuerda: los recordatorios de cita salen por plantilla")
-    decir("aprobada de WhatsApp (interruptor `recordatorios` en")
-    decir("Configuración). El reporte semanal llega por correo, los")
-    decir("lunes a las 08:00.")
+    decir("\nLa configuración local y las pruebas simuladas terminaron.")
+    decir("Las conversaciones doradas con Gemini y los servicios reales siguen pendientes.")
+    decir("Antes de publicar: ejecuta python verificar_calidad.py, valida las integraciones")
+    decir("en un entorno aislado y revisa DESPLEGAR.md. No despliegues hasta confirmarlo.")
     return 0
 
 

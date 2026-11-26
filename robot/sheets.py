@@ -451,6 +451,21 @@ def leer_historial(telefono: str, limite: int = 20) -> list[dict]:
 # --- Escrituras: el registro de todo ---
 
 
+def pausar_conversacion(telefono: str, hasta: str) -> None:
+    """Guarda el vencimiento de una pausa en la conversación correspondiente."""
+    agregar_fila("Conversaciones", [hasta, telefono, "sistema", "", "no", "pausa_hasta"])
+
+
+def leer_pausa_hasta(telefono: str) -> str:
+    """Última pausa guardada para este teléfono, incluso tras un reinicio."""
+    for fila in reversed(leer_pestana("Conversaciones")):
+        if (str(fila.get("telefono", "")).strip() == str(telefono).strip()
+                and fila.get("quien_hablo") == "sistema"
+                and fila.get("motivo") == "pausa_hasta"):
+            return str(fila.get("fecha") or "")
+    return ""
+
+
 def registrar_conversacion(
     fecha: str,
     telefono: str,

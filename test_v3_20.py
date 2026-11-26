@@ -133,9 +133,10 @@ mail_mod.alerta_handoff(
     hilo="Cliente: hola\nRobot: ¡Hola!\nCliente: estoy enojado",
 )
 cuerpo = correos[-1][2] if correos else ""
-caso("(j) correo de handoff trae el hilo",
-     "Últimos mensajes de la conversación:" in cuerpo
-     and "Cliente: estoy enojado" in cuerpo, cuerpo[:300])
+caso("(j) correo de handoff omite el hilo y el resumen",
+     "Últimos mensajes de la conversación:" not in cuerpo
+     and "Cliente: estoy enojado" not in cuerpo
+     and "Preguntó precios." not in cuerpo and "Atención humana" in cuerpo, cuerpo[:300])
 
 mail_mod.alerta_handoff("Ana", "5216690000000", "queja", "hola", "2026-11-23")
 caso("(k) correo sin hilo sale bien",

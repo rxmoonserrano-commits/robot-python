@@ -41,24 +41,16 @@ def caso(nombre, condicion, detalle=""):
 
 
 def main():
-    # (a) Modelo principal por defecto.
-    caso("(a) El modelo principal es gemini-4-hydrogen",
-         settings.gemini_model == "gemini-4-hydrogen",
-         f"salió: {settings.gemini_model!r}")
-    caso("(a) El respaldo es gemini-3.8-flash",
-         settings.gemini_model_fallback == "gemini-3.8-flash",
-         f"salió: {settings.gemini_model_fallback!r}")
-
-    # (b) Flash-Lite siempre al final de los candidatos.
+    # (a-b) Los modelos son explícitos; no se afirma vigencia ni tarifa.
+    settings.gemini_model = ""
+    settings.gemini_model_fallback = ""
     gemini_mod._ULTIMO_MODELO_OK = None
+    caso("(a) Sin modelos configurados no inventa candidatos", gemini_mod._candidatos() == [])
+    settings.gemini_model = "modelo-principal"
+    settings.gemini_model_fallback = "modelo-respaldo"
     candidatos = gemini_mod._candidatos()
-    caso("(b) Flash-Lite es el último candidato",
-         candidatos[-1] == "gemini-3.5-flash-lite",
-         f"candidatos={candidatos}")
-    caso("(b) Sin repetidos y sin modelos retirados",
-         len(candidatos) == len(set(candidatos))
-         and not set(candidatos) & set(gemini_mod._MODELOS_RETIRADOS),
-         f"candidatos={candidatos}")
+    caso("(b) Solo principal y respaldo configurados, sin repetidos",
+         candidatos == ["modelo-principal", "modelo-respaldo"], f"candidatos={candidatos}")
 
     # (c) 503: reintenta una vez tras 2 s y luego contesta.
     clave_vieja = settings.gemini_api_key
@@ -117,7 +109,7 @@ def main():
         def post_vacio_luego_ok(url, json=None, timeout=None):
             modelo = url.split("/models/")[1].split(":")[0]
             llamadas.append(modelo)
-            if modelo == "gemini-4-hydrogen":
+            if modelo == "modelo-principal":
                 return _RespuestaFalsa(200, "")
             return _RespuestaFalsa(200, "OK")
 
@@ -125,8 +117,8 @@ def main():
         gemini_mod.time.sleep = lambda s: None
         texto = gemini_mod.generar_texto("Hola.")
         caso("(e) Texto vacío: prueba el siguiente modelo",
-             texto == "OK" and llamadas[0] == "gemini-4-hydrogen"
-             and llamadas[-1] == "gemini-3.8-flash",
+             texto == "OK" and llamadas[0] == "modelo-principal"
+             and llamadas[-1] == "modelo-respaldo",
              f"texto={texto!r} llamadas={llamadas}")
     finally:
         settings.gemini_api_key = clave_vieja

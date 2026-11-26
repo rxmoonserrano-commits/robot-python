@@ -178,7 +178,7 @@ def revisar_salud(deps, ahora: datetime | None = None) -> list[dict]:
     if settings.meta_app_secret:
         anotar("meta_firma", "OK", "El webhook verifica la firma de Meta.")
     else:
-        anotar("meta_firma", "AVISO",
-               "Sin META_APP_SECRET: el webhook acepta mensajes sin verificar la firma.")
+        anotar("meta_firma", "FALLO",
+               "Sin META_APP_SECRET: el webhook rechaza los mensajes.")
 
     return resultados

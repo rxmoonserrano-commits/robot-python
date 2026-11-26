@@ -49,6 +49,8 @@ def caso(nombre, condicion, detalle=""):
 
 
 def main():
+    settings.gemini_model = "modelo-prueba"
+    settings.gemini_model_fallback = "modelo-respaldo-prueba"
     # (a) Timeout: se reintenta y contesta; el timeout es de 45 s.
     clave_vieja = settings.gemini_api_key
     post_viejo = gemini_mod.requests.post

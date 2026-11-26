@@ -1,28 +1,7 @@
-"""Google Gemini, capa gratuita. La única IA del robot.
+"""Cliente REST de Gemini para texto y transcripción.
 
-Modelo (v2.9): gemini-4-hydrogen (respaldo: gemini-3.8-flash, y
-siempre Flash-Lite al final), todos gratis a noviembre de 2026. Los
-viejos gemini-2.0-flash y gemini-2.5-flash Google los retiró para
-usuarios nuevos: el 12 de noviembre de 2026 el robot se quedó sin
-cerebro por eso (404 "This model ... is no longer available to new
-users. Please update your code to use models/gemini-3.8-flash"). El
-3.8-flash sí funcionó, pero a las 22:19 devolvió 503 "high demand":
-estaba saturado, por eso el cambio a 4 Hydrogen.
-Clave: se saca en Google AI Studio (aistudio.google.com), sin tarjeta.
-Se habla con Gemini por su API REST con `requests`, sin SDK pesado:
-un POST con el texto (y el audio en base64, si lo hay) y listo.
-
-Autocuración (v2.7): si Google retira un modelo, su error dice qué
-modelo usar en su lugar ("use models/gemini-X"). El robot lee esa
-sugerencia y la prueba SOLO, sin que nadie toque el código ni las
-variables de entorno. Y recuerda el último modelo que funcionó, para
-empezar por él la próxima vez (solo en memoria, se olvida al reiniciar).
-
-Límites honestos de la capa gratuita: hay tope de peticiones por minuto
-y por día. Para un negocio chico que empieza, alcanza. Si se acaba,
-Gemini devuelve error y el robot no responde ese mensaje: el mensaje
-queda registrado en Sheets, no se pierde.
-Nada de pago aquí: ni Whisper, ni GPT.
+Configura modelos explícitos disponibles para la cuenta y verifica costos y
+cuotas antes de usarlos. Ningún modelo está validado durante esta revisión.
 """
 
 from __future__ import annotations
@@ -34,13 +13,8 @@ import time
 import requests
 
 from .config import settings
-from .registro import info as log_info
 
 _API = "https://generativelanguage.googleapis.com/v1beta/models"
-
-# Modelos que Google ya retiró para usuarios nuevos. Si el .env o Render
-# todavía traen uno de estos, el robot lo detecta y usa el vigente.
-_MODELOS_RETIRADOS = ("gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro")
 
 # Último modelo que SÍ contestó (solo en memoria). La próxima llamada
 # empieza por él, para no tropezar dos veces con el mismo modelo muerto.
@@ -163,32 +137,28 @@ def _llamar(modelo: str, partes: list[dict], json_mode: bool = False) -> str:
 
 
 def _candidatos() -> list[str]:
-    """Modelos a probar, en orden, sin repetidos y sin retirados.
-
-    Empieza por el último que funcionó (si lo hay), luego el principal
-    y el respaldo. Los retirados se quitan: no tiene caso llamar a un
-    modelo que Google ya dio de baja.
-    (v2.9) Al final siempre va Flash-Lite, el modelo gratis más chico
-    y el menos saturado: si los Flash grandes están a tope (503), el
-    chico suele contestar.
-    """
+    """Solo modelos configurados explícitamente, sin asumir vigencia ni precio."""
+    configurados = [str(m or "").strip() for m in
+                    (settings.gemini_model, settings.gemini_model_fallback)]
     orden = []
-    for modelo in (_ULTIMO_MODELO_OK, settings.gemini_model, settings.gemini_model_fallback,
-                   "gemini-3.5-flash-lite"):
-        if modelo and modelo not in orden and modelo not in _MODELOS_RETIRADOS:
+    if _ULTIMO_MODELO_OK in configurados:
+        orden.append(_ULTIMO_MODELO_OK)
+    for modelo in configurados:
+        if modelo and modelo not in orden:
             orden.append(modelo)
-    return orden or ["gemini-4-hydrogen"]
+    return orden
 
 
 def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
-    """Prueba los modelos en orden. Si Google dice 'usa este otro',
-    lo agrega a la lista y lo prueba solo (autocuración).
+    """Prueba solo los modelos configurados explícitamente.
 
-    Guarda el modelo que contestó, para empezar por él la próxima vez.
-    Si ninguno contesta, lanza el último error.
+    Guarda el último que contestó mientras siga configurado. No cambia
+    de modelo por sugerencias externas que podrían tener otro costo.
     """
     global _ULTIMO_MODELO_OK
     candidatos = _candidatos()
+    if not candidatos:
+        raise GeminiError("Configura GEMINI_MODEL con un modelo disponible para tu cuenta.")
     ultimo_error: GeminiError | None = None
     i = 0
     while i < len(candidatos):
@@ -198,10 +168,6 @@ def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
             texto = _llamar(modelo, partes, json_mode=json_mode)
         except GeminiError as exc:
             ultimo_error = exc
-            sugerido = _modelo_sugerido(str(exc))
-            if sugerido and sugerido not in candidatos:
-                log_info(f"[gemini] Google retiró {modelo}; pruebo {sugerido} como sugiere el error.")
-                candidatos.append(sugerido)
             continue
         _ULTIMO_MODELO_OK = modelo
         return texto
@@ -209,8 +175,7 @@ def _probar_candidatos(partes: list[dict], json_mode: bool = False) -> str:
 
 
 def generar_texto(prompt: str, json_mode: bool = True) -> str:
-    """Pide texto a Gemini. Prueba los modelos en orden; si Google
-    retira uno, usa el que Google sugiere, solo.
+    """Pide texto a Gemini usando únicamente modelos configurados.
 
     (v2.13) Modo JSON: la API devuelve JSON válido y el modelo va con
     temperatura 0.3, para que siga las reglas en vez de improvisar.

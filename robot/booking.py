@@ -12,6 +12,7 @@ Reglas:
 from __future__ import annotations
 
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -73,6 +74,22 @@ def _a_datetime(fecha_iso: str) -> datetime:
     return fecha
 
 
+def _ocupaciones(respuesta: dict) -> list:
+    """No interpretar un error parcial de freebusy como calendario libre."""
+    calendario = respuesta.get("calendars", {}).get(settings.calendar_id)
+    if not isinstance(calendario, dict) or calendario.get("errors"):
+        raise RuntimeError("Calendar no pudo confirmar la disponibilidad")
+    ocupados = calendario.get("busy")
+    if not isinstance(ocupados, list):
+        raise RuntimeError("Calendar devolvió disponibilidad incompleta")
+    return ocupados
+
+
+# Serializa creaciones en este proceso; Calendar no ofrece una reserva
+# transaccional frente a ediciones externas u otras instancias.
+_CANDADO_RESERVAS = threading.Lock()
+
+
 def hora_libre(inicio_iso: str, duracion_min: int | None = None) -> bool:
     """¿Está libre esa hora en el calendario? True = sí, se puede agendar."""
     duracion = duracion_min or settings.duracion_cita_minutos
@@ -91,7 +108,7 @@ def hora_libre(inicio_iso: str, duracion_min: int | None = None) -> bool:
         )
         .execute()
     )
-    lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
+    lista = _ocupaciones(ocupados)
     return len(lista) == 0
 
 
@@ -115,14 +132,17 @@ def proximos_huecos_libres(
     `horarios` es el dict de logic.horarios_por_dia: {día de semana:
     (minuto de apertura, minuto de cierre)}. Devuelve fechas ISO
     (hora local del negocio). Una sola llamada a Calendar (freebusy
-    del rango entero): no una por hueco. Si Calendar falla, devuelve
-    [] y quien llama decide (el agente no inventa horas: el contexto
-    dice que no hay huecos).
+    del rango entero): no una por hueco. Si Calendar falla, propaga
+    el error: no equivale a una agenda sin huecos.
 
     La confirmación vuelve a revisar la hora (crear_cita): si un hueco
     se ocupó entre el cálculo y la confirmación, no se crea nada.
     """
-    clave = f"{cantidad}:{dias}"
+    # Los horarios y el minuto actual forman parte de la consulta: no
+    # reutilizar un hueco pasado ni horarios que el dueño acaba de editar.
+    clave = (f"{settings.calendar_id}:{settings.timezone}:{settings.duracion_cita_minutos}:"
+             f"{ahora.isoformat(timespec='minutes')}:{cantidad}:{dias}:"
+             f"{sorted(horarios.items())}")
     if usar_cache:
         guardado = _HUECOS_CACHE.get(clave)
         if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
@@ -145,10 +165,10 @@ def proximos_huecos_libres(
             )
             .execute()
         )
-        lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
+        lista = _ocupaciones(ocupados)
         busy = [(_a_datetime(b["start"]), _a_datetime(b["end"])) for b in lista]
-    except Exception:
-        return []
+    except Exception as exc:
+        raise RuntimeError("No se pudo consultar disponibilidad en Calendar") from exc
     huecos: list[str] = []
     for adelanto in range(dias + 1):
         dia = local + timedelta(days=adelanto)
@@ -199,8 +219,10 @@ def proximos_huecos_por_profesional(
     if not profesionales:
         return []
     clave = (
-        f"pro:{cantidad}:{dias}:"
-        + ",".join(sorted(p["nombre"] for p in profesionales))
+        f"pro:{settings.calendar_id}:{settings.timezone}:{settings.duracion_cita_minutos}:"
+        f"{ahora.isoformat(timespec='minutes')}:{cantidad}:{dias}:"
+        + repr(sorted((str(p.get("nombre", "")), sorted(p.get("horarios", {}).items()))
+                      for p in profesionales))
     )
     guardado = _HUECOS_CACHE.get(clave)
     if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
@@ -223,7 +245,7 @@ def proximos_huecos_por_profesional(
             )
             .execute()
         )
-        lista = ocupados.get("calendars", {}).get(settings.calendar_id, {}).get("busy", [])
+        lista = _ocupaciones(ocupados)
         busy = [(_a_datetime(b["start"]), _a_datetime(b["end"])) for b in lista]
     except Exception:
         return []
@@ -276,24 +298,36 @@ def _eventos_del_dia(servicio, inicio: datetime) -> list:
 
 
 def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
-    """Borra del calendario la cita de ese teléfono en esa fecha.
+    """Borra únicamente el evento inequívoco de ese teléfono y hora.
 
-    Busca en el día de la cita el evento cuyo título trae el teléfono
-    (los eventos se crean como "Cita <nombre> — <teléfono>") y lo
-    borra. Devuelve True si borró al menos uno. Si no encuentra nada,
-    no hace nada y devuelve False (no se inventa una cancelación).
+    Los eventos del robot terminan en « — teléfono». Si hay más de una
+    coincidencia se requiere intervención humana: no se adivina cuál.
     """
+    if not str(telefono).isdigit():
+        raise ValueError("Teléfono inválido")
     inicio = _a_datetime(fecha_cita_iso)
     servicio = _servicio_calendar()
     eventos = _eventos_del_dia(servicio, inicio)
-    borrados = 0
+    coincidencias = []
     for evento in eventos:
-        if str(telefono) in str(evento.get("summary", "")):
-            servicio.events().delete(
-                calendarId=settings.calendar_id, eventId=evento["id"]
-            ).execute()
-            borrados += 1
-    return borrados > 0
+        titulo = str(evento.get("summary", ""))
+        comienzo = (evento.get("start") or {}).get("dateTime", "")
+        if not titulo.startswith("Cita ") or not titulo.endswith(f" — {telefono}"):
+            continue
+        try:
+            if _a_datetime(comienzo) == inicio:
+                coincidencias.append(evento)
+        except (TypeError, ValueError):
+            continue
+    if len(coincidencias) > 1:
+        raise ValueError("Hay varias citas coincidentes; se necesita revisión humana")
+    if not coincidencias:
+        return False
+    servicio.events().delete(
+        calendarId=settings.calendar_id, eventId=coincidencias[0]["id"]
+    ).execute()
+    _HUECOS_CACHE.clear()
+    return True
 
 
 def existe_cita(telefono: str, fecha_iso: str) -> bool:
@@ -329,6 +363,19 @@ def crear_cita(
     duracion_min: int | None = None,
     nota: str = "",
 ) -> dict:
+    """Serializa las reservas de esta instancia antes de consultar Calendar."""
+    with _CANDADO_RESERVAS:
+        return _crear_cita(nombre, telefono, motivo, inicio_iso, duracion_min, nota)
+
+
+def _crear_cita(
+    nombre: str,
+    telefono: str,
+    motivo: str,
+    inicio_iso: str,
+    duracion_min: int | None = None,
+    nota: str = "",
+) -> dict:
     """Crea la cita. Devuelve {'inicio': ..., 'fin': ..., 'link': ...}.
 
     Si la hora está ocupada, levanta ValueError y NO crea nada.
@@ -357,6 +404,7 @@ def crear_cita(
         )
         .execute()
     )
+    _HUECOS_CACHE.clear()
     return {
         "inicio": inicio.isoformat(),
         "fin": fin.isoformat(),

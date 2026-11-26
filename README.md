@@ -1,4 +1,50 @@
-# Robot genérico de WhatsApp con IA gratis — en Python
+# Robot genérico de WhatsApp con IA — en Python
+
+> **Estado de la revisión:** no desplegar para datos reales todavía. El
+> webhook rechaza solicitudes si falta `META_APP_SECRET`, y el handoff
+> registra una pausa por teléfono en la pestaña Conversaciones. El
+> webhook guarda los mensajes en `BuzonMeta` antes de confirmar y un
+> trabajador los procesa en serie. La nueva ruta y las integraciones
+> reales todavía requieren validación. Sheets, WhatsApp y Calendar no
+> participan en una transacción común: un corte después de un envío o
+> reserva y antes de marcarlo puede causar una repetición. No es una
+> garantía de entrega exactamente una vez.
+>
+> Ejecuta `python verificar_calidad.py` para correr las baterías locales
+> y las conversaciones doradas con Gemini. Sin clave o con cualquier
+> prueba fallida, el comando termina en rojo; no se reporta una prueba
+> omitida como aprobada.
+>
+> La pausa por teléfono depende de poder escribir y leer la pestaña
+> Conversaciones; también está sujeta al límite actual de 10 000 filas
+> leído por el código. Los botones se silencian durante la pausa. Las
+> pausas globales antiguas guardadas en Control siguen aplicándose. Por
+> eso, durante un handoff urgente no se ofrece una cita con botones que
+> quedarían bloqueados; el equipo debe revisar la agenda.
+>
+> El correo de handoff es best-effort: un fallo de SMTP se registra pero
+> no confirma entrega ni se reintenta de forma durable. Verifica un canal
+> de seguimiento humano antes de usarlo con pacientes. Si Calendar crea
+> una cita nueva pero no confirma la cancelación de la anterior, se
+> requiere reconciliar ambos eventos y el espejo manualmente.
+
+### Preparación de la cola nueva (antes de cualquier despliegue)
+
+1. En la hoja operativa crea una pestaña llamada `BuzonMeta`, con estas
+   cuatro celdas en la primera fila, en este orden: `id_meta`, `estado`,
+   `recibido_en`, `contenido`. Comparte la hoja con la cuenta de servicio.
+2. No edites ni ordenes esa pestaña: contiene datos personales e IDs
+   necesarios para deduplicar. Limita el acceso a personal autorizado.
+3. Usa **una sola instancia y un solo proceso** de la aplicación. El
+   candado de deduplicación no coordina procesos o servicios distintos.
+4. Al migrar una instalación antigua, atiende y reconcilia manualmente
+   sus pendientes de `buzon.json` y `Conversaciones` antes de activarla:
+   la nueva cola no importa automáticamente esos datos sin IDs de Meta.
+5. Una falla de Sheets hace que el webhook responda 503, no 200. Los
+   reintentos de Meta dependen de sus propias políticas; controla las
+   cuotas de Sheets y revisa los registros. No borres IDs terminados
+   mientras puedan llegar reintentos. La hoja tiene límites de tamaño y
+   requiere un plan de archivado antes de crecer a gran escala.
 
 Un robot que atiende el WhatsApp de un negocio 24/7: entiende texto y
 audio, contesta como una recepcionista tranquila, califica al cliente,
@@ -7,15 +53,11 @@ avisa por correo y se calla. Todo lo que sabe del negocio vive en una
 hoja de Google Sheets. Nada de audio de respuesta, nada de mensajes
 automáticos por WhatsApp: solo responde cuando le escriben.
 
-> **Honestidad, como siempre:** la lógica pasa **545 pruebas
-> simuladas sin internet** en 27 archivos (más la batería de
-> inteligencia de 41 escenarios, ya incluida en el conteo). Y hay **20 conversaciones doradas**
-> aparte (`test_conversaciones_doradas.py`): conversaciones completas
-> contra la IA real, que se corren con la clave de Gemini antes de
-> cada despliegue — la puerta de embarque: si una falla, esa versión
-> no sale. El **12 de noviembre de 2026 el robot contestó su primer
-> mensaje real** por WhatsApp (y agenda citas de verdad). La historia
-> de cada versión vive en `CHANGELOG.md`.
+> **Estado de pruebas:** la puerta de calidad requiere correr
+> `python verificar_calidad.py`, incluidas las 36 conversaciones doradas
+> con Gemini real. Las pruebas locales usan servicios ficticios. Los
+> resultados y limitaciones de la última corrida están en
+> `RESULTADOS_SIMULACION.md`; no se han validado las integraciones reales.
 
 ## Qué hace el robot (en una frase)
 
@@ -74,7 +116,7 @@ El código de este flujo está en `robot/logic.py`, función
 | `robot/ritmo.py` | Demora humana y partir respuestas largas |
 | `reporte_semanal.py` | Manda el reporte ahora: `python reporte_semanal.py` |
 | `instalar.py` | Asistente que te pregunta las claves y deja el `.env` listo |
-| `render.yaml` | Despliegue gratis en Render con un archivo |
+| `render.yaml` | Blueprint de Render: un servicio Starter por negocio |
 | `runtime.txt` | Versión de Python en Render (3.12) |
 | `DESPLEGAR.md` | Cómo poner el robot en internet (Render y Railway) |
 | `guion-robot.md` | El guion completo del agente, para leer y ajustar |
@@ -86,25 +128,21 @@ El código de este flujo está en `robot/logic.py`, función
 | `test_simulado.py` … `test_escenarios_100.py` | 29 archivos de pruebas sin internet (758 casos): `python test_escenarios_100.py` y sus hermanas |
 | `test_inteligencia.py` | 41 escenarios de inteligencia (botones, agenda, handoff, documento, calidez) sin API key |
 | `test_escenarios_100.py` | 100 escenarios conversacionales (149 casos) contra el código real: saludo, precios, agendar, dos citas, terceros, memoria, cambio/cancelación, handoff, fallas, paquetes |
-| `test_conversaciones_doradas.py` | 34 conversaciones doradas contra la IA real (necesita GEMINI_API_KEY) |
+| `test_conversaciones_doradas.py` | 36 escenarios dorados contra la IA real (necesita GEMINI_API_KEY) |
 
-## La inteligencia artificial: gratis y funcional
+## La inteligencia artificial
 
-**Google Gemini, capa gratuita: modelo principal `gemini-4-hydrogen`,
-respaldo `gemini-3.8-flash`, y al final siempre `gemini-3.5-flash-lite`.**
-La clave se saca en Google AI Studio (aistudio.google.com), sin tarjeta.
-Es el mismo modelo para entender el texto, entender el audio y escribir
-el resumen semanal. Si Google retira un modelo, el robot lee el modelo
-que Google sugiere en el error y lo prueba solo (autocuración).
+Configura `GEMINI_MODEL` y, si lo necesitas, `GEMINI_MODEL_FALLBACK` con
+modelos habilitados para tu propia cuenta. Antes verifica disponibilidad,
+precios, cuotas, condiciones de privacidad y capacidad de transcripción.
+No se eligieron ni validaron modelos para esta instalación. El robot solo
+probará los modelos configurados, no uno sugerido automáticamente por un
+error. Si no hay modelo configurado, la llamada falla de forma explícita.
 
-**Sus límites, con honestidad:**
-
-- La capa gratuita tiene tope de peticiones por minuto y por día. Para un negocio chico que empieza, alcanza.
-- Si se acaba el límite, Gemini devuelve error y el robot no responde ese mensaje. El mensaje queda registrado en Sheets, no se pierde.
-- Google puede usar los datos de la capa gratuita para mejorar sus productos. No mandes datos sensibles (contraseñas, tarjetas, datos médicos).
-- Los modelos viejos (`gemini-2.0-flash`, `gemini-2.5-flash`) están retirados: Google ya no los contesta. El instalador avisa si tu `.env` trae uno.
-
-**No se usa nada de pago aquí:** ni Whisper de pago, ni GPT de pago.
+Gemini recibe texto y, cuando aplica, audio e historial; los datos pueden
+ser sensibles. Revisa las condiciones del proveedor y obtén las autorizaciones
+necesarias. Cuotas, interrupciones y cargos dependen de cada cuenta; no hay
+garantía de disponibilidad ni de que una capa gratuita sea suficiente.
 
 ## Configuración por negocio (v3.5)
 
@@ -403,11 +441,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Paso 2 — Clave gratuita de Gemini
+### Paso 2 — Configuración de Gemini
 
 1. Entra a **aistudio.google.com** con tu cuenta de Google.
-2. Crea una API key (Create API Key). No pide tarjeta.
-3. Guárdala en el `.env` como `GEMINI_API_KEY`. No la escribas en ningún archivo de código ni se la pases a nadie.
+2. Crea o usa tu API key. Verifica previamente los precios y condiciones aplicables a tu cuenta.
+3. Guárdala en el `.env` como `GEMINI_API_KEY`. No la escribas en ningún archivo de código ni se la pases a nadie. Configura también `GEMINI_MODEL` y, opcionalmente, `GEMINI_MODEL_FALLBACK` con modelos que tu cuenta permita usar.
 
 ### Paso 3 — Google Sheets y Calendar (cuenta de servicio)
 
@@ -416,7 +454,7 @@ pip install -r requirements.txt
 3. Activa en ese proyecto las APIs de **Google Sheets** y **Google Calendar**.
 4. Abre tu hoja "Robot WhatsApp — Documento oficial" y **compártela con el correo de la cuenta de servicio** (termina en `iam.gserviceaccount.com`), como editor. Sin este paso, el robot no puede leer ni escribir.
 5. Haz lo mismo con el calendario del negocio: compártelo con ese correo. Si no, las citas caen en el calendario del robot y el dueño no las ve en su app.
-6. El ID de la hoja ya está puesto en `.env.example` y en `config.py`: `1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo`. No lo cambies, es tu hoja oficial.
+6. Configura `GOOGLE_SHEETS_ID` con el ID de la hoja de este negocio.
 
 ### Paso 4 — Correo (contraseña de aplicación)
 
@@ -469,7 +507,7 @@ en Meta como `https://tu-url.ngrok.io/webhook`.
 ## Probarlo (sin gastar nada)
 
 ```bash
-python instalar.py --check   # todo: 462 pruebas + el servidor arranca
+python instalar.py --check   # comprobación local; no reemplaza verificar_calidad.py
 python test_v3_9.py          # 33 casos nuevos de la v3.9
 python test_inteligencia.py  # 41 escenarios de inteligencia, sin API key
 ```
@@ -477,7 +515,7 @@ python test_inteligencia.py  # 41 escenarios de inteligencia, sin API key
 Y las conversaciones doradas (contra la IA real, con tu clave):
 
 ```bash
-GEMINI_API_KEY=tu_clave python test_conversaciones_doradas.py
+python test_conversaciones_doradas.py   # lee GEMINI_API_KEY y GEMINI_MODEL de .env
 ```
 
 Y con un mensaje real de WhatsApp, simulando lo que manda Meta:
@@ -490,7 +528,7 @@ curl -X POST http://localhost:8000/webhook \
 
 El plan completo de 10 pruebas está en `PROBARLO.md`.
 
-## Desplegar gratis (cuando ya funcione en tu computadora)
+## Desplegar (solo después de validar y confirmar)
 
 Todo el detalle está en `DESPLEGAR.md`. El resumen:
 
@@ -498,9 +536,9 @@ Todo el detalle está en `DESPLEGAR.md`. El resumen:
 en esta carpeta: en Render, New → Blueprint, conecta tu repositorio y
 aplica. Pon las mismas variables del `.env` en el panel de Environment
 (incluidas `ADMIN_TOKEN` y `META_APP_SECRET`, que dicen `sync: false`).
-El plan gratis duerme el servicio si nadie lo usa 15 minutos: el primer
-mensaje tarda unos segundos en despertar, los demás van normal. El
-reporte del lunes también despierta el servicio solo.
+El blueprint solicita Starter (de pago); confirma precio, capacidad y
+condiciones vigentes en Render. Un servicio por negocio y un solo proceso.
+La disponibilidad 24/7 no está garantizada.
 
 **Railway (alternativa).** Igual: nuevo proyecto desde tu repositorio,
 variables de entorno en el panel, comando `uvicorn app:app --host 0.0.0.0 --port $PORT`.

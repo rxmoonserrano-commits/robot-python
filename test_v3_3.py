@@ -75,6 +75,10 @@ class DepsV33:
         self.alertas_cita = []
         self.alertas_caliente = []
 
+    def hora_libre(self, fecha_iso):
+        # Agenda ficticia: en estos escenarios la hora está disponible.
+        return True
+
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
 
@@ -240,12 +244,16 @@ def main():
          len(llamadas) == 1, f"llamadas: {len(llamadas)}")
     booking_mod._HUECOS_CACHE.clear()
 
-    # Si Calendar falla, []: quien llama decide (nunca se inventa una hora).
+    # Un fallo no es una agenda llena: se propaga para avisar la incertidumbre.
     booking_mod._HUECOS_CACHE.clear()
+    fallo = None
     with patch.object(booking_mod, "_servicio_calendar", side_effect=RuntimeError("sin red")):
-        huecos = booking_mod.proximos_huecos_libres(HORARIOS, VIERNES, usar_cache=False)
-    caso("(a) Huecos: si Calendar falla, [] (no se inventa nada)",
-         huecos == [], f"salió: {huecos}")
+        try:
+            booking_mod.proximos_huecos_libres(HORARIOS, VIERNES, usar_cache=False)
+        except RuntimeError as exc:
+            fallo = exc
+    caso("(a) Huecos: si Calendar falla, se informa error en vez de agenda llena",
+         fallo is not None, f"error: {fallo}")
 
     # ---- (a) El contexto lleva los huecos libres ----
     d = DepsV33(
@@ -284,8 +292,10 @@ def main():
     atender_mensaje(d, TELEFONO, "Jose Ramon", "¿cuánto cuesta la limpieza?",
                     con_ritmo=False, ahora=VIERNES)
     mensaje = d.mensajes_al_agente[0] if d.mensajes_al_agente else ""
-    caso("(a) Contexto: si Calendar falla, no dice ni huecos ni 'llena'",
-         "huecos libres" not in mensaje and "agenda está llena" not in mensaje,
+    caso("(a) Contexto: si Calendar falla, advierte sin inventar disponibilidad",
+         "huecos libres para agendar son:" not in mensaje
+         and "No fue posible consultar la disponibilidad" in mensaje
+         and "No afirmes que la agenda está llena" in mensaje,
          f"mensaje al agente: {mensaje[:300]!r}")
 
     d = DepsV33(
@@ -471,9 +481,9 @@ def main():
          and resultado["citas_agendadas"] == 1,
          f"resultado={resultado}")
     cuerpo = enviados[0][2] if enviados else ""
-    caso("(d) Resumen: trae pendientes, propuestas y la cita de hoy",
-         "Maria" in cuerpo and "Me duele la muela" in cuerpo
-         and "Jose Ramon" in cuerpo and "apartado hasta mañana sábado 14" in cuerpo
+    caso("(d) Resumen: trae contactos sin detalles de salud",
+         "Maria" in cuerpo and "Me duele la muela" not in cuerpo
+         and "Jose Ramon" in cuerpo and "propuesta de cita" in cuerpo
          and "Pedro" in cuerpo,
          f"cuerpo: {cuerpo[:400]!r}")
     caso("(d) Resumen: el asunto es el de la mañana, no el semanal",

@@ -310,12 +310,12 @@ caso("(d) Salud todo bien: 10 componentes (9 OK + suscripción AVISO sin WABA ID
 
 d, res = _salud_con(gemini_ok=False, whatsapp_status=401, gmail=False, admin=False, meta=False)
 estados = {r["componente"]: r["estado"] for r in res}
-caso("(d) Salud con fallos: Gemini FALLO, token 401 FALLO, lo demás AVISO",
+caso("(d) Salud: falta de firma es FALLO; correo y admin son AVISO",
      estados.get("gemini") == "FALLO"
      and estados.get("whatsapp") == "FALLO"
      and estados.get("gmail") == "AVISO"
      and estados.get("admin_token") == "AVISO"
-     and estados.get("meta_firma") == "AVISO"
+     and estados.get("meta_firma") == "FALLO"
      and estados.get("sheets") == "OK",
      f"estados={estados}")
 caso("(d) La salud no rompe el arranque aunque todo falle",
@@ -415,12 +415,11 @@ inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
 caso("(g) La app es la versión 3.22.1",
      'version="3.22.1"' in app_txt or "VERSION = \"3.22.1\"" in app_txt,
      "versión no actualizada")
-caso("(g) .env.example trae modelos vivos, no los retirados",
-     "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt
-     and "gemini-2.0-flash" not in env_txt and "gemini-2.5-flash" not in env_txt
+caso("(g) .env.example exige configurar modelos y claves sin prometer vigencia",
+     "GEMINI_MODEL=" in env_txt and "GEMINI_MODEL_FALLBACK=" in env_txt
      and "ESPERA_AGRUPAR_SEGUNDOS=15" in env_txt
      and "ADMIN_TOKEN" in env_txt and "META_APP_SECRET" in env_txt,
-     "el ejemplo sigue con modelos muertos o sin las claves nuevas")
+     "faltan variables necesarias en el ejemplo")
 caso("(g) El instalador escanea archivos (nunca se desactualiza) y no dice '7 segundos'",
      "os.listdir" in inst_txt and "7 segundos" not in inst_txt
      and "test_" in inst_txt and "robot/" in inst_txt,

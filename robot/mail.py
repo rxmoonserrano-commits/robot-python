@@ -188,247 +188,73 @@ def enviar_correo(destinatario: str, asunto: str, cuerpo: str,
         raise CorreoError(f"No se pudo mandar el correo a {destinatario}: {exc}") from exc
 
 
+def _alerta_privada(*, nombre: str, telefono: str, categoria: str,
+                    asunto: str, titulo: str, intro: str,
+                    boton: str = "Continuar conversación") -> None:
+    """Envía solo identidad, categoría y enlace; nunca texto libre del chat.
+
+    Las categorías son constantes del programa, no motivos redactados por
+    el cliente o por la IA, pues podrían contener datos de salud.
+    """
+    wa = _link_whatsapp(telefono)
+    nombre = str(nombre or "").replace("\n", " ").replace("\r", " ").strip()
+    telefono = re.sub(r"\D", "", str(telefono or ""))
+    identidad = nombre or telefono
+    cuerpo = (f"{titulo}\n\n{intro}\n\n"
+              + (f"Contacto: {nombre}\n" if nombre else "")
+              + (f"Teléfono: {telefono}\n" if telefono else "")
+              + f"Motivo: {categoria}\n"
+              + (f"\n{boton}: {wa}\n" if wa else "")
+              + "\nAloara · Siempre presente.\n")
+    html = _html_alerta(
+        categoria, titulo, intro,
+        [("Contacto", nombre), ("Teléfono", telefono), ("Motivo", categoria)],
+        boton_texto=boton if wa else "", boton_url=wa,
+    )
+    enviar_correo(correo_dueno(), f"{asunto} · {identidad}" if identidad else asunto,
+                   cuerpo, html=html)
+
+
 def alerta_error(motivo: str, telefono: str, ultimo_mensaje: str, fecha: str) -> None:
-    """Aloara: detectamos una interrupción. Algo falló (Gemini, Sheets,
-    Calendar) y el cliente recibió un "dame un momento". Para que no
-    se pierda el caso."""
-    cuerpo = (
-        "Detectamos una interrupción.\n\n"
-        "Hemos perdido la conexión temporalmente al atender a este "
-        "cliente; recibió un mensaje de espera. Revísalo cuando puedas.\n\n"
-        f"Teléfono: {telefono}\n"
-        f"Motivo: {motivo}\n"
-        f"Fecha: {fecha}\n\n"
-        "Último mensaje del cliente:\n"
-        f"{ultimo_mensaje}\n\n"
-        "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Interrupción",
-        "Detectamos una interrupción.",
-        "Hemos perdido la conexión temporalmente al atender a este cliente; "
-        "recibió un mensaje de espera. Revísalo cuando puedas.",
-        [("Teléfono", telefono), ("Motivo", motivo), ("Fecha", fecha)],
-        bloques=[("Último mensaje del cliente", ultimo_mensaje)],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Detectamos una interrupción · {telefono}",
-        cuerpo,
-        html=html,
-    )
+    _alerta_privada(nombre="", telefono=telefono, categoria="Interrupción técnica",
+                    asunto="Detectamos una interrupción", titulo="Detectamos una interrupción.",
+                    intro="El equipo puede revisar la atención en WhatsApp.")
 
 
-def alerta_cita_confirmada(
-    nombre: str, telefono: str, motivo: str, fecha_bonita: str, fecha: str
-) -> None:
-    """Aloara Opportunities: se confirmó una cita. El dueño no ve las
-    citas en su calendario (el robot agenda en el suyo propio), así
-    que sin este correo se entera hasta el lunes."""
-    cuerpo = (
-        "Tienes una nueva cita.\n\n"
-        "Un nuevo espacio en tu agenda.\n\n"
-        f"Cliente: {nombre}\n"
-        f"Teléfono: {telefono}\n"
-        f"Motivo: {motivo}\n"
-        f"Cita: {fecha_bonita}\n"
-        f"Fecha: {fecha}\n\n"
-        "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Nueva cita",
-        "Tienes una nueva cita.",
-        "Un nuevo espacio en tu agenda.",
-        [("Cliente", nombre or telefono), ("Teléfono", telefono),
-         ("Motivo", motivo), ("Cita", fecha_bonita), ("Fecha", fecha)],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Tienes una nueva cita · {nombre or telefono} — {fecha_bonita}",
-        cuerpo,
-        html=html,
-    )
+def alerta_cita_confirmada(nombre: str, telefono: str, motivo: str,
+                          fecha_bonita: str, fecha: str) -> None:
+    _alerta_privada(nombre=nombre, telefono=telefono, categoria="Cita confirmada",
+                    asunto="Tienes una nueva cita", titulo="Tienes una nueva cita.",
+                    intro="Un nuevo espacio en tu agenda.")
 
 
-def alerta_cita_urgente(
-    nombre: str, telefono: str, motivo: str, fecha_bonita: str, fecha: str,
-    razon: str = "",
-) -> None:
-    """Aloara Priority: se confirmó una cita marcada como urgente.
-
-    El porqué va en el correo: el dueño sabe qué atender primero sin
-    buscar en la hoja. Esta alerta siempre sale en el momento (no
-    espera al correo semanal): una urgencia no puede esperar al lunes.
-    """
-    wa = _link_whatsapp(telefono)
-    cuerpo = (
-        "Prioridad alta.\n\n"
-        "Tu equipo necesita intervenir.\n\n"
-        "Hemos detectado una conversación que requiere atención "
-        "prioritaria.\n\n"
-        f"Cliente: {nombre}\n"
-        f"Teléfono: {telefono}\n"
-        f"Motivo: {motivo}\n"
-        f"Cita: {fecha_bonita}\n"
-        f"Fecha: {fecha}\n\n"
-        f"Por qué es urgente:\n{razon or motivo}\n\n"
-        + (f"Atender ahora: {wa}\n\n" if wa else "")
-        + "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Prioridad alta",
-        "Tu equipo necesita intervenir.",
-        "Hemos detectado una conversación que requiere atención prioritaria.",
-        [("Cliente", nombre or telefono), ("Teléfono", telefono),
-         ("Motivo", motivo), ("Cita", fecha_bonita), ("Fecha", fecha)],
-        boton_texto="Atender ahora" if wa else "",
-        boton_url=wa,
-        bloques=[("Por qué es urgente", razon or motivo)],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Atención prioritaria requerida · {nombre or telefono} — {fecha_bonita}",
-        cuerpo,
-        html=html,
-    )
+def alerta_cita_urgente(nombre: str, telefono: str, motivo: str,
+                       fecha_bonita: str, fecha: str, razon: str = "") -> None:
+    _alerta_privada(nombre=nombre, telefono=telefono, categoria="Atención prioritaria",
+                    asunto="Atención prioritaria requerida", titulo="Tu equipo necesita intervenir.",
+                    intro="Una conversación requiere atención prioritaria.", boton="Atender ahora")
 
 
-def alerta_lead_caliente(
-    nombre: str, telefono: str, motivo: str, ultimo_mensaje: str, fecha: str
-) -> None:
-    """Aloara Opportunities: este cliente pidió agendar YA (no solo
-    preguntó un precio). Es el momento de estar atento: si el robot le
-    ofrece una hora y el cliente confirma, llega además la de cita
-    confirmada."""
-    wa = _link_whatsapp(telefono)
-    cuerpo = (
-        "Tienes una nueva oportunidad.\n\n"
-        "Un prospecto ha mostrado interés y está listo para recibir "
-        "seguimiento.\n\n"
-        f"Nuevo prospecto: {nombre}\n"
-        f"Teléfono: {telefono}\n"
-        f"Interés: {motivo}\n"
-        f"Fecha: {fecha}\n\n"
-        "Último mensaje del cliente:\n"
-        f"{ultimo_mensaje}\n\n"
-        + (f"Ver oportunidad: {wa}\n\n" if wa else "")
-        + "Las buenas conversaciones abren nuevas posibilidades.\n\n"
-        "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Nueva oportunidad",
-        "Tienes una nueva oportunidad.",
-        "Un prospecto ha mostrado interés y está listo para recibir seguimiento.",
-        [("Nuevo prospecto", nombre or telefono), ("Teléfono", telefono),
-         ("Interés", motivo), ("Fecha", fecha)],
-        boton_texto="Ver oportunidad" if wa else "",
-        boton_url=wa,
-        bloques=[("Último mensaje del cliente", ultimo_mensaje)],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Una nueva oportunidad llegó a tu negocio · {nombre or telefono}",
-        cuerpo,
-        html=html,
-    )
+def alerta_lead_caliente(nombre: str, telefono: str, motivo: str,
+                         ultimo_mensaje: str, fecha: str) -> None:
+    _alerta_privada(nombre=nombre, telefono=telefono, categoria="Nueva oportunidad",
+                    asunto="Una nueva oportunidad llegó a tu negocio",
+                    titulo="Tienes una nueva oportunidad.",
+                    intro="Una persona mostró interés en recibir seguimiento.",
+                    boton="Ver oportunidad")
 
 
-def alerta_cita_pendiente(
-    nombre: str, telefono: str, motivo: str, fecha_bonita: str, fecha: str
-) -> None:
-    """Aloara: la cita NO quedó creada (falló el calendario).
-
-    Decisión 1: nunca inventar una cita. Al cliente se le dijo que su
-    solicitud quedó pendiente; el dueño la crea a mano o llama.
-    """
-    cuerpo = (
-        "Una cita quedó pendiente de crear.\n\n"
-        "El cliente pidió una cita por WhatsApp, pero el calendario "
-        "falló al crearla. Al cliente se le dijo que su solicitud "
-        "quedó pendiente y que el equipo le escribe en breve.\n\n"
-        f"Cliente: {nombre}\n"
-        f"Teléfono: {telefono}\n"
-        f"Motivo: {motivo}\n"
-        f"Fecha pedida: {fecha_bonita}\n"
-        f"Alerta: {fecha}\n\n"
-        "Crea la cita a mano en el calendario o llama al cliente.\n\n"
-        "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Cita pendiente",
-        "Una cita quedó pendiente de crear.",
-        "El cliente pidió una cita por WhatsApp, pero el calendario falló "
-        "al crearla. Al cliente se le dijo que su solicitud quedó pendiente "
-        "y que el equipo le escribe en breve.",
-        [("Cliente", nombre or telefono), ("Teléfono", telefono),
-         ("Motivo", motivo), ("Fecha pedida", fecha_bonita), ("Alerta", fecha)],
-        bloques=[("Qué hacer", "Crea la cita a mano en el calendario o llama al cliente.")],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Una cita quedó pendiente de crear · {nombre or telefono} — {fecha_bonita}",
-        cuerpo,
-        html=html,
-    )
+def alerta_cita_pendiente(nombre: str, telefono: str, motivo: str,
+                          fecha_bonita: str, fecha: str) -> None:
+    _alerta_privada(nombre=nombre, telefono=telefono, categoria="Cita pendiente",
+                    asunto="Una cita quedó pendiente de crear",
+                    titulo="Una cita quedó pendiente de crear.",
+                    intro="Revisa la solicitud y el calendario antes de confirmarla.")
 
 
-def alerta_handoff(
-    nombre: str, telefono: str, motivo: str, ultimo_mensaje: str, fecha: str,
-    resumen: str = "", hilo: str = "",
-) -> None:
-    """Aloara Connect: este cliente necesita una persona. El robot se calla.
-
-    `resumen` es la memoria de la conversación (Clientes): el dueño
-    recibe el contexto junto con la alerta, sin tener que buscar en
-    la hoja ("entrega el contexto"). `hilo` trae los últimos mensajes
-    de la conversación, para que recepción vea la foto completa sin
-    abrir la hoja. El botón "Continuar conversación" abre el chat de
-    WhatsApp en un toque (wa.me).
-    """
-    wa = _link_whatsapp(telefono)
-    _resumen_txt = (
-        f"\nResumen de la conversación:\n{resumen}\n" if resumen else ""
-    )
-    _hilo_txt = (
-        f"\nÚltimos mensajes de la conversación:\n{hilo}\n" if hilo else ""
-    )
-    cuerpo = (
-        "Es momento de conectar.\n\n"
-        "Un cliente necesita asistencia personalizada. Tu equipo puede "
-        "continuar mejor esta conversación.\n\n"
-        f"Contacto: {nombre}\n"
-        f"Teléfono: {telefono}\n"
-        f"Canal: WhatsApp\n"
-        f"Motivo: {motivo}\n"
-        f"Hora: {fecha}\n"
-        f"{_resumen_txt}"
-        f"{_hilo_txt}\n"
-        "Último mensaje del cliente:\n"
-        f"{ultimo_mensaje}\n\n"
-        + (f"Continuar conversación: {wa}\n\n" if wa else "")
-        + "El contexto de la conversación está disponible para tu equipo. "
-        "El robot queda en pausa 2 horas desde que tú le escribas a este "
-        "cliente.\n\n"
-        "Aloara · Siempre presente.\n"
-    )
-    html = _html_alerta(
-        "Requiere atención",
-        "Es momento de conectar.",
-        "Un cliente necesita asistencia personalizada. Tu equipo puede "
-        "continuar mejor esta conversación.",
-        [("Contacto", nombre or telefono), ("Teléfono", telefono),
-         ("Canal", "WhatsApp"), ("Motivo", motivo), ("Hora", fecha)],
-        boton_texto="Continuar conversación" if wa else "",
-        boton_url=wa,
-        bloques=[
-            ("Resumen de la conversación", resumen),
-            ("Últimos mensajes de la conversación", hilo),
-            ("Último mensaje del cliente", ultimo_mensaje),
-        ],
-    )
-    enviar_correo(
-        correo_dueno(),
-        f"Una conversación necesita tu atención · {nombre or telefono}",
-        cuerpo,
-        html=html,
-    )
+def alerta_handoff(nombre: str, telefono: str, motivo: str, ultimo_mensaje: str,
+                   fecha: str, resumen: str = "", hilo: str = "") -> None:
+    _alerta_privada(nombre=nombre, telefono=telefono, categoria="Atención humana",
+                    asunto="Una conversación necesita tu atención",
+                    titulo="Es momento de conectar.",
+                    intro="Un cliente necesita asistencia personalizada.")

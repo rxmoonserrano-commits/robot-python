@@ -31,10 +31,12 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import robot.agent as agent_mod
 import robot.logic as logic_mod
 from robot.logic import atender_boton, atender_mensaje
+from robot.config import settings
 
 CONOCIMIENTO = [
     {"tipo": "servicio", "pregunta_o_servicio": "Limpieza dental",
@@ -285,6 +287,9 @@ def main():
     if not os.environ.get("GEMINI_API_KEY"):
         print("NO SE EJECUTÓ: falta GEMINI_API_KEY (en tu .env o en el entorno).")
         print("Corre:  python3 test_conversaciones_doradas.py")
+        return 2
+    if not settings.gemini_model:
+        print("NO SE EJECUTÓ: falta GEMINI_MODEL (modelo habilitado para tu cuenta).")
         return 2
 
     # G1. Saludo de noche: saluda y pregunta, NO ofrece cita, NO dice "ya cerramos".
@@ -737,6 +742,34 @@ def main():
                     "te espero", "anotado", "quedó")
               and no_tiene(txt, "nombre completo", "a qué número", "registrar"),
               "no confirmó la asistencia o pidió datos nuevos", txt)
+
+    # G35: una fecha aislada completa la solicitud previa. Domingo a
+    # las 19:00 está cerrado; en este fixture el lunes 16 a las 09:00
+    # es el siguiente hueco conocido posterior a la hora solicitada.
+    with patch.object(DepsDoradas, "hora_libre", side_effect=lambda fecha: str(fecha)[:16] in {
+        "2026-11-14T10:00", "2026-11-16T09:00"
+    }):
+        d, r, txt = correr(
+            "G35", [fila("cliente", "quiero una cita de limpieza"),
+                    fila("robot", "¿Qué día y hora te acomodan?")],
+            "para pasado mañana a las 7 de la tarde", DIA, nombre_cliente="")
+    escenario("G35 fecha aislada fuera de horario: propone disponibilidad real",
+              r.get("cita_propuesta") is True
+              and tiene(txt, "lunes 16", "lunes a las 9", "lunes a las 09")
+              and no_tiene(txt, "domingo a las 19", "domingo a las 7 de la tarde"),
+              f"no entendió la intención o no propuso el hueco comprobado (resultado={r})", txt)
+
+    # G36: saludo de regreso; nombre y cita anterior ya están registrados.
+    d, r, txt = correr(
+        "G36", [fila("cliente", "agendé una limpieza"),
+                fila("robot", "Tu cita quedó registrada.")],
+        "hola buenas tardes", DIA,
+        cliente={"nombre": "Jose Ramon", "motivo": "Limpieza dental",
+                 "fecha_cita": "2026-11-06T09:00:00-07:00", "estatus": "agendado"})
+    escenario("G36 cliente recurrente: saluda por su nombre sin volver a pedirlo",
+              tiene(txt, "Jose", "José")
+              and no_tiene(txt, "tu nombre completo", "me das tu nombre", "cómo te llamas"),
+              "no usó el nombre registrado o volvió a pedirlo", txt)
 
     pasaron = sum(1 for _, ok in RESULTADOS if ok)
     print(f"\n{pasaron}/{len(RESULTADOS)} conversaciones doradas pasaron.")

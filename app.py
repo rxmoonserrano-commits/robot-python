@@ -34,19 +34,22 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from starlette.concurrency import run_in_threadpool
 
 from robot import booking, estado_servidor, gemini, mail, salud, seguridad, sheets, whatsapp
 from robot.abuso import Limitador
 from robot.agent import preguntar_agente
 from robot.agrupar import Agrupador
 from robot.config import settings
+from robot.cola_durable import ColaDurable
+from robot.trabajador_cola import TrabajadorCola
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.registro import aviso, configurar as configurar_registro, error, info
 from robot.vigilancia import LOTE_LENTO_SEGUNDOS, con_vigilancia
@@ -99,6 +102,12 @@ class DependenciasReales(Dependencias):
 
     def leer_historial(self, telefono):
         return sheets.leer_historial(telefono)
+
+    def leer_pausa_hasta(self, telefono):
+        return sheets.leer_pausa_hasta(telefono)
+
+    def pausar_conversacion(self, telefono, hasta):
+        sheets.pausar_conversacion(telefono, hasta)
 
     def registrar_conversacion(self, fecha, telefono, quien, mensaje, respondio, motivo=""):
         sheets.registrar_conversacion(fecha, telefono, quien, mensaje, respondio, motivo)
@@ -173,12 +182,9 @@ class DependenciasReales(Dependencias):
             aviso(f"[correo] No se pudo avisar por correo (el robot sigue): {exc}")
 
     def hora_libre(self, fecha_iso):
-        # (v3.4.9) Si el calendario falla, se asume libre: la
-        # confirmación vuelve a revisar la hora de todos modos.
-        try:
-            return booking.hora_libre(fecha_iso)
-        except Exception:
-            return True
+        # Propagar los fallos: el llamador no debe afirmar disponibilidad
+        # si Calendar no pudo verificarla.
+        return booking.hora_libre(fecha_iso)
 
     def existe_cita_en_calendario(self, telefono, fecha_iso):
         # (v3.20.4) Reconciliación al arrancar: ¿la cita de esta
@@ -574,6 +580,56 @@ def _responder_directo(telefono: str, texto: str, motivo: str) -> None:
             pass
 
 
+def _procesar_lote_durable(filas: list[tuple[int, str, dict]]) -> None:
+    """Procesa un lote de un teléfono sin usar el buzón local efímero."""
+    mensaje_primero = filas[0][2]["mensaje"]
+    telefono = str(mensaje_primero.get("from") or "")
+    nombre = ""
+    for _, _, contenido in filas:
+        for contacto in contenido.get("contacts", []):
+            if contacto.get("wa_id") == telefono:
+                nombre = contacto.get("profile", {}).get("name", "") or nombre
+    tipo = mensaje_primero.get("type", "")
+    if tipo == "interactive":
+        boton_id = mensaje_primero.get("interactive", {}).get("button_reply", {}).get("id", "")
+        if not boton_id:
+            raise ValueError("Respuesta interactiva sin botón")
+        atender_boton(_DEPS, telefono, nombre, boton_id)
+        return
+    textos = []
+    for _, _, contenido in filas:
+        mensaje = contenido["mensaje"]
+        tipo = mensaje.get("type", "")
+        if tipo == "text":
+            texto = str(mensaje.get("text", {}).get("body") or "")
+        elif tipo == "audio":
+            try:
+                audio, mime = whatsapp.descargar_audio(mensaje.get("audio", {}).get("id", ""))
+                texto = gemini.transcribir_audio(audio, mime)
+            except Exception as exc:
+                aviso(f"[audio] No se pudo transcribir: {type(exc).__name__}")
+                texto = ""
+            if not texto:
+                texto = "(El cliente envió un audio que no se pudo transcribir; pídele que lo escriba.)"
+        else:
+            texto = "(El cliente envió un contenido que no se puede leer; pídele que lo explique por escrito.)"
+        if texto:
+            textos.append(texto)
+    if textos:
+        estado_servidor.contar_lote_inicio()
+        try:
+            atender_mensaje(_DEPS, telefono, nombre, "\n".join(textos), message_id=filas[0][1])
+        except Exception as exc:
+            estado_servidor.contar_lote_fin(False, type(exc).__name__)
+            raise
+        estado_servidor.contar_lote_fin(True)
+
+
+_COLA = ColaDurable()
+_TRABAJADOR = TrabajadorCola(_COLA, _procesar_lote_durable,
+                             espera_segundos=settings.espera_agrupar_segundos)
+
+
 # --- Endpoints ---
 
 
@@ -663,39 +719,42 @@ async def recibir_instagram(request: Request):
 
 @app.post("/webhook")
 async def recibir_whatsapp(request: Request):
-    """Llegó algo de WhatsApp. Se devuelve 200 ENSEGUIDA y el trabajo
-    pasa a segundo plano (un hilo por mensaje). Así Meta no reintenta
-    por tardar, y el cliente no recibe respuestas duplicadas.
+    """Valida la firma y persiste el lote antes de devolver 200.
 
-    Lo que NO es un mensaje (p. ej. confirmaciones de entrega o de
-    lectura que manda Meta) se ignora sin hacer nada.
-
-    (v3.0) Si META_APP_SECRET está configurado, se verifica la firma
-    X-Hub-Signature-256: sin firma válida, 403 sin procesar nada.
+    La conversación se procesa después, en un trabajador serial. Una
+    falla de Sheets produce 503 para que Meta pueda reintentar.
     """
     cuerpo = await request.body()
+    # Sin secreto no se puede autenticar a Meta: fallar cerrado también
+    # evita aceptar tráfico malicioso durante una configuración incompleta.
+    if not settings.meta_app_secret:
+        error("[webhook] META_APP_SECRET no está configurado")
+        return PlainTextResponse("Webhook no configurado", status_code=503)
     if not seguridad.verificar_firma_meta(
         cuerpo,
         request.headers.get("X-Hub-Signature-256"),
         settings.meta_app_secret,
     ):
         return PlainTextResponse("Firma inválida", status_code=403)
-    datos = json.loads(cuerpo.decode("utf-8") or "{}")
     try:
+        datos = json.loads(cuerpo.decode("utf-8") or "{}")
+        mensajes = []
         for entrada in datos.get("entry", []):
             for cambio in entrada.get("changes", []):
                 valor = cambio.get("value", {})
-                for mensaje in valor.get("messages", []):
-                    # (v3.4) Contar cada mensaje que llega: si el robot se
-                    # calla, /estado dice si el webhook recibió algo o si
-                    # el problema está después (lotes que no arrancan).
-                    estado_servidor.contar_webhook()
-                    hilo = threading.Thread(
-                        target=_ingresar_mensaje, args=(mensaje, valor), daemon=True
-                    )
-                    hilo.start()
-    except Exception as exc:  # noqa: BLE001 - el webhook nunca debe caerse
-        error(f"[webhook] Error leyendo el mensaje: {exc}")
+                mensajes.extend((mensaje, valor) for mensaje in valor.get("messages", []))
+    except (ValueError, UnicodeDecodeError, AttributeError, TypeError):
+        return PlainTextResponse("Notificación inválida", status_code=400)
+    if mensajes:
+        try:
+            # La llamada bloqueante va al pool, no al bucle asíncrono.
+            nuevos = await run_in_threadpool(_COLA.guardar, mensajes)
+        except Exception as exc:
+            error(f"[webhook] No se pudo guardar en Sheets: {type(exc).__name__}")
+            return PlainTextResponse("No se pudo guardar el mensaje", status_code=503)
+        for _ in range(nuevos):
+            estado_servidor.contar_webhook()
+        _TRABAJADOR.avisar()
     return {"ok": True}
 
 
@@ -734,10 +793,9 @@ callará en ese chat 2 horas y después vuelve solo, con todo el contexto.</p>
 def pagina_pausa(request: Request):
     """La página del dueño: "ya contesté yo".
 
-    Meta no avisa cuando el dueño contesta por WhatsApp, así que la
-    pausa de 2 horas no puede ser automática: se activa aquí. El dueño
-    guarda esta dirección en su teléfono (con ?token=SU_CLAVE) y cada
-    vez que contesta a un cliente, pone el número y listo.
+    La derivación del robot pausa automáticamente ese teléfono. Si el
+    dueño inicia una atención por su cuenta, puede activar aquí la pausa
+    manual sin detener las demás conversaciones.
     """
     if not _clave_dueno(request):
         return HTMLResponse("<h1>Sin acceso</h1><p>Falta la clave de dueño (?token=...).</p>", status_code=403)
@@ -750,8 +808,8 @@ async def marcar_pausa(request: Request):
     """Marca que una persona atendió un chat: arranca la pausa de 2 horas.
 
     Acepta JSON ({"telefono": "...", "token": "..."}) o el formulario
-    de la página GET /pausa. También puedes escribir la fecha directo
-    en Control!B2 de la hoja.
+    de la página GET /pausa. Guarda la pausa para ese teléfono en
+    Conversaciones; no modifica la pausa global heredada de Control.
     """
     content_type = request.headers.get("content-type", "")
     if "application/x-www-form-urlencoded" in content_type:
@@ -772,12 +830,15 @@ async def marcar_pausa(request: Request):
     if not _clave_dueno(request, datos):
         return PlainTextResponse("Sin acceso: falta la clave de dueño.", status_code=403)
     telefono = str(datos.get("telefono", "")).strip()
+    if not telefono.isdigit():
+        return PlainTextResponse("Teléfono inválido", status_code=400)
     ahora = datetime.now(timezone.utc).isoformat()
     es_formulario = "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type
     # Si la hoja falla (sin credenciales, sin red), el dueño tiene que
     # saberlo: una pausa que no se guardó es peor que un error visible.
     try:
-        sheets.actualizar_ultima_respuesta_humana(ahora)
+        hasta = (datetime.fromisoformat(ahora) + timedelta(hours=settings.pausa_humano_horas)).isoformat()
+        sheets.pausar_conversacion(telefono, hasta)
         # También queda registrado que un humano habló en ese chat.
         sheets.registrar_conversacion(ahora, telefono, "humano", "(la persona atendió el chat)", "no", "humano activo hace menos de 2 horas")
     except Exception as exc:  # noqa: BLE001 - la pausa no se guardó
@@ -792,7 +853,7 @@ async def marcar_pausa(request: Request):
         token = str(datos.get("token", ""))
         mensaje = f'<p class="ok">Listo. El robot está en pausa para {telefono} hasta dentro de 2 horas.</p>'
         return HTMLResponse(_PAGINA_PAUSA.format(token=token, mensaje=mensaje))
-    return {"ok": True, "pausa_hasta": ahora, "telefono": telefono}
+    return {"ok": True, "pausa_hasta": hasta, "telefono": telefono}
 
 
 @app.post("/reporte-semanal")
@@ -1039,27 +1100,14 @@ def arrancar():
             info(f"Recuperé {n} propuesta(s) de cita de la hoja.")
     except Exception as exc:  # noqa: BLE001 - sin propuestas, el robot sigue igual
         aviso(f"No pude recuperar propuestas de la hoja: {exc}")
-    # (v3.0) Recuperar los lotes del buzón en disco: mensajes que
-    # llegaron y no se alcanzaron a procesar antes del reinicio.
-    try:
-        n = _AGRUPADOR.cargar()
-        if n:
-            info(f"Recuperé {n} lote(s) pendiente(s) del buzón.")
-    except Exception as exc:  # noqa: BLE001 - sin buzón, el robot sigue igual
-        aviso(f"No pude recuperar el buzón: {exc}")
-    # (v3.20.14) Recuperar de la hoja los mensajes que un reinicio dejó
-    # sin respuesta: el buzón en disco no guarda lotes en proceso, y
-    # Render (plan gratuito) se reinicia seguido. Conversaciones sí
-    # sobrevive a cualquier reinicio.
-    # (v3.20.15) La recuperación NO corre durante el arranque: se
-    # difiere en un hilo hasta que el chequeo de salud termine, para
-    # que los lotes recuperados nunca se sumen al pico de memoria
-    # del arranque (OOM + reinicio en bucle, 2026-11-25).
-    def _recuperar_tras_salud():
+    # El buzón anterior no tiene IDs durables. Reprocesarlo junto con la
+    # nueva cola podría duplicar efectos: la migración exige vaciarlo y
+    # reconciliar Conversaciones antes de activar esta versión.
+    def _trabajar_tras_salud():
         _esperar_salud_para_recuperar()
-        _recuperar_sin_respuesta()
+        _TRABAJADOR.ejecutar()
 
-    threading.Thread(target=_recuperar_tras_salud, daemon=True).start()
+    threading.Thread(target=_trabajar_tras_salud, daemon=True).start()
     # (v3.0) Revisión de salud en segundo plano: Gemini, hoja,
     # calendario, token de WhatsApp, Gmail y claves de seguridad.
     # Antes solo se probaba Gemini; lo demás se descubría de noche.
@@ -1078,4 +1126,5 @@ def arrancar():
 
 
 def apagar():
+    _TRABAJADOR.cerrar()
     scheduler.shutdown()

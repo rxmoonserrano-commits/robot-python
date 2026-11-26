@@ -13,8 +13,9 @@ Dos cosas, nada más:
    secreto de la app. Si el secreto está configurado y la firma no
    coincide, el mensaje se rechaza (403) sin procesarse: nadie puede
    mandar mensajes falsos para que el robot conteste. Si el secreto
-   NO está configurado, se acepta (para no romper una instalación
-   que todavía no lo puso) y la revisión de salud lo avisa al arrancar.
+   NO está configurado, el endpoint de WhatsApp rechaza la solicitud
+   con 503; este módulo mantiene su comportamiento anterior para otros
+   llamadores que quieran aplicar una política distinta.
 """
 
 from __future__ import annotations

@@ -1302,17 +1302,32 @@ def _corregir_fecha_propuesta(fecha_cita, conocimiento, ahora, deps, huecos):
             fecha_cita = proxima_valida.isoformat()
         else:
             return None
-    # (v3.4.9) La fecha propuesta también se revisa contra el
-    # calendario: si esa hora ya está ocupada, se usa el primer
-    # hueco libre real. Así la confirmación no falla con "esa hora
-    # ya se ocupó" por una fecha que el agente calculó.
+    # Ni el horario de apertura ni un hueco de caché garantizan que el
+    # calendario siga libre. Ante error o sin alternativa comprobada,
+    # no se propone una cita. Tampoco se reutilizan huecos pasados.
+    verificar = getattr(deps, "hora_libre", None)
+    if not callable(verificar):
+        return None
     try:
-        _verificar_libre = getattr(deps, "hora_libre", lambda f: True)
-        if not _verificar_libre(fecha_cita) and huecos:
-            fecha_cita = huecos[0]
-    except Exception:
-        pass  # sin calendario no se bloquea la propuesta
-    return fecha_cita
+        if verificar(fecha_cita):
+            return fecha_cita
+        limite = _a_hora_local(ahora)
+        if fecha_dt is not None:
+            limite = max(limite, _a_hora_local(fecha_dt))
+        for alternativa in huecos or []:
+            candidata = _parse_fecha_iso(alternativa)
+            if candidata is None or _a_hora_local(candidata) <= limite:
+                continue
+            local = _a_hora_local(candidata)
+            horarios = horarios_por_dia(conocimiento)
+            horario = horarios.get(local.weekday())
+            if horarios and (not horario or not (horario[0] <= local.hour * 60 + local.minute < horario[1])):
+                continue
+            if verificar(alternativa):
+                return alternativa
+    except Exception as exc:
+        log_aviso(f"[agenda] No se pudo comprobar disponibilidad: {type(exc).__name__}")
+    return None
 
 
 def _citas_activas_telefono(deps, telefono: str, ahora: datetime) -> int:
@@ -1436,6 +1451,55 @@ def _guardar_datos_paciente(deps, telefono: str, nombre_paciente: str,
         actualizar(telefono, str(ultima.get("Fecha", "") or ""), notas)
     except Exception:
         pass
+
+
+def _precio_documentado_para_respaldo(texto: str, conocimiento: list[dict]) -> str:
+    """Precio literal solo si se pidió y se identifica un servicio sin ambigüedad.
+
+    Respaldo cuando se descartó una propuesta no verificable. No intenta
+    responder preguntas clínicas ni deducir precios a partir del agente.
+    """
+    pregunta = _sin_acentos(texto or "")
+    if not re.search(r"\b(precio|precios|cuanto|cuesta|costo|vale)\b", pregunta):
+        return ""
+    palabras = set(re.findall(r"[a-z0-9]+", pregunta))
+    candidatos = []
+    for fila in conocimiento or []:
+        if not isinstance(fila, dict) or str(fila.get("tipo", "")).strip().lower() != "servicio":
+            continue
+        nombre = str(fila.get("pregunta_o_servicio", "") or "").strip()
+        precio = str(fila.get("respuesta_o_precio", "") or "").strip()
+        nombre_palabras = re.findall(r"[a-z0-9]+", _sin_acentos(nombre))
+        if nombre_palabras and len(nombre_palabras[0]) >= 4 and nombre_palabras[0] in palabras and precio:
+            candidatos.append((nombre, precio))
+    if len(candidatos) != 1:
+        return ""
+    nombre, precio = candidatos[0]
+    return f"{nombre}: {precio}. "
+
+
+def _datos_documentados_para_respaldo(texto: str, conocimiento: list[dict]) -> str:
+    """Conserva datos solicitados de la hoja sin afirmar disponibilidad."""
+    partes = [_precio_documentado_para_respaldo(texto, conocimiento).strip()]
+    pregunta = _sin_acentos(texto or "")
+    filas = [f for f in conocimiento or [] if isinstance(f, dict)]
+    if re.search(r"\b(horario|horarios|abren|cierran)\b", pregunta):
+        horarios = [(str(f.get("pregunta_o_servicio") or "").strip(),
+                     str(f.get("respuesta_o_precio") or "").strip())
+                    for f in filas if str(f.get("tipo") or "").strip().lower() == "horario"]
+        horarios = [f"{dia}: {horas}" for dia, horas in horarios if dia and horas]
+        if horarios:
+            partes.append("Horario habitual: " + "; ".join(horarios) + ".")
+    if re.search(r"\b(direccion|ubicacion|ubicados|ubicadas)\b|\bdonde\s+estan\b", pregunta):
+        ubicaciones = [str(f.get("respuesta_o_precio") or "").strip() for f in filas
+                       if str(f.get("tipo") or "").strip().lower() == "faq"
+                       and re.search(r"\b(direccion|ubicacion|ubicados|ubicadas)\b|\bdonde\s+estan\b",
+                                     _sin_acentos(str(f.get("pregunta_o_servicio") or "")))
+                       and str(f.get("respuesta_o_precio") or "").strip()]
+        if len(ubicaciones) == 1:
+            partes.append(ubicaciones[0])
+    resultado = " ".join(parte for parte in partes if parte)
+    return resultado + " " if resultado else ""
 
 
 def _texto_urgencia_fijo(abierto: bool) -> str:
@@ -1726,6 +1790,22 @@ def _duracion_entre(hora_inicio, hora_fin) -> int:
         return 60
 
 
+def _cambio_cita_incierto(deps: Dependencias, telefono: str, nombre: str,
+                          fecha: str, ahora: datetime, con_ritmo: bool) -> dict:
+    """No afirmar un cambio cuya reconciliación requiere a una persona."""
+    _borrar_propuesta(deps, telefono)
+    _pausar_conversacion(deps, telefono, ahora)
+    mensaje = ("No pude verificar el cambio de tu cita. Es necesario que el "
+               "equipo revise la agenda antes de confirmártelo.")
+    enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+    deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cambio requiere revisión")
+    _diagnostico(deps, fecha, "agenda", "FALLO",
+                 "Cambio de cita sin confirmar; revisar eventos y espejo de Citas.", telefono, "")
+    _avisar_por_correo(deps.alerta_handoff, nombre, telefono,
+                       "Revisión manual de cambio de cita", "", fecha)
+    return {"respondio": True, "handoff": True, "motivo": "cambio requiere revision"}
+
+
 def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
                         fecha: str, con_ritmo: bool = True,
                         ahora: datetime | None = None) -> dict:
@@ -1755,7 +1835,7 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
     try:
         libre = deps.hora_libre(nueva_fecha)
     except Exception:
-        libre = True
+        return _cambio_cita_incierto(deps, telefono, nombre, fecha, ahora, con_ritmo)
     if not libre:
         _borrar_propuesta(deps, telefono)
         mensaje = ("Esa hora ya se ocupó. Te paso con una persona para "
@@ -1783,9 +1863,13 @@ def _confirmar_adelanto(deps: Dependencias, telefono: str, nombre: str,
                            hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "adelanto fallido", "handoff": True}
     try:
-        deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
+        cancelada = deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
     except Exception:
-        pass
+        cancelada = False
+    if cancelada is not True:
+        # La cita nueva ya pudo crearse. No borrar otra a ciegas ni
+        # actualizar el espejo: es necesario reconciliar manualmente.
+        return _cambio_cita_incierto(deps, telefono, nombre, fecha, ahora, con_ritmo)
     try:
         inicio_nuevo = _parse_fecha_iso(nueva_fecha)
         duracion = _duracion_entre(propuesta.get("hora_inicio_vieja"),
@@ -1896,7 +1980,7 @@ def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
     try:
         libre = deps.hora_libre(nueva_fecha)
     except Exception:
-        libre = True
+        return _cambio_cita_incierto(deps, telefono, nombre, fecha, ahora, con_ritmo)
     if not libre:
         _borrar_propuesta(deps, telefono)
         mensaje = ("Esa hora ya se ocupó. Te paso con una persona para "
@@ -1923,9 +2007,13 @@ def _confirmar_mover(deps: Dependencias, telefono: str, nombre: str,
                            hilo=_hilo_seguro(deps, telefono))
         return {"respondio": True, "motivo": "mover fallido", "handoff": True}
     try:
-        deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
+        cancelada = deps.cancelar_cita(telefono, propuesta["fecha_vieja"])
     except Exception:
-        pass
+        cancelada = False
+    if cancelada is not True:
+        # La cita nueva ya pudo crearse. No borrar otra a ciegas ni
+        # actualizar el espejo: es necesario reconciliar manualmente.
+        return _cambio_cita_incierto(deps, telefono, nombre, fecha, ahora, con_ritmo)
     try:
         inicio_nuevo = _parse_fecha_iso(nueva_fecha)
         duracion = _duracion_entre(propuesta.get("hora_inicio_vieja"),
@@ -2502,9 +2590,21 @@ def _atender_cambio_cancelacion(deps: Dependencias, telefono: str, nombre: str,
         cancelar_cita = getattr(deps, "cancelar_cita", lambda t, f: False)
         cancelar_cliente = getattr(deps, "cancelar_cita_cliente", lambda t: None)
         try:
-            cancelar_cita(telefono, fecha_cita)
-        except Exception:
-            pass
+            cancelada = cancelar_cita(telefono, fecha_cita)
+        except Exception as exc:
+            log_aviso(f"[cancelación] Calendar no confirmó la operación: {type(exc).__name__}")
+            cancelada = False
+        if cancelada is not True:
+            # Sin evidencia de Calendar no se modifica el espejo ni se
+            # afirma una cancelación que podría no haber ocurrido.
+            mensaje = ("No pude confirmar la cancelación de tu cita. "
+                       "Voy a pedirle al equipo que lo revise contigo.")
+            _pausar_conversacion(deps, telefono, _ahora)
+            enviar_con_ritmo(deps.enviar_texto, telefono, mensaje, dormir=con_ritmo)
+            deps.registrar_conversacion(fecha, telefono, "robot", mensaje, "si", "cancelación pendiente")
+            _avisar_por_correo(deps.alerta_handoff, nombre, telefono,
+                               "Cancelación pendiente de revisión", "", fecha)
+            return {"respondio": True, "handoff": True, "cita_cancelada": False}
         try:
             cancelar_cliente(telefono)
         except Exception:
@@ -2582,6 +2682,29 @@ def puede_responder(
         except ValueError:
             pass  # Fecha mal escrita en Control: no se bloquea por eso.
     return True, ""
+
+
+def _pausa_conversacion_activa(deps, telefono: str, ahora: datetime) -> bool:
+    leer = getattr(deps, "leer_pausa_hasta", None)
+    if not callable(leer):
+        return False
+    valor = leer(telefono)
+    if not valor:
+        return False
+    hasta = _parse_fecha_iso(valor)
+    if hasta is None:
+        log_aviso("[pausa] Fecha de pausa inválida; revisar la hoja.")
+        return False
+    if hasta.tzinfo is None:
+        hasta = hasta.replace(tzinfo=timezone.utc)
+    return ahora < hasta
+
+
+def _pausar_conversacion(deps, telefono: str, ahora: datetime) -> None:
+    guardar = getattr(deps, "pausar_conversacion", None)
+    if callable(guardar):
+        hasta = ahora + timedelta(hours=settings.pausa_humano_horas)
+        guardar(telefono, hasta.isoformat())
 
 
 def robot_activo_para_cliente(valor: str) -> bool:
@@ -3110,6 +3233,8 @@ def _atender_mensaje_impl(
         control.get("ultima_respuesta_humana", ""),
         ahora,
     )
+    if puede and _pausa_conversacion_activa(deps, telefono, ahora):
+        puede, motivo_silencio = False, "pausa de esta conversación"
     if puede:
         leer_activo = getattr(deps, "leer_robot_activo", lambda t: "SI")
         if not robot_activo_para_cliente(leer_activo(telefono)):
@@ -3136,6 +3261,7 @@ def _atender_mensaje_impl(
         if motivo_silencio in ("robot apagado para este cliente", "boton apagado"):
             motivo_handoff = _motivo_handoff_en_silencio(texto)
             if motivo_handoff:
+                _pausar_conversacion(deps, telefono, ahora)
                 # (v3.20.3) El correo trae el hilo y el resumen, como
                 # el handoff normal: recepción ve la foto completa.
                 _hilo_sil = ""
@@ -3295,6 +3421,7 @@ def _atender_mensaje_impl(
     # modelo no tiene que calcularlo (y el revisor R4 lo corrige si
     # aun así se equivoca).
     manana = local_ahora + timedelta(days=1)
+    pasado_manana = local_ahora + timedelta(days=2)
     # (v3.20.9) La fila del cliente se lee ANTES de armar el contexto:
     # el nombre confirmado en Clientes (columna B) manda sobre el
     # nombre de perfil de WhatsApp, y el correo/número de registro
@@ -3310,15 +3437,24 @@ def _atender_mensaje_impl(
         f"Hoy es {_DIAS_NOMBRE[local_ahora.weekday()]} {local_ahora.day} de "
         f"{_MESES[local_ahora.month - 1]}, son las {local_ahora:%H:%M} (hora del negocio).",
         f"Mañana es {_DIAS_NOMBRE[manana.weekday()]} {manana.day} de {_MESES[manana.month - 1]}.",
+        f"Pasado mañana es {_DIAS_NOMBRE[pasado_manana.weekday()]} {pasado_manana.day} de {_MESES[pasado_manana.month - 1]}.",
         f"El negocio está {'ABIERTO' if abierto else 'CERRADO'}: abre {resumen_horarios}.",
     ]
     if nombre_efectivo:
         contexto.append(f"El cliente se llama {nombre_efectivo}: salúdalo por su nombre la primera vez.")
+    if fila_cliente and nombre_efectivo and _es_solo_saludo(texto):
+        contexto.append(
+            "Este saludo viene de un cliente registrado que regresa: "
+            f"usa su nombre {nombre_efectivo} con naturalidad y, si se conoce, "
+            "recuerda su cita anterior o próxima sin inventar datos. "
+            "No vuelvas a pedir su nombre."
+        )
     if not abierto:
         proxima_txt = formatear_cita_bonita(proxima.isoformat()) if proxima is not None else ""
         contexto.append(
             "No agendes para hoy ni para una hora en que esté cerrado. "
-            f"Si el cliente quiere una cita, ofrécele la próxima apertura: {proxima_txt}."
+            f"La próxima apertura del horario es {proxima_txt}; no la ofrezcas como disponible "
+            "sin comprobarla en el calendario."
         )
     propuesta_activa = _CITAS_PENDIENTES.get(telefono)
     if propuesta_activa:
@@ -3538,7 +3674,11 @@ def _atender_mensaje_impl(
     _dias_msg = _dias_pedidos(texto)
     huecos_pro: list[dict] = []
     prof_por_iso: dict[str, str] = {}
-    if estado["etapa"] in ("pregunto", "oferta_pendiente") or _quiere_agendar_ya(texto):
+    # Una fecha aislada puede ser la continuación de una solicitud. La
+    # disponibilidad se consulta también sin palabras de agenda: la IA
+    # decide la intención, pero solo puede elegir huecos comprobados.
+    if (estado["etapa"] in ("pregunto", "oferta_pendiente")
+            or _quiere_agendar_ya(texto) or _tiene_fecha_especifica(texto)):
         try:
             if _dias_msg:
                 # (v3.11) Pidió días concretos: se buscan huecos en un
@@ -3619,6 +3759,12 @@ def _atender_mensaje_impl(
                 "cita, di que la agenda está llena por ahora y pregúntale "
                 "si quiere que le avises cuando se libere algo."
             )
+        else:
+            contexto.append(
+                "No fue posible consultar la disponibilidad. No afirmes que "
+                "la agenda está llena ni ofrezcas horas no comprobadas; "
+                "explica que se necesita revisarla."
+            )
     mensaje_agente = (
         "[Contexto: " + " ".join(contexto) + "]\n"
         "[Estado del cliente: " + json.dumps(estado, ensure_ascii=False) + "]\n"
@@ -3651,7 +3797,13 @@ def _atender_mensaje_impl(
         # adelantarla; si no, una cita nueva. La IA solo lo dice con
         # naturalidad; el código ejecuta (botones, movimiento, CRM,
         # correo).
-        _plan = _plan_urgencia(deps, telefono, nombre, conocimiento, ahora)
+        # En la ruta real el handoff pausa el chat dos horas, incluidos
+        # los botones. No ofrecer un botón que no podrá funcionar durante
+        # la pausa; el equipo revisa la cita al hacerse cargo.
+        if callable(getattr(deps, "pausar_conversacion", None)):
+            _plan = {"tipo": "ninguna", "motivo": "atención por el equipo durante la pausa"}
+        else:
+            _plan = _plan_urgencia(deps, telefono, nombre, conocimiento, ahora)
         _hecho_plan = _hecho_del_plan(_plan, deps, telefono, ahora)
         _marco_urgencia = (
             "[URGENTE] El cliente expresa urgencia o dolor. Responde como una buena "
@@ -3779,6 +3931,31 @@ def _atender_mensaje_impl(
                 telefono, texto,
             )
 
+    # Un pedido de medicación o una respuesta de urgencia que el propio
+    # agente reconoce como incomprendida no debe salir como recomendación
+    # clínica ni dejar al cliente sin orientación. Es un respaldo limitado,
+    # no un detector completo de consejos médicos.
+    if _es_urgencia(texto):
+        _consulta = _sin_acentos(texto)
+        _respuesta_urgente = _sin_acentos(respuesta.respuesta_texto)
+        _pide_medicamento = bool(re.search(
+            r"\b(?:que\s+(?:me\s+)?(?:puedo\s+)?(?:tomo|tomar)|"
+            r"medicamento\w*|medicina\w*|pastilla\w*|analgesico\w*)\b", _consulta))
+        _aconseja_medicamento = bool(re.search(
+            r"\b(?:paracetamol|ibuprofeno|amoxicilina|naproxeno|aspirina|"
+            r"antibiotico\w*|toma\s+\d|tomate\s+\d)\b", _respuesta_urgente))
+        if (_pide_medicamento or _aconseja_medicamento
+                or str(getattr(respuesta, "confianza", "") or "").lower() == "baja"):
+            respuesta.respuesta_texto = (
+                "Lamento que te sientas así. No puedo recomendarte medicamentos; "
+                "intentaré avisar al equipo. Si el dolor es intenso o empeora, "
+                "o tienes dificultad para respirar o sangrado abundante, "
+                "busca atención médica inmediata."
+            )
+            if not abierto:
+                respuesta.respuesta_texto += " Estamos fuera de horario y el equipo podría tardar en responder."
+            respuesta.partes = []
+
     # (v3.4.9) El nombre que el cliente dio DESPUÉS de la propuesta
     # (el robot se lo pidió al agendar) se guarda en la propuesta
     # pendiente: la confirmación sale con su nombre, no vacía. Y si
@@ -3887,6 +4064,8 @@ def _atender_mensaje_impl(
                          telefono, texto)
             _avisar_por_correo(deps.alerta_error, respuesta.motivo_handoff, telefono, texto, fecha)
         else:
+            # La pausa es por teléfono y se guarda antes de avisar al dueño.
+            _pausar_conversacion(deps, telefono, ahora)
             # (v3.3.1) El cliente TAMBIÉN recibe el texto del handoff
             # ("te paso con una persona..."). Antes solo llegaba el
             # correo al dueño y el cliente quedaba en silencio esperando
@@ -3914,7 +4093,8 @@ def _atender_mensaje_impl(
             # (v3.13) Urgencia con cita: después del mensaje de
             # handoff, la oferta de cita urgente con botones (la
             # propuesta se guardó al detectar la urgencia).
-            if str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA):
+            if (str(respuesta.motivo_handoff or "").startswith(_MOTIVO_URGENCIA)
+                    and not callable(getattr(deps, "pausar_conversacion", None))):
                 _enviar_propuesta_urgente(deps, telefono, fecha, con_ritmo)
         deps.registrar_cliente(
             fecha, respuesta.nombre or nombre, telefono,
@@ -4053,6 +4233,14 @@ def _atender_mensaje_impl(
             respuesta.fecha_cita, conocimiento, ahora, deps, _huecos)
         if _fecha_ok is None:
             respuesta.quiere_agendar = "no"
+            # Respaldo de seguridad cuando no se puede comprobar Calendar:
+            # no reenviar la propuesta que el modelo pudo haber inventado.
+            respuesta.respuesta_texto = (
+                _datos_documentados_para_respaldo(texto, conocimiento)
+                + "No puedo confirmar la disponibilidad en este momento. "
+                "Si quieres, puedo pedirle al equipo que te ayude."
+            )
+            respuesta.partes = []
         else:
             respuesta.fecha_cita = _fecha_ok
     # (v3.10) Segunda cita (si el cliente pidió dos: la suya y la de
@@ -4387,6 +4575,11 @@ def _atender_boton_impl(
     ahora = ahora or datetime.now(timezone.utc)
     fecha = fecha_iso or ahora.isoformat()
 
+    if _pausa_conversacion_activa(deps, telefono, ahora):
+        deps.registrar_conversacion(fecha, telefono, "cliente", f"(botón {boton_id})",
+                                   "no", "pausa de esta conversación")
+        return {"respondio": False, "motivo": "pausa de esta conversación", "handoff": False}
+
     # Interruptor por cliente (v2.3): si el robot está apagado para este
     # cliente, no crea citas ni contesta. La propuesta pendiente se
     # borra para que un "sí" viejo no la confirme después. Excepción:
@@ -4539,6 +4732,7 @@ def _atender_boton_impl(
         return {"respondio": True, "handoff": False}
 
     if boton_id == "hablar_persona":
+        _pausar_conversacion(deps, telefono, ahora)
         propuesta = _CITAS_PENDIENTES.get(telefono)
         _borrar_propuesta(deps, telefono)
         _RETOMAR.pop(telefono, None)

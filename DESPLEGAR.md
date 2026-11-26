@@ -1,4 +1,8 @@
-# DESPLEGAR — Poner el robot en internet (gratis)
+# DESPLEGAR — Poner el robot en internet
+
+> **No desplegar todavía:** las doradas y las integraciones reales siguen
+> pendientes. No apuntes el webhook de pacientes reales hasta superar las
+> pruebas y confirmar. El plan Starter tiene costo.
 
 ## Versión 3.0 — qué cambió al actualizar
 
@@ -15,8 +19,8 @@ poner en Render (Environment) antes o después del deploy:
 - **`META_APP_SECRET`** — el secreto de la app de Meta (Meta for
   Developers → tu app → Configuración básica → Secreto de la app →
   Mostrar). Con él, el robot verifica que cada webhook venga de Meta
-  de verdad. Sin él, el webhook acepta igual, y la revisión de salud
-  lo avisa en Diagnóstico.
+  de verdad. Sin él, el webhook rechaza la solicitud con 503 y la
+  revisión de salud registra un fallo.
 
 También nuevo en la v3.0: al arrancar, el robot revisa su salud y la
 escribe en la pestaña **Diagnóstico** de la hoja (Gemini, Sheets,
@@ -38,8 +42,8 @@ primer deploy: si algo dice FALLO, ahí está el error exacto.
 
 El robot tiene que estar prendido 24/7 para contestar WhatsApp. En tu
 computadora solo vive mientras tú la tienes prendida. Por eso se
-despliega en un servicio gratis: ahí vive solo, y Meta le manda los
-mensajes a su dirección pública.
+despliega en un servicio de alojamiento; la disponibilidad y el costo
+son los contratados con el proveedor, no están garantizados por este código.
 
 ## Opción 1 — Render (recomendada para empezar)
 
@@ -68,12 +72,9 @@ mensajes a su dirección pública.
    Pégala en Meta for Developers → WhatsApp → Configuración del
    webhook, junto con tu VERIFY_TOKEN. Meta la verifica sola.
 
-**El plan gratis de Render duerme el servicio si nadie lo usa 15
-minutos.** El primer mensaje después de dormir tarda unos 10-20
-segundos en despertar el robot (el cliente ve "escribiendo..." un
-poco más), los demás van normal. El reporte del lunes también lo
-despierta solo. Si eso te molesta, el plan de pago más barato de
-Render lo mantiene prendido siempre.
+El blueprint solicita el plan **Starter** de pago. Confirma los precios y
+condiciones actuales en Render. Configura un solo proceso y una instancia;
+prepara primero `BuzonMeta` como se describe en README.md.
 
 ## Opción 2 — Railway (alternativa)
 

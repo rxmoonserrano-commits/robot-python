@@ -54,6 +54,10 @@ class DepsV27:
         self.llamadas_agente = []
         self.diagnosticos = []
 
+    def hora_libre(self, fecha_iso):
+        # Agenda ficticia: en estos escenarios la hora está disponible.
+        return True
+
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
 
@@ -151,36 +155,32 @@ def main():
     caso("(a) Sin sugerencia en el error, devuelve vacío",
          _modelo_sugerido("Gemini devolvió 429: cuota por minuto") == "")
 
-    # (b) Autocuración: modelo desconocido en la config, Google sugiere 3.8.
-    # (v2.9) Los modelos retirados (2.0, 2.5) ya ni se intentan: se saltan
-    # directo en _candidatos(). La autocuración es para un modelo que
-    # Google retire DESPUÉS, como este ficticio 9.9.
+    # (b) Solo se usan modelos configurados; una sugerencia en un error
+    # no autoriza automáticamente otro modelo ni otro costo.
     modelo_viejo, respaldo_viejo = settings.gemini_model, settings.gemini_model_fallback
     clave_vieja = settings.gemini_api_key
     llamar_viejo = gemini_mod._llamar
     try:
-        settings.gemini_api_key = "clave-de-prueba"  # _llamar es falso, no sale a internet
-        settings.gemini_model = "gemini-9.9-flash"
-        settings.gemini_model_fallback = "gemini-2.0-flash"  # retirado: se salta
+        settings.gemini_api_key = "clave-de-prueba"
+        settings.gemini_model = "gemini-2.5-flash"
+        settings.gemini_model_fallback = "respaldo-prueba"
         gemini_mod._ULTIMO_MODELO_OK = None
-        caso("(b) Los modelos retirados ni se intentan",
-             gemini_mod._candidatos() == ["gemini-9.9-flash", "gemini-3.5-flash-lite"],
+        caso("(b) Conserva modelos configurados sin asumir que están retirados",
+             gemini_mod._candidatos() == ["gemini-2.5-flash", "respaldo-prueba"],
              f"candidatos={gemini_mod._candidatos()}")
-
+        intentos = []
         def llamar_falso(modelo, partes, json_mode=False):
-            if modelo in ("gemini-9.9-flash", "gemini-3.5-flash-lite"):
+            intentos.append(modelo)
+            if modelo == "gemini-2.5-flash":
                 raise GeminiError(ERROR_GOOGLE)
-            if modelo == "gemini-3.8-flash":
-                return "OK"
-            raise GeminiError(f"modelo inesperado: {modelo}")
-
+            return "OK"
         gemini_mod._llamar = llamar_falso
         texto = generar_texto("Responde solo con la palabra OK.")
-        caso("(b) Con modelo retirado por Google, cambia solo a gemini-3.8-flash",
-             texto == "OK", f"salió: {texto!r}")
-        caso("(b) Recuerda el modelo que funcionó",
-             gemini_mod._ULTIMO_MODELO_OK == "gemini-3.8-flash",
-             f"salió: {gemini_mod._ULTIMO_MODELO_OK!r}")
+        caso("(b) Falla principal: usa únicamente el respaldo configurado",
+             texto == "OK" and intentos == ["gemini-2.5-flash", "respaldo-prueba"],
+             f"intentos={intentos}")
+        caso("(b) Recuerda el modelo configurado que funcionó",
+             gemini_mod._ULTIMO_MODELO_OK == "respaldo-prueba")
     finally:
         settings.gemini_model, settings.gemini_model_fallback = modelo_viejo, respaldo_viejo
         settings.gemini_api_key = clave_vieja

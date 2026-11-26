@@ -30,6 +30,11 @@ RESULTADOS = []
 
 
 def caso(nombre, condicion, detalle=""):
+    if callable(condicion):
+        try:
+            condicion, detalle = condicion()
+        except Exception as exc:
+            condicion, detalle = False, f"{type(exc).__name__}: {exc}"
     RESULTADOS.append((nombre, bool(condicion)))
     marca = "PASS" if condicion else "FAIL"
     print(f"[{marca}] {nombre}" + (f" :: {detalle}" if detalle and not condicion else ""))
@@ -288,7 +293,9 @@ def c3():
         ok = (
             asunto.startswith("Atención prioritaria requerida")
             and "Tu equipo necesita intervenir." in cuerpo
-            and "Dolor fuerte desde anoche" in cuerpo
+            and "Dolor fuerte desde anoche" not in cuerpo
+            and "Dolor de muela" not in cuerpo
+            and "Atención prioritaria" in cuerpo
             and "Atender ahora" in html
             and "https://wa.me/5216694608263" in html
         )

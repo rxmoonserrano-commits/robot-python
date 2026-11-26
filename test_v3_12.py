@@ -460,8 +460,9 @@ def test_f_handoff_con_resumen():
         mail_mod.alerta_handoff("Beto", "5222", "duda", "hola", "2026-11-22T10:00:00")
     finally:
         mail_mod.enviar_correo = original
-    caso("(f) Con resumen, el correo lo trae",
-         correos and "Preguntó por limpieza" in correos[0][2], f"{correos}")
+    caso("(f) El correo omite el resumen privado",
+         correos and "Preguntó por limpieza" not in correos[0][2]
+         and "Atención humana" in correos[0][2], f"{correos}")
     caso("(f) Sin resumen, el correo sale igual",
          len(correos) == 2 and "Resumen de la conversación" not in correos[1][2],
          f"{correos}")

@@ -48,6 +48,10 @@ class DepsV25:
         self.vistos = []
         self.propuestas_hoja = {}
 
+    def hora_libre(self, fecha_iso):
+        # Agenda ficticia: en estos escenarios la hora está disponible.
+        return True
+
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
 
@@ -133,6 +137,8 @@ LUNES_MANANA = datetime(2026, 11, 16, 17, 0, tzinfo=timezone.utc)  # lunes 10:00
 
 
 def main():
+    gemini_mod.settings.gemini_model = "modelo-prueba"
+    gemini_mod.settings.gemini_model_fallback = "modelo-respaldo-prueba"
     # (a) Propuesta de noche: la crea el agente (lunes 09:00) y se
     # guarda en la hoja, no solo en memoria.
     logic_mod._CITAS_PENDIENTES.clear()

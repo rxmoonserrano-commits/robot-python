@@ -301,11 +301,12 @@ def main():
 
     # B3. Hora ocupada → se usa el primer hueco libre real.
     logic_mod._CITAS_PENDIENTES.clear()
-    d = DepsI(agente=agente_propone(), huecos=["2026-11-21T09:00:00"], hora_libre=False)
+    d = DepsI(agente=agente_propone(), huecos=["2026-11-23T09:00:00"], hora_libre=False)
+    d.hora_libre = lambda fecha: fecha == "2026-11-23T09:00:00"
     atender_mensaje(d, TEL, "Ana", "quiero una cita", con_ritmo=False, ahora=AHORA)
     fecha_guardada = logic_mod._CITAS_PENDIENTES.get(TEL, {}).get("fecha_cita", "")
     caso("B3 Hora ocupada: la propuesta usa el primer hueco libre",
-         fecha_guardada == "2026-11-21T09:00:00", f"fecha={fecha_guardada}")
+         fecha_guardada == "2026-11-23T09:00:00", f"fecha={fecha_guardada}")
 
     # B4. Cambiar con fecha específica → propuesta nueva, sin preguntar otra vez.
     logic_mod._CITAS_PENDIENTES.clear()

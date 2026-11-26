@@ -158,6 +158,8 @@ class _RespFalsa:
 
 
 def main():
+    settings.gemini_model = "modelo-prueba"
+    settings.gemini_model_fallback = "modelo-respaldo-prueba"
     # ---- (a) Estado del cliente ----
     e = estado_cliente([], None, None)
     caso("(a) Sin historial: etapa nuevo", e["etapa"] == "nuevo" and not e["ya_ofrecio_cita"])

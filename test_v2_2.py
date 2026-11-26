@@ -48,6 +48,10 @@ class DepsV22:
         self.alertas = []
         self.llamadas_agente = []
 
+    def hora_libre(self, fecha_iso):
+        # Agenda ficticia: en estos escenarios la hora está disponible.
+        return True
+
     def leer_control(self):
         return {"bot_activo": "SI", "ultima_respuesta_humana": ""}
 

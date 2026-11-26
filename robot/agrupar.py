@@ -40,6 +40,8 @@ import os
 import threading
 import time
 
+from .registro import aviso
+
 # Cuántos wamids se guardan en memoria antes de limpiar la lista.
 # Un negocio chico no llega a esto en meses; es solo para que la
 # memoria no crezca sin freno si el robot corre años.
@@ -76,6 +78,9 @@ class Agrupador:
         self.atascado_segundos = atascado_segundos
         self.max_vistos = max(1, int(max_vistos))
         self._candado = threading.Lock()
+        # La captura del estado y el reemplazo del archivo deben estar
+        # serializados entre sí para no sobrescribir una versión más nueva.
+        self._candado_archivo = threading.Lock()
         self._pendientes: dict[str, dict] = {}
         # (v3.20.4) Contador de llegada: desempata el orden cuando
         # dos entradas traen el mismo timestamp (o ninguno).
@@ -141,36 +146,38 @@ class Agrupador:
         if not self.archivo:
             return
         try:
-            with self._candado:
-                datos = {
-                    "pendientes": {
-                        tel: {"entradas": [list(e) for e in b["entradas"]],
-                              "nombre": b["nombre"]}
-                        for tel, b in self._pendientes.items()
-                    },
-                    "vistos": list(self._vistos)[:self.max_vistos],
-                }
-            tmp = self.archivo + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as archivo:
-                json.dump(datos, archivo)
-            os.replace(tmp, self.archivo)
-        except Exception:
-            pass  # el buzón en disco es un respaldo; el de memoria sigue
+            with self._candado_archivo:
+                with self._candado:
+                    datos = {
+                        "pendientes": {
+                            tel: {"entradas": [list(e) for e in b["entradas"]],
+                                  "nombre": b["nombre"]}
+                            for tel, b in self._pendientes.items()
+                        },
+                        "vistos": list(self._vistos)[:self.max_vistos],
+                    }
+                tmp = self.archivo + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as archivo:
+                    json.dump(datos, archivo)
+                os.replace(tmp, self.archivo)
+        except Exception as exc:
+            aviso(f"[buzón] No se pudo guardar el respaldo local: {type(exc).__name__}")
 
-    def cargar(self) -> int:
+    def cargar(self, programar: bool = True) -> int:
         """Recupera del disco los lotes que quedaron pendientes.
 
-        Se llama al arrancar el servidor (no en __init__, para que
-        importar el módulo no procese mensajes solo). Cada lote
-        recuperado se procesa cuando se acabe la espera, como si
-        acabara de llegar. Devuelve cuántos lotes se recuperaron.
+        Se llama al arrancar el servidor (no en __init__). Por defecto
+        programa temporizadores, para compatibilidad. Con programar=False
+        el llamador debe despachar los pendientes de forma explícita y
+        secuencial. Devuelve cuántos lotes se recuperaron.
         """
         if not self.archivo or not os.path.exists(self.archivo):
             return 0
         try:
             with open(self.archivo, encoding="utf-8") as archivo:
                 datos = json.load(archivo)
-        except Exception:
+        except Exception as exc:
+            aviso(f"[buzón] No se pudo leer el respaldo local: {type(exc).__name__}")
             return 0
         restaurados = 0
         with self._candado:
@@ -198,14 +205,30 @@ class Agrupador:
                     "timer": None,
                 }
                 self._seq = max(self._seq, max(e[1] for e in entradas) + 1)
-                timer = threading.Timer(self.espera_segundos, self._disparar, args=(telefono,))
-                timer.daemon = True
-                self._pendientes[telefono]["timer"] = timer
-                timer.start()
+                if programar:
+                    timer = threading.Timer(self.espera_segundos, self._disparar, args=(telefono,))
+                    timer.daemon = True
+                    self._pendientes[telefono]["timer"] = timer
+                    timer.start()
                 restaurados += 1
             for wamid in (datos.get("vistos") or []):
                 self._vistos[wamid] = None
         return restaurados
+
+    def procesar_recuperados(self) -> None:
+        """Despacha los buzones cargados sin temporizador, uno por uno.
+
+        Los mensajes nuevos usan su propio temporizador; si uno llegó
+        para el mismo teléfono, ese temporizador conserva su turno.
+        """
+        with self._candado:
+            telefonos = [tel for tel, buzon in self._pendientes.items()
+                         if buzon["entradas"] and buzon["timer"] is None]
+        for telefono in telefonos:
+            try:
+                self.procesar_ahora(telefono)
+            except Exception as exc:
+                aviso(f"[buzón] Falló un lote recuperado: {type(exc).__name__}")
 
     def agregar(self, telefono: str, texto: str, wamid: str = "", nombre: str = "",
                 timestamp=None) -> bool:

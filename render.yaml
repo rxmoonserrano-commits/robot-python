@@ -1,4 +1,4 @@
-# Render: despliega el robot gratis con un solo archivo.
+# Render: un servicio Starter por negocio; validar antes del despliegue.
 # En Render: New → Blueprint → conecta tu repositorio → Apply.
 # Después pon las variables de entorno en el panel (las mismas del .env).
 # La URL pública que te da Render es la que pegas en Meta como webhook.
@@ -6,19 +6,19 @@ services:
   - type: web
     name: robot-whatsapp-python
     env: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: GEMINI_API_KEY
         sync: false
-      # Modelos vigentes (v3.0): antes no estaban aquí y el código usaba
-      # sus valores por defecto. Explícitos, para que se vean en Render.
+      # Elegir modelos habilitados para la clave del negocio y probarlos:
+      # este repositorio no verifica su disponibilidad ni sus precios.
       - key: GEMINI_MODEL
-        value: gemini-4-hydrogen
+        sync: false
       - key: GEMINI_MODEL_FALLBACK
-        value: gemini-3.8-flash
+        sync: false
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
@@ -46,7 +46,7 @@ services:
       - key: RECEPCIONISTA_NOMBRE
         value: Ana
       - key: GOOGLE_SHEETS_ID
-        value: 1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo
+        sync: false
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false
       - key: CALENDAR_ID
