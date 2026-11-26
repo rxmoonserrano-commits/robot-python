@@ -131,25 +131,33 @@ def _sin_acentos(texto: str) -> str:
 
 
 def _corregir_dias(texto: str, ahora: datetime | None) -> tuple[str, bool]:
-    """R4: corrige "mañana <día equivocado>" y "hoy <día equivocado>".
+    """R4: corrige "mañana <día equivocado>", "pasado mañana <día
+    equivocado>" y "hoy <día equivocado>".
 
     `ahora` es la fecha real (hora del negocio, con zona). Sin ella,
     no se puede corregir y el texto se deja igual. Solo se toca el día
-    cuando viene pegado a "mañana" o "hoy": "el sábado" solo no se
-    toca, porque no se sabe a qué sábado se refiere.
+    cuando viene pegado a "mañana", "pasado mañana" o "hoy": "el
+    sábado" solo no se toca, porque no se sabe a qué sábado se refiere.
+    (v3.22.1) "pasado mañana" se agrega: la IA dijo "pasado mañana
+    viernes" un jueves (era sábado) y la corrección no lo cubría.
     """
     if ahora is None:
         return texto, False
     if ahora.tzinfo is not None:
         ahora = ahora.replace(tzinfo=None)
     manana = ahora + timedelta(days=1)
+    pasado = ahora + timedelta(days=2)
     # Las claves sin acentos: _sin_acentos("mañana") es "manana".
-    esperado = {"hoy": _DIAS[ahora.weekday()], "manana": _DIAS[manana.weekday()]}
+    esperado = {
+        "hoy": _DIAS[ahora.weekday()],
+        "manana": _DIAS[manana.weekday()],
+        "pasado manana": _DIAS[pasado.weekday()],
+    }
     cambiado = False
 
     def _arreglar(match):
         nonlocal cambiado
-        cuando = _sin_acentos(match.group(1))
+        cuando = re.sub(r"\s+", " ", _sin_acentos(match.group(1)))
         dia_dicho = match.group(2)
         dia_bueno = esperado[cuando]
         if _sin_acentos(dia_dicho) == _sin_acentos(dia_bueno):
@@ -160,8 +168,11 @@ def _corregir_dias(texto: str, ahora: datetime | None) -> tuple[str, bool]:
             dia_bueno = dia_bueno.capitalize()
         return f"{match.group(1)} {dia_bueno}"
 
+    # Una sola pasada, "pasado mañana" primero: si no, el "mañana"
+    # de adentro se corregiría aparte y quedaría mal.
     texto = re.sub(
-        rf"\b(hoy|mañana)\s+({_DIA_RE})\b", _arreglar, texto, flags=re.IGNORECASE
+        rf"\b(pasado\s+mañana|hoy|mañana)\s+({_DIA_RE})\b",
+        _arreglar, texto, flags=re.IGNORECASE,
     )
     return texto, cambiado
 
@@ -239,11 +250,32 @@ _OFERTA_RE = re.compile(
 # "Ya cerramos" dicho por el robot, como si él cerrara. El "pero abrimos
 # mañana" que a veces viene pegado se traga también, para que no quede
 # colgando después del cambio ("...te atiendo igual pero abrimos mañana").
+# El "ya" inicial se traga también ("ya cerramos por hoy" → match con
+# "ya"): si no, la frase de reemplazo trae su propio "ya" y queda
+# "A las 19:00 ya El negocio ya cerró por hoy" (v3.22.1). Igual el
+# "pero yo te atiendo igual" pegado, para no duplicarlo.
 _CERRAMOS_RE = re.compile(
-    r"ahorita ya cerramos(?: pero abrimos mañana)?|ahora estamos cerrados"
-    r"|ya cerramos por hoy|estamos cerrados",
+    r"ahorita ya cerramos(?: pero abrimos mañana)?"
+    r"|ahora estamos cerrados|(?:ya )?estamos cerrados"
+    r"|(?:ya )?cerramos por hoy(?:,? pero yo te atiendo igual)?",
     re.IGNORECASE,
 )
+
+
+def _frase_cierre_mitad(prefijo: str) -> str:
+    """La frase de cierre para pegar a media oración (R3).
+
+    frase_cierre() viene lista para abrir una frase ("El negocio ya
+    cerró..."). Pegada tras otra palabra ("A las 19:00 ya ...") deja la
+    mayúscula de "El" colgando. El regex ya se tragó el "ya" inicial
+    del texto original, así que aquí solo se baja la mayúscula cuando
+    el pegado no va al inicio de una oración.
+    """
+    base = frase_cierre()
+    previo = (prefijo or "").rstrip()
+    if not previo or previo.endswith((".", "!", "?", ":", "\n")):
+        return base
+    return base[0].lower() + base[1:]
 
 # La frase de cierre sale del perfil del negocio (v3.0): antes estaba
 # escrita a mano aquí ("la clínica...") y el robot genérico se la
@@ -794,8 +826,12 @@ def revisar_respuesta(
         violaciones.append("R13")
 
     # R3: la frase de cierre, se cambie lo que se cambie después.
+    # El reemplazo es la versión "a media frase" (sin mayúscula
+    # colgando); el regex ya se tragó el "ya" inicial si lo había.
     if _CERRAMOS_RE.search(texto):
-        texto = _CERRAMOS_RE.sub(frase_cierre(), texto)
+        texto = _CERRAMOS_RE.sub(
+            lambda m: _frase_cierre_mitad(texto[: m.start()]), texto
+        )
         violaciones.append("R3")
 
     # R4: el día correcto (mañana/hoy con el día real).

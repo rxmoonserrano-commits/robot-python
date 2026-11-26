@@ -1,6 +1,6 @@
 # Kit de venta — Aloara (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24, actualizado 2026-11-26. v3.22.0 "Saludo aprovechado" está construida y probada; en vivo en Render corre la v3.21.0 "Identidad Aloara" (commit 7e20d73c) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24, actualizado 2026-11-26. v3.22.1 está construida y probada; en vivo en Render corre la v3.22.0 "Saludo aprovechado" (commit a1a329c7) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Aloara (en una frase)
 

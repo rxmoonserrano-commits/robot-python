@@ -208,6 +208,22 @@ def main():
         {"etapa": "pregunto"}, telefono=TELEFONO)
     caso("(b) R4: sin fecha real no se corrige nada",
          "mañana viernes" in texto and v == [], f"salió: {texto!r} {v}")
+    JUEVES = datetime(2026, 11, 26, 15, 5, tzinfo=timezone.utc)
+    texto, v = revisar_respuesta(
+        "Te propongo pasado mañana viernes a las 09:00 con la Dra. Ruiz.",
+        {"etapa": "pregunto"}, ahora=JUEVES, telefono=TELEFONO)
+    caso("(b) R4: 'pasado mañana viernes' un jueves se corrige a 'pasado mañana sábado' (v3.22.1)",
+         "pasado mañana sábado a las 09:00" in texto and v == ["R4"], f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
+        "Te propongo pasado mañana sábado a las 09:00.",
+        {"etapa": "pregunto"}, ahora=JUEVES, telefono=TELEFONO)
+    caso("(b) R4: 'pasado mañana sábado' un jueves no se toca",
+         "pasado mañana sábado" in texto and v == [], f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
+        "¿Te la agendo para mañana viernes a las 9:00?",
+        {"etapa": "pregunto"}, ahora=JUEVES, telefono=TELEFONO)
+    caso("(b) R4: 'mañana viernes' un jueves sigue sin tocarse (regresión)",
+         "mañana viernes" in texto and v == [], f"salió: {texto!r} {v}")
 
     # ---- (c) R5: sin etiquetas internas ----
     texto, v = revisar_respuesta(

@@ -5,6 +5,23 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.22.1 — Correcciones de texto (2026-11-26)
+
+Encontrado en la primera prueba real de agendado con correos
+(2026-11-26 ~15:08 MST): la respuesta de fuera de horario salió
+garbada y el día de la propuesta venía mal.
+
+- R3 sin garabato: la corrección de "ya cerramos por hoy" pegaba la
+  frase de cierre tal cual y quedaba "A las 19:00 ya El negocio ya
+  cerró por hoy" (ya duplicado, mayúscula colgando). Ahora el regex
+  se traga el "ya" inicial y el "pero yo te atiendo igual" pegado, y
+  el reemplazo va en versión "a media frase" (minúscula) salvo al
+  inicio de una oración. Caso exacto de la prueba real en test_v2_13.
+- R4 cubre "pasado mañana": la IA dijo "pasado mañana viernes" un
+  jueves (era sábado 28) y la corrección solo cubría "hoy"/"mañana".
+  Ahora "pasado mañana <día>" se corrige en una sola pasada (el
+  "mañana" de adentro ya no se corrige aparte). Tests en test_v3_1.
+
 ## v3.22.0 — Saludo aprovechado (2026-11-26)
 
 Jose pidió aprovechar las entradas de mensajes de quienes solo

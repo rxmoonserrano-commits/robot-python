@@ -217,6 +217,32 @@ def main():
          and "ya cerramos" not in texto.lower() and v == ["R3"],
          f"salió: {texto!r}")
     texto, v = revisar_respuesta(
+        "A las 19:00 ya cerramos por hoy, José Ramón, abrimos de 09:00 a 18:00.",
+        {"etapa": "pregunto"})
+    caso("(b) R3: 'A las 19:00 ya cerramos' no duplica el 'ya' ni deja 'El' colgando (v3.22.1)",
+         "el negocio ya cerró por hoy, pero yo te atiendo igual" in texto.lower()
+         and "ya El" not in texto and texto.count("ya ") == 1 and v == ["R3"],
+         f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
+        "Ya cerramos por hoy.",
+        {"etapa": "pregunto"})
+    caso("(b) R3: al inicio de frase la frase de cierre va completa con mayúscula",
+         texto == "El negocio ya cerró por hoy, pero yo te atiendo igual." and v == ["R3"],
+         f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
+        "A las 19:00 ya cerramos por hoy, pero yo te atiendo igual, abrimos mañana a las 9.",
+        {"etapa": "pregunto"})
+    caso("(b) R3: 'pero yo te atiendo igual' pegado no se duplica",
+         texto.count("pero yo te atiendo igual") == 1 and v == ["R3"],
+         f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
+        "A las 19:00 ya estamos cerrados, pero abrimos mañana a las 9.",
+        {"etapa": "pregunto"})
+    caso("(b) R3: 'ya estamos cerrados' tampoco duplica el 'ya'",
+         "el negocio ya cerró por hoy, pero yo te atiendo igual" in texto.lower()
+         and "ya El" not in texto and v == ["R3"],
+         f"salió: {texto!r} {v}")
+    texto, v = revisar_respuesta(
         "Claro, piénsalo con calma. Te aparto el lugar hasta mañana sin compromiso, ¿te parece?",
         {"etapa": "oferta_pendiente", "ya_ofrecio_cita": True})
     caso("(b) Apartar el lugar NO es una oferta nueva: no se quita",
