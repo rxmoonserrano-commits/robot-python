@@ -182,15 +182,18 @@ def main():
              f"config={s.espera_agrupar_segundos}, defaults={agrupar_mod.Agrupador.__init__.__defaults__}")
 
         # (f) De punta a punta: un saludo recibe un saludo con pregunta,
-        # sin propuesta de cita.
+        # sin propuesta de cita. (v3.22.0: sí lleva el menú de botones
+        # del saludo, pero nunca botones de cita.)
         logic_mod._CITAS_PENDIENTES.clear()
         d = DepsV212()
         atender_mensaje(d, "5216694608263", "Jose Ramon", "buenas noches",
                         con_ritmo=False,
                         ahora=datetime(2026, 11, 13, 5, 30, tzinfo=timezone.utc))
+        _ids = [b for _, _, botones in d.botones_enviados for (b, _t) in botones]
         caso("(f) Un saludo recibe saludo + pregunta, sin botones de cita",
              any("¿En qué te puedo ayudar?" in t for _, t in d.textos_enviados)
-             and not d.botones_enviados and not logic_mod._CITAS_PENDIENTES,
+             and _ids == ["menu_servicios", "menu_cita", "hablar_persona"]
+             and not logic_mod._CITAS_PENDIENTES,
              f"textos={d.textos_enviados}, botones={d.botones_enviados}")
     finally:
         agent_mod.generar_texto = generar_viejo

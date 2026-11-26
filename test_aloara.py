@@ -1,4 +1,4 @@
-"""Pruebas Aloara (v3.21.0): identidad, correos y reporte mensual.
+"""Pruebas Aloara (v3.21.0 + v3.22.0): identidad, correos y reporte mensual.
 
 Cubre lo que Jose pidió el 2026-11-26:
 - Aloara Weekly + reporte mensual (ventana, asunto, HTML, delta).
@@ -6,6 +6,8 @@ Cubre lo que Jose pidió el 2026-11-26:
   conversación / Atender ahora / Ver oportunidad).
 - Identidad del agente: asistente virtual transparente, firma
   Aloara opcional, protocolo de emergencia médica.
+- Correo saliente configurable (v3.22.0): Gmail por defecto,
+  iCloud con SMTP_* sin tocar código.
 
 Uso:  python3 test_aloara.py
 Salida: 0 = todo ok; 1 = algún caso falló (se imprime el caso exacto).
@@ -13,6 +15,7 @@ Sin internet: todo con fakes.
 """
 
 import os
+import smtplib
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import robot.agent as agent_mod  # noqa: E402
 import robot.mail as mail_mod  # noqa: E402
 import robot.report as report_mod  # noqa: E402
+from robot.config import correo_configurado, correo_saliente, settings  # noqa: E402
 
 RESULTADOS = []
 
@@ -375,6 +379,129 @@ def d3():
 
 
 # ---------------------------------------------------------------------------
+# E. Correo saliente configurable (Gmail o iCloud, v3.22.0)
+# ---------------------------------------------------------------------------
+
+def _limpiar_correo(mp):
+    for attr in ("smtp_host", "smtp_port", "smtp_user", "smtp_password",
+                 "gmail_user", "gmail_app_password"):
+        mp.set(settings, attr, "")
+
+
+def e1():
+    mp = _MP()
+    try:
+        _limpiar_correo(mp)
+        mp.set(settings, "smtp_host", "smtp.gmail.com")
+        mp.set(settings, "smtp_port", 587)
+        mp.set(settings, "gmail_user", "yo@gmail.com")
+        mp.set(settings, "gmail_app_password", "xxxx")
+        host, puerto, usuario, contrasena = correo_saliente()
+        ok = (host == "smtp.gmail.com" and puerto == 587
+              and usuario == "yo@gmail.com" and contrasena == "xxxx"
+              and correo_configurado())
+        return ok, f"saliente={(host, puerto, usuario)}"
+    finally:
+        mp.restore()
+
+
+def e2():
+    mp = _MP()
+    try:
+        _limpiar_correo(mp)
+        mp.set(settings, "smtp_host", "smtp.mail.me.com")
+        mp.set(settings, "smtp_port", 587)
+        mp.set(settings, "smtp_user", "yo@icloud.com")
+        mp.set(settings, "smtp_password", "yyyy")
+        host, puerto, usuario, contrasena = correo_saliente()
+        ok = (host == "smtp.mail.me.com" and puerto == 587
+              and usuario == "yo@icloud.com" and contrasena == "yyyy"
+              and correo_configurado())
+        return ok, f"saliente={(host, puerto, usuario)}"
+    finally:
+        mp.restore()
+
+
+def e3():
+    mp = _MP()
+    try:
+        _limpiar_correo(mp)
+        sin_nada = not correo_configurado()
+        mp.set(settings, "smtp_user", "yo@icloud.com")
+        mp.set(settings, "smtp_password", "yyyy")
+        solo_smtp = correo_configurado()
+        _limpiar_correo(mp)
+        mp.set(settings, "gmail_user", "yo@gmail.com")
+        mp.set(settings, "gmail_app_password", "xxxx")
+        solo_gmail = correo_configurado()
+        ok = sin_nada and solo_smtp and solo_gmail
+        return ok, f"sin_nada={sin_nada} smtp={solo_smtp} gmail={solo_gmail}"
+    finally:
+        mp.restore()
+
+
+class _FakeSMTP:
+    capturado = []
+    conexion = None
+    login_args = None
+
+    def __init__(self, host, puerto, timeout=30):
+        _FakeSMTP.conexion = (host, puerto, timeout)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def starttls(self):
+        pass
+
+    def login(self, u, p):
+        _FakeSMTP.login_args = (u, p)
+
+    def send_message(self, msg):
+        _FakeSMTP.capturado.append(msg)
+
+
+def e4():
+    mp = _MP()
+    try:
+        _FakeSMTP.capturado = []
+        _FakeSMTP.conexion = None
+        _FakeSMTP.login_args = None
+        _limpiar_correo(mp)
+        mp.set(settings, "smtp_host", "smtp.mail.me.com")
+        mp.set(settings, "smtp_port", 587)
+        mp.set(settings, "smtp_user", "yo@icloud.com")
+        mp.set(settings, "smtp_password", "yyyy")
+        mp.set(smtplib, "SMTP", _FakeSMTP)
+        mail_mod.enviar_correo("dueno@icloud.com", "Prueba", "Texto plano")
+        msg = _FakeSMTP.capturado[0] if _FakeSMTP.capturado else None
+        ok = (_FakeSMTP.conexion == ("smtp.mail.me.com", 587, 30)
+              and _FakeSMTP.login_args == ("yo@icloud.com", "yyyy")
+              and msg is not None and msg["From"] == "yo@icloud.com"
+              and msg["To"] == "dueno@icloud.com")
+        return ok, f"conexion={_FakeSMTP.conexion} login={_FakeSMTP.login_args}"
+    finally:
+        mp.restore()
+
+
+def e5():
+    mp = _MP()
+    try:
+        _limpiar_correo(mp)
+        try:
+            mail_mod.enviar_correo("dueno@ejemplo.com", "Prueba", "Texto")
+            return False, "no levantó CorreoError"
+        except mail_mod.CorreoError as exc:
+            ok = "SMTP_USER" in str(exc) or "GMAIL_USER" in str(exc)
+            return ok, f"exc={exc}"
+    finally:
+        mp.restore()
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     caso("A1 Ventana mensual: mes calendario anterior", a1)
@@ -388,6 +515,11 @@ def main():
     caso("D1 Guion: asistente virtual transparente", d1)
     caso("D2 Guion: firma Aloara solo si autorizada", d2)
     caso("D3 Guion: emergencia médica vs protocolo del negocio", d3)
+    caso("E1 Correo saliente: por defecto Gmail", e1)
+    caso("E2 Correo saliente: SMTP de iCloud manda", e2)
+    caso("E3 Correo configurado: nada / solo SMTP / solo Gmail", e3)
+    caso("E4 Enviar por iCloud: host, login y From correctos", e4)
+    caso("E5 Sin correo configurado: error claro", e5)
 
     fallos = [n for n, ok in RESULTADOS if not ok]
     print(f"\n{len(RESULTADOS) - len(fallos)}/{len(RESULTADOS)} ok")

@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 from .agent import RespuestaAgente, preguntar_agente
 from .config import settings
-from .estado import estado_cliente
+from .estado import estado_cliente, _es_solo_saludo
 from .negocio import canal_negocio_activo, configuracion, funcion_activa
 from .revision import (
     precios_de_conocimiento,
@@ -44,6 +44,18 @@ PAUSA = timedelta(hours=2)
 BOTONES_CITA = [
     ("confirmar_cita", "Confirmar"),
     ("cambiar_hora", "Cambiar hora"),
+    ("hablar_persona", "Hablar con persona"),
+]
+
+# (v3.22.0) Menú del saludo: cuando alguien solo saluda, el sistema
+# le ofrece el camino corto con botones. Un toque vale como si lo
+# hubiera escrito: "Ver servicios" → pregunta por los servicios;
+# "Agendar cita" → pide cita (el sistema propone con huecos reales).
+# "Hablar con persona" es el handoff de siempre. Los botones reducen
+# fricción; el texto del saludo lo sigue componiendo la IA.
+BOTONES_SALUDO = [
+    ("menu_servicios", "Ver servicios"),
+    ("menu_cita", "Agendar cita"),
     ("hablar_persona", "Hablar con persona"),
 ]
 
@@ -2813,7 +2825,14 @@ def contar_semana(
         ),
         # Clientes distintos (por teléfono), no filas: antes, un cliente
         # con 5 mensajes contaba como 5 clientes calificados.
-        "clientes_calificados": len({str(f.get("telefono", "")).strip() for f in cli if str(f.get("telefono", "")).strip()}),
+        # (v3.22.0) "saludo" no cuenta como calificado: saludó y nada
+        # más. Sin esto, el número se inflaría con saludos puros.
+        "clientes_calificados": len({
+            str(f.get("telefono", "")).strip()
+            for f in cli
+            if str(f.get("telefono", "")).strip()
+            and str(f.get("estatus", "")).strip().lower() != "saludo"
+        }),
         "citas_agendadas": sum(
             1 for f in cli if str(f.get("estatus", "")).strip() == "agendado"
         ),
@@ -4271,6 +4290,28 @@ def _atender_mensaje_impl(
         enviar_con_ritmo(deps.enviar_texto, telefono, respuesta.respuesta_texto, dormir=con_ritmo)
         texto_registro = respuesta.respuesta_texto
 
+    # (v3.22.0) Saludo con menú: si el mensaje fue solo un saludo y la
+    # conversación va empezando (sin cita vigente), el sistema ofrece
+    # el camino corto con botones. El saludo en texto lo compuso la IA;
+    # los botones son el atajo, no una respuesta enlatada. Si los
+    # botones fallan, no pasa nada: el cliente ya recibió su saludo.
+    if (
+        _es_solo_saludo(texto)
+        and estado.get("etapa") in ("nuevo", "saludo")
+        and not estado.get("tiene_cita")
+    ):
+        try:
+            deps.enviar_botones(telefono, "¿Por dónde empezamos?", BOTONES_SALUDO)
+        except Exception as exc:
+            try:
+                deps.registrar_diagnostico(
+                    fecha, "whatsapp", "FALLO",
+                    f"Menú de saludo no enviado: {str(exc)[:250]}",
+                    telefono, "menu saludo",
+                )
+            except Exception:
+                pass
+
     # 11. Registrar la respuesta del robot y al cliente (las DOS hojas).
     deps.registrar_conversacion(
         fecha, telefono, "robot", texto_registro, "si",
@@ -4278,16 +4319,28 @@ def _atender_mensaje_impl(
     )
     # (v2.5) De noche, TODO el que escribe es un lead: si el agente no
     # sacó nombre ni motivo (p. ej. solo saludó o preguntó algo corto),
-    # se registra igual con su mensaje como motivo. De día se mantiene
-    # la regla de siempre (solo si hay nombre o motivo), para no llenar
-    # Clientes de saludos. registrar_cliente fusiona por teléfono:
-    # nunca duplica la fila.
-    if respuesta.nombre or respuesta.motivo or not abierto:
+    # se registra igual con su mensaje como motivo.
+    # (v3.22.0) De día también queda ficha mínima para quien solo
+    # saludó (estatus "saludo"): cada entrada de mensajes se aprovecha
+    # como base de datos. El estatus sube solo cuando el cliente dice
+    # algo con intención (registrar_cliente fusiona por teléfono:
+    # nunca duplica la fila, y "saludo" es la prioridad más baja).
+    # Un mensaje de día sin nombre, sin motivo y sin ser saludo
+    # ("ok gracias") sigue sin registrar, como antes.
+    _tiene_datos = bool(respuesta.nombre or respuesta.motivo)
+    _es_saludo = (not _tiene_datos) and _es_solo_saludo(texto)
+    if _tiene_datos or not abierto or _es_saludo:
+        if _tiene_datos:
+            _estatus = "calificado"
+        elif not abierto:
+            _estatus = "en conversacion"
+        else:
+            _estatus = "saludo"
         deps.registrar_cliente(
             fecha, respuesta.nombre or nombre, telefono,
             respuesta.motivo or texto, respuesta.fecha_cita or "",
             "whatsapp",
-            "calificado" if (respuesta.nombre or respuesta.motivo) else "en conversacion",
+            _estatus,
             "no",
         )
     _guardar_memoria(deps, telefono, respuesta)
@@ -4368,6 +4421,21 @@ def _atender_boton_impl(
                 "robot apagado",
             )
             return {"respondio": False, "motivo": "robot apagado", "handoff": False}
+
+    # (v3.22.0) Menú del saludo: un toque vale como si lo hubiera
+    # escrito. Va por el camino normal de mensajes (la IA compone la
+    # respuesta con el conocimiento del negocio, con huecos reales
+    # para la cita). El candado es RLock: reentrar es seguro. Si el
+    # robot está apagado para este cliente, atender_mensaje se queda
+    # en silencio, como si lo hubiera escrito.
+    if boton_id in ("menu_servicios", "menu_cita"):
+        _texto_menu = (
+            "¿Qué servicios tienen?" if boton_id == "menu_servicios"
+            else "Quiero agendar una cita"
+        )
+        return atender_mensaje(
+            deps, telefono, nombre, _texto_menu,
+            fecha_iso=fecha_iso, con_ritmo=con_ritmo, ahora=ahora)
 
     if boton_id == "confirmar_cita":
         # El mismo camino que el "sí" por texto (ver _confirmar_cita_propuesta).

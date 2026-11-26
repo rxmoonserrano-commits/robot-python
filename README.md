@@ -418,10 +418,18 @@ pip install -r requirements.txt
 5. Haz lo mismo con el calendario del negocio: compártelo con ese correo. Si no, las citas caen en el calendario del robot y el dueño no las ve en su app.
 6. El ID de la hoja ya está puesto en `.env.example` y en `config.py`: `1RfkuuvTf5f-YkhPkQnWzi0X95RpUoy3oHoDx00hFONo`. No lo cambies, es tu hoja oficial.
 
-### Paso 4 — Gmail (contraseña de aplicación)
+### Paso 4 — Correo (contraseña de aplicación)
 
+El robot manda correos por SMTP. Por defecto es Gmail; si solo tienes
+otro correo (p. ej. iCloud de Apple), usa SMTP_* y listo.
+
+**Gmail:**
 1. En tu cuenta de Google: Seguridad → Verificación en 2 pasos (actívala) → **Contraseñas de aplicaciones** → genera una para Correo.
 2. Pon tu correo en `GMAIL_USER` y esa contraseña en `GMAIL_APP_PASSWORD` del `.env`. No es tu clave de Google.
+
+**iCloud (Apple):**
+1. En [appleid.apple.com](https://appleid.apple.com): Inicio de sesión y seguridad → **Contraseñas específicas de aplicaciones** → genera una para el robot.
+2. En el `.env` (o en Render): `SMTP_HOST=smtp.mail.me.com`, `SMTP_PORT=587`, `SMTP_USER=` tu correo de Apple y `SMTP_PASSWORD=` esa contraseña. No es tu clave de Apple.
 
 ### Paso 5 — WhatsApp Cloud API (Meta for Developers)
 
@@ -441,7 +449,9 @@ cp .env.example .env
 Llena cada valor con tus datos. El `.env` nunca se sube a ningún lado
 (está en `.gitignore`). Queda por llenar: `GEMINI_API_KEY`,
 `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `OWNER_EMAIL`
-(ahora dice `dueno@empresa.com`), `GMAIL_USER` y `GMAIL_APP_PASSWORD`.
+(ahora dice `dueno@empresa.com`), y el correo saliente:
+`GMAIL_USER` + `GMAIL_APP_PASSWORD` (Gmail) o `SMTP_HOST` +
+`SMTP_USER` + `SMTP_PASSWORD` (iCloud u otro).
 La clave de dueño (`ADMIN_TOKEN`) la crea el instalador; si lo haces
 a mano, genera una con `python3 -c "import secrets; print(secrets.token_urlsafe(24))"`.
 
@@ -451,7 +461,7 @@ a mano, genera una con `python3 -c "import secrets; print(secrets.token_urlsafe(
 uvicorn app:app --port 8000
 ```
 
-Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.21.0", ...}`.
+Abre `http://localhost:8000/health`: debes ver `{"ok": true, "version": "3.22.0", ...}`.
 Para que Meta pueda llamar a tu webhook, tu computadora necesita una URL
 pública: usa `ngrok http 8000` mientras pruebas (gratis), y pon esa URL
 en Meta como `https://tu-url.ngrok.io/webhook`.
@@ -505,11 +515,12 @@ secreto del servicio o pega su contenido en una variable de entorno
 
 ## Qué sigue pendiente (solo lo puede hacer Jose)
 
-- **Contraseña de aplicación de Gmail.** Sin ella no llegan los
+- **Contraseña de aplicación del correo.** Sin ella no llegan los
   correos de handoff, el reporte semanal del lunes (texto + HTML) ni
   las alertas de cita pendiente. El robot contesta igual, pero esos
-  correos no llegan. Pon `GMAIL_USER` y `GMAIL_APP_PASSWORD` en
-  Render (Environment) y redeploya.
+  correos no llegan. Pon `SMTP_USER`/`SMTP_PASSWORD` (iCloud) o
+  `GMAIL_USER`/`GMAIL_APP_PASSWORD` (Gmail) en Render (Environment)
+  y redeploya.
 - **Claves de seguridad en Render.** `ADMIN_TOKEN` y `META_APP_SECRET`
   sin poner: `/pausa` y `/reporte-semanal` están cerrados y el webhook
   acepta mensajes sin firma verificada.

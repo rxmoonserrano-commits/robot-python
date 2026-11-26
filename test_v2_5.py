@@ -7,7 +7,7 @@ test_v2.py, test_v2_2.py, test_v2_3.py y test_v2_4.py):
 (b) al confirmar con el botón, la propuesta se borra de la hoja.
 (c) cargar_propuestas recupera las propuestas guardadas al arrancar.
 (d) de noche, un mensaje sin nombre ni motivo igual registra el lead.
-(e) de día, un saludo sin nombre ni motivo NO registra al cliente
+(e) de día, un saludo sin nombre ni motivo SÍ registra, con estatus "saludo" (v3.22.0).
     (la regla de siempre se mantiene de día).
 (f) Gemini reintenta una vez si responde 429 y luego tiene éxito.
 (g) al cambiar una cita, la propuesta se borra de la hoja.
@@ -184,13 +184,17 @@ def main():
          and "limpieza" in d.clientes[0]["motivo"].lower(),
          f"clientes={d.clientes}")
 
-    # (e) De día, sin nombre ni motivo: NO se registra (regla de siempre).
+    # (e) De día, saludo sin nombre ni motivo: SÍ se registra, con
+    # estatus "saludo" (v3.22.0: ficha mínima para aprovechar cada
+    # entrada de mensajes; antes no se registraba).
     logic_mod._CITAS_PENDIENTES.clear()
     d = DepsV25(agente=agente_sin_datos)
     r = atender_mensaje(d, "6671234567", "Ana", "Hola",
                          con_ritmo=False, ahora=LUNES_MANANA)
-    caso("(e) De día sin nombre ni motivo: no se registra al cliente",
-         len(d.clientes) == 0, f"clientes={d.clientes}")
+    caso("(e) De día saludo sin nombre ni motivo: se registra con estatus saludo",
+         len(d.clientes) == 1 and d.clientes[0]["telefono"] == "6671234567"
+         and d.clientes[0]["estatus"] == "saludo",
+         f"clientes={d.clientes}")
 
     # (f) Gemini: 429 una vez, luego 200 → reintenta y tiene éxito.
     llamadas = {"n": 0}

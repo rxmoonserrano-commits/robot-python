@@ -470,7 +470,7 @@ def registrar_conversacion(
 # D motivo, E fecha_cita, F origen, G estatus, H handoff.
 _COLUMNAS_CLIENTES = ["fecha", "nombre", "telefono", "motivo", "fecha_cita",
                       "origen", "estatus", "handoff"]
-_PRIORIDAD_ESTATUS = {"en conversacion": 1, "calificado": 2, "agendado": 3}
+_PRIORIDAD_ESTATUS = {"saludo": 0, "en conversacion": 1, "calificado": 2, "agendado": 3}
 
 
 def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
@@ -485,9 +485,11 @@ def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
       un nombre nuevo solo entra si la fila no tenía ninguno.
     - Motivo y fecha de cita: el nuevo si viene con algo, si no,
       se queda lo que ya había.
-    - Estatus: nunca baja. "agendado" vale más que "calificado", y este
-      más que "en conversacion". Una cita confirmada no se borra porque
-      el cliente vuelva a escribir.
+    - Estatus: nunca baja. "agendado" vale más que "calificado", este
+      más que "en conversacion", y este más que "saludo" (v3.22.0:
+      quien solo saludó queda registrado con "saludo", la prioridad
+      más baja, y sube en cuanto dice algo con intención). Una cita
+      confirmada no se borra porque el cliente vuelva a escribir.
     - Handoff: si alguna vez fue "si", se queda en "si".
     Es una función pura (sin internet), así se prueba sola.
     """
@@ -500,11 +502,18 @@ def fusionar_cliente(existente: dict, nuevo: dict) -> list[str]:
         if _PRIORIDAD_ESTATUS.get(estatus_nuevo, 0) >= _PRIORIDAD_ESTATUS.get(estatus_viejo, 0)
         else estatus_viejo
     )
+    # (v3.22.0) Un saludo nunca pisa el motivo real: si la fila ya
+    # tiene motivo y lo nuevo es solo un saludo ("Hola"), se queda
+    # el viejo. Un cliente conocido que saluda no pierde su motivo.
+    if estatus_nuevo == "saludo" and viejo["motivo"]:
+        motivo_final = viejo["motivo"]
+    else:
+        motivo_final = dato["motivo"] or viejo["motivo"]
     return [
         dato["fecha"] or viejo["fecha"],
         viejo["nombre"] or dato["nombre"],  # nombre: el confirmado manda
         viejo["telefono"] or dato["telefono"],
-        dato["motivo"] or viejo["motivo"],
+        motivo_final,
         dato["fecha_cita"] or viejo["fecha_cita"],
         dato["origen"] or viejo["origen"],
         estatus,

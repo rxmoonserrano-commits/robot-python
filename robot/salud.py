@@ -13,7 +13,7 @@ Qué se revisa:
 - sheets: la hoja oficial se lee.
 - calendar: el calendario responde (prueba de disponibilidad).
 - whatsapp: el token es válido (401 = muerto o inválido).
-- gmail: usuario y contraseña de aplicación configurados.
+- gmail: correo saliente configurado (SMTP: Gmail o iCloud).
 - owner_email: no sigue siendo el ejemplo dueno@empresa.com.
 - admin_token: /pausa y /reporte-semanal protegidos.
 - meta_firma: el webhook verifica la firma de Meta.
@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from . import booking, gemini, sheets
-from .config import settings
+from .config import correo_configurado, settings
 from .registro import aviso, error, info
 
 _API_WHATSAPP = "https://graph.facebook.com/v21.0"
@@ -152,12 +152,13 @@ def revisar_salud(deps, ahora: datetime | None = None) -> list[dict]:
         anotar("suscripcion_waba", "AVISO",
                f"No se pudo suscribir la app a la cuenta de WhatsApp: {str(exc)[:200]}")
 
-    # Gmail: sin él, los handoffs y el reporte no llegan (en silencio).
-    if settings.gmail_user and settings.gmail_app_password:
-        anotar("gmail", "OK", "Gmail configurado: handoffs y reporte llegan.")
+    # Correo saliente (SMTP configurable: Gmail o iCloud): sin él, los
+    # handoffs y el reporte no llegan (en silencio).
+    if correo_configurado():
+        anotar("gmail", "OK", "Correo configurado: handoffs y reporte llegan.")
     else:
         anotar("gmail", "AVISO",
-               "Gmail sin configurar: los handoffs y el reporte semanal NO llegan. Ver README, paso 4.")
+               "Correo sin configurar: los handoffs y el reporte semanal NO llegan. Ver README, paso 4.")
 
     # Correo del dueño: que no siga siendo el ejemplo.
     if settings.owner_email and settings.owner_email != "dueno@empresa.com":

@@ -463,7 +463,8 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                           fuera_horario: int | None = None,
                           volvieron: int = 0,
                           delta: int | None = None,
-                          periodo: str = "semanal") -> str:
+                          periodo: str = "semanal",
+                          saludaron_sin_agendar: int = 0) -> str:
     """Versión HTML del reporte (v3.20.8 diseño v3; v3.21.0 identidad
     Aloara): el número ES el titular, jerarquía por tipografía y
     espacios, sin cajas densas. Misma información que el texto.
@@ -573,6 +574,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
         ("Citas confirmadas", str(citas_n)),
         ("Canceladas / no-show", f"{canceladas} / {no_show}"),
         ("Confirmaciones de asistencia", str(confirmaciones)),
+        ("Saludaron y no agendaron", str(saludaron_sin_agendar)),
         ("Tiempo ahorrado estimado", f"~{horas:.1f} h"),
         ("Mensajes sin respuesta del robot",
          f"{sin_respuesta} (todos registrados)"),
@@ -757,6 +759,15 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
             por_recuperar[str(f.get("telefono", "")).strip()] = f
     recuperar = list(por_recuperar.values())
 
+    # (v3.22.0) Saludaron y no agendaron: solo saludaron (estatus
+    # "saludo") en el periodo y siguen ahí. Es la demanda que llegó
+    # y no se convirtió; el menú de botones del saludo la trabaja.
+    saludaron_sin_agendar = sum(
+        1 for f in clientes
+        if _en_ventana(f, desde, hasta)
+        and str(f.get("estatus", "")).strip().lower() == "saludo"
+    )
+
     # (v3.9) Canceladas y no-show desde el espejo de Citas. Solo
     # cuenta lo que el robot registró desde v3.9; si la pestaña no
     # existe o está vacía, da 0 y el correo sale igual.
@@ -853,6 +864,7 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         f"Confirmaciones de asistencia: {confirmaciones}\n"
         f"Casos pasados a una persona: {conteo['handoffs']}\n"
         f"Mensajes sin responder porque una persona atendía: {conteo['sin_respuesta_por_humano']}\n"
+        f"Saludaron y no agendaron: {saludaron_sin_agendar}\n"
         f"{_lineas_retorno}"
         f"Motivos más comunes: {motivos}",
         json_mode=False,
@@ -931,6 +943,7 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         f"- Canceladas: {canceladas} · No-show: {no_show}\n"
         f"- Confirmaciones de asistencia: {confirmaciones}\n"
         f"- Clientes atendidos: {conteo['clientes_calificados']}\n"
+        f"- Saludaron y no agendaron: {saludaron_sin_agendar}\n"
         f"- Tiempo ahorrado estimado: ~{horas:.1f} h"
         " (5 min por conversación resuelta)\n"
         f"- Mensajes sin respuesta del robot: {sin_respuesta}"
@@ -947,6 +960,7 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         confirmaciones=confirmaciones, valor=valor,
         citas_con_precio=citas_con_precio, fuera_horario=fuera_horario,
         volvieron=volvieron, delta=delta, periodo=periodo,
+        saludaron_sin_agendar=saludaron_sin_agendar,
     )
     enviar_correo(
         correo_dueno(),
@@ -966,7 +980,7 @@ def _generar_reporte(periodo: str = "semanal") -> dict:
         "semana": semana, "periodo": periodo, **conteo, "resumen": resumen,
         "valor_estimado": valor, "citas_con_precio": citas_con_precio,
         "fuera_de_horario": fuera_horario, "volvieron": volvieron,
-        "delta_citas": delta,
+        "delta_citas": delta, "saludaron_sin_agendar": saludaron_sin_agendar,
     }
 
 

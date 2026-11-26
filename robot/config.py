@@ -63,6 +63,18 @@ class Settings:
     owner_email: str = os.getenv("OWNER_EMAIL", "dueno@empresa.com")
     # Para mandar correos por Gmail con SMTP (contraseña de aplicación, no tu clave).
     gmail_user: str = os.getenv("GMAIL_USER", "")
+
+    # --- Correo saliente configurable (v3.22.0) ---
+    # El robot manda correos por SMTP. Por defecto usa Gmail
+    # (smtp.gmail.com:587 con GMAIL_USER/GMAIL_APP_PASSWORD).
+    # Si el dueño solo tiene otro correo (p. ej. iCloud de Apple:
+    # smtp.mail.me.com:587), basta poner SMTP_HOST, SMTP_USER y
+    # SMTP_PASSWORD (contraseña de aplicación del proveedor) en
+    # Render; GMAIL_* queda como respaldo histórico.
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user: str = os.getenv("SMTP_USER", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     gmail_app_password: str = os.getenv("GMAIL_APP_PASSWORD", "")
 
     # --- Calendario y negocio ---
@@ -113,6 +125,27 @@ class Settings:
 
 # Una sola instancia que importa todo el proyecto.
 settings = Settings()
+
+
+def correo_saliente() -> tuple[str, int, str, str]:
+    """(host, puerto, usuario, contraseña) efectivos para mandar correo.
+
+    SMTP_* manda; si no están puestos, se usa Gmail (GMAIL_*) como
+    antes. Así el mismo robot sale de Gmail o de iCloud sin tocar
+    código: solo cambian las variables en Render.
+    """
+    return (
+        settings.smtp_host,
+        settings.smtp_port,
+        settings.smtp_user or settings.gmail_user,
+        settings.smtp_password or settings.gmail_app_password,
+    )
+
+
+def correo_configurado() -> bool:
+    """¿Hay usuario y contraseña para mandar correos?"""
+    _host, _puerto, usuario, contrasena = correo_saliente()
+    return bool(usuario and contrasena)
 
 
 def faltan_claves() -> list[str]:

@@ -8,14 +8,17 @@ jerga técnica ("Es momento de conectar", nunca "Handoff activado").
 Diseño: Forest #123D36, Intelligence #36B89C, Mineral #F1F5F3,
 Carbon #141B19, tipografía Manrope (con Arial de respaldo en correo).
 
-Se usa SMTP de Gmail con una contraseña de aplicación (no tu clave de
-Google). Se crea en tu cuenta de Google: Seguridad → Verificación en
-2 pasos → Contraseñas de aplicaciones → Correo. Esa contraseña va en
-el .env como GMAIL_APP_PASSWORD y nunca se escribe en el código.
+Se usa SMTP con una contraseña de aplicación (no tu clave real).
+Por defecto es Gmail (smtp.gmail.com:587); si el dueño solo tiene
+otro correo (p. ej. iCloud de Apple: smtp.mail.me.com:587), basta
+poner SMTP_HOST, SMTP_USER y SMTP_PASSWORD en Render (v3.22.0).
+La contraseña va en el .env como SMTP_PASSWORD (o
+GMAIL_APP_PASSWORD en Gmail) y nunca se escribe en el código.
 
-Si GMAIL_USER o GMAIL_APP_PASSWORD faltan, mandar correo falla con un
-mensaje claro en vez de romperse en silencio: el robot sigue atendiendo,
-pero el dueño no recibe la alerta (y eso queda en el registro).
+Si no hay usuario o contraseña de correo, mandar correo falla con
+un mensaje claro en vez de romperse en silencio: el robot sigue
+atendiendo, pero el dueño no recibe la alerta (y eso queda en el
+registro).
 
 Versión 2.1: esa falla de correo ya no puede romper una respuesta de
 WhatsApp. Quien llama a alerta_handoff / alerta_error lo hace con
@@ -36,7 +39,7 @@ import re
 import smtplib
 from email.message import EmailMessage
 
-from .config import settings
+from .config import correo_saliente, settings
 from .negocio import correo_dueno
 
 
@@ -162,22 +165,24 @@ def enviar_correo(destinatario: str, asunto: str, cuerpo: str,
                   html: str | None = None) -> None:
     """Manda un correo. Si llega `html`, va como multipart: texto plano
     siempre (para clientes sin HTML) y la versión bonita encima."""
-    if not settings.gmail_user or not settings.gmail_app_password:
+    host, puerto, usuario, contrasena = correo_saliente()
+    if not usuario or not contrasena:
         raise CorreoError(
-            "Falta GMAIL_USER o GMAIL_APP_PASSWORD en el .env. "
-            "Crea una contraseña de aplicación en tu cuenta de Google (ver README, paso 4)."
+            "Falta el correo saliente en el .env (SMTP_USER/SMTP_PASSWORD "
+            "o GMAIL_USER/GMAIL_APP_PASSWORD). Crea una contraseña de "
+            "aplicación en tu proveedor (ver README, paso 4)."
         )
     mensaje = EmailMessage()
-    mensaje["From"] = settings.gmail_user
+    mensaje["From"] = usuario
     mensaje["To"] = destinatario
     mensaje["Subject"] = asunto
     mensaje.set_content(cuerpo)
     if html:
         mensaje.add_alternative(html, subtype="html")
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as servidor:
+        with smtplib.SMTP(host, puerto, timeout=30) as servidor:
             servidor.starttls()
-            servidor.login(settings.gmail_user, settings.gmail_app_password)
+            servidor.login(usuario, contrasena)
             servidor.send_message(mensaje)
     except (smtplib.SMTPException, OSError) as exc:
         raise CorreoError(f"No se pudo mandar el correo a {destinatario}: {exc}") from exc

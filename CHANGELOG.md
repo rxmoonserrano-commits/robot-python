@@ -5,6 +5,44 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.22.0 — Saludo aprovechado (2026-11-26)
+
+Jose pidió aprovechar las entradas de mensajes de quienes solo
+saludan: que esa base de datos trabaje en vez de perderse.
+
+- Ficha mínima en Clientes: quien solo saluda (de día o de noche)
+  queda registrado con estatus "saludo", la prioridad más baja del
+  estatus. Sube solo cuando el cliente dice algo con intención
+  (calificado → agendado). Un saludo nunca pisa el motivo real de
+  una fila existente (bug cazado por el test D2 antes de salir).
+  De noche se mantiene la regla vieja ("en conversacion"); un
+  mensaje de día sin nombre, sin motivo y sin ser saludo
+  ("ok gracias") sigue sin registrar.
+- Menú de botones en el saludo: si el mensaje fue solo un saludo
+  y la conversación va empezando (sin cita vigente), tras el
+  saludo en texto (que sigue componiendo la IA) el sistema manda
+  un menú: "Ver servicios" / "Agendar cita" / "Hablar con
+  persona". Un toque vale como si lo hubiera escrito: la IA
+  responde con el conocimiento del negocio o propone cita con
+  huecos reales. Sin menú si el saludo trae pregunta, si ya hay
+  cita, si hay handoff o si los botones fallan (el saludo sale
+  igual y el fallo queda en Diagnóstico).
+- Reporte con embudo completo: nueva métrica "Saludaron y no
+  agendaron" en el reporte semanal y mensual (texto, HTML y el
+  resumen que interpreta la IA). "Clientes calificados" ya no
+  cuenta saludos puros, para no inflar el número.
+- Correo saliente configurable: el robot manda por SMTP y ahora
+  el proveedor se elige con variables (SMTP_HOST, SMTP_PORT,
+  SMTP_USER, SMTP_PASSWORD). Por defecto sigue siendo Gmail
+  (GMAIL_* como respaldo); si el dueño solo tiene iCloud de
+  Apple, basta poner smtp.mail.me.com:587 y su contraseña de
+  aplicación. El chequeo de salud (`correo_configurado`) y el
+  envío (`correo_saliente`) usan lo efectivo, sin tocar código.
+- Tests: test_saludos.py (19 casos: ficha, menú, toques, fusión,
+  conteos, reporte y 4 adversariales) + 5 casos de SMTP
+  configurable en test_aloara.py (16/16). Suite completa 57/57
+  verde (sin la batería dorada, que corre en la Mac de Jose).
+
 ## v3.21.0 — Identidad Aloara (2026-11-26)
 
 La marca es Aloara ("Siempre presente."). Todo lo que el dueño recibe

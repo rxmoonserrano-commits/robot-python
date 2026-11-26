@@ -1,14 +1,17 @@
 # Kit de venta — Aloara (robot de WhatsApp) para tu primer cliente
 
-_Fecha: 2026-11-24, actualizado 2026-11-26. v3.21.0 "Identidad Aloara" está construida y probada; en vivo en Render corre la v3.20.15 (commit d9d5b086) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
+_Fecha: 2026-11-24, actualizado 2026-11-26. v3.22.0 "Saludo aprovechado" está construida y probada; en vivo en Render corre la v3.21.0 "Identidad Aloara" (commit 7e20d73c) hasta subir esta versión. El robot es genérico: NO se programa por cliente, se llena su hoja. Esto es el empacado para tu primera venta piloto._
 
 ## Qué vende Aloara (en una frase)
 
 Tu WhatsApp contestado 24/7 como recepcionista: responde, califica, agenda citas con botones y, si hace falta una persona, avisa al dueño por correo y se calla.
 
-## Lo que trae la v3.21.0 (ya probado: suite completa 56/56 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29 + recolección dinámica 29/29 + mejoras conversacionales 5/5 con 14 escenarios nuevos de marketing/ventas/psicología/PNL + batería dorada expandida a 34 conversaciones con IA real + registro automático del número 11/11 + suscripción a la cuenta 8/8 + rescate de JSON y recuperación 25/25 + identidad Aloara 11/11)
+## Lo que trae la v3.22.0 (ya probado: suite completa 57/57 verde + 27 viajes conversacionales 27/27 + corrida adversarial 25/25 + pulida conversacional 45/45 + pulida agrupamiento 35/35 + auditoría 25/25 + blindaje 33/33 + reportes 20/20 + corrida profunda 26/26 + mejora del motor 29/29 + recolección dinámica 29/29 + mejoras conversacionales 5/5 con 14 escenarios nuevos de marketing/ventas/psicología/PNL + batería dorada expandida a 34 conversaciones con IA real + registro automático del número 11/11 + suscripción a la cuenta 8/8 + rescate de JSON y recuperación 25/25 + identidad Aloara 16/16 + saludo aprovechado 19/19)
 
 - Agenda por profesional: huecos reales según el horario de cada profesional en la pestaña Profesionales.
+- Saludo aprovechado (v3.22.0): quien solo saluda queda registrado en Clientes (estatus "saludo") y recibe un menú de botones (ver servicios / agendar cita / hablar con persona); cada entrada de mensajes se convierte en base de datos.
+- Reporte con embudo completo (v3.22.0): además de citas y humanos, cuenta cuántos "saludaron y no agendaron" — la demanda que llegó y no se convirtió.
+- Correo saliente configurable (v3.22.0): los correos del robot salen por SMTP desde Gmail o desde iCloud de Apple (lo que el dueño tenga), sin tocar código.
 - Recordatorios automáticos ~24 h antes de cada cita confirmada, con la plantilla aprobada de Meta (pendiente de aprobar: `recordatorio_cita`).
 - Urgencia con guía: orienta a buscar atención inmediata antes de pasar a humano.
 - Urgencia inteligente (v3.15): si el cliente ya tiene cita, le ofrece adelantarla a la primera hora libre en vez de crear otra; si no tiene, cita urgente nueva.
