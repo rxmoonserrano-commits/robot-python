@@ -490,10 +490,11 @@ def main():
          "def enviar_recordatorios_pendientes" in textos_py
          and "def enviar_plantilla" in textos_py,
          "no se encontró el código de recordatorios")
-    caso("(g) Los trabajos programados son reporte semanal, resumen de la mañana, recordatorios y seguimiento",
-         textos_py.count("add_job") == 4
+    caso("(g) Los trabajos programados son reporte semanal, resumen de la mañana, reporte mensual, recordatorios y seguimiento",
+         textos_py.count("add_job") == 5
          and 'id="reporte-semanal"' in textos_py
          and 'id="resumen-manana"' in textos_py
+         and 'id="reporte-mensual"' in textos_py
          and 'id="recordatorios"' in textos_py
          and 'id="seguimiento"' in textos_py)
 

@@ -142,8 +142,8 @@ def main():
         r = preguntar_agente("¿cuánto cuesta la limpieza?", CONOCIMIENTO, FOTOS, [])
         prompt = " ".join(prompts[0].split())
 
-        caso("(a) El prompt tiene personaje: Ana, recepcionista, a la orden",
-             "Te llamas Ana" in prompt and "recepcionista" in prompt
+        caso("(a) El prompt tiene personaje: Ana, asistente virtual, a la orden",
+             "Eres Ana, el asistente virtual" in prompt
              and "a la orden" in prompt,
              f"prompt={prompt[:200]}")
         # (v2.13) El método ya no es "Entiende, Responde, Avanza" en tres

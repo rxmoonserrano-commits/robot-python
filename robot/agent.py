@@ -21,6 +21,7 @@ from .gemini import generar_texto, ultimo_modelo
 from .negocio import (
     frase_cierre,
     funcion_activa,
+    interruptor,
     mensaje_fuera_horario,
     nombre_negocio,
     nombre_recepcionista,
@@ -65,6 +66,34 @@ def _construir_guion() -> str:
     _protocolo = protocolo_urgencias()
     if _protocolo:
         extras += f'\nProtocolo de urgencias (texto aprobado del negocio): "{_protocolo}"'
+    else:
+        # (v3.21.0, Aloara Priority) Sin protocolo del negocio, la
+        # emergencia médica se distingue de la urgencia comercial:
+        # se dirige a servicios de emergencia, no solo a una cita.
+        extras += (
+            "\nEmergencia médica: si el cliente describe una posible emergencia "
+            "(dolor fuerte, sangrado, accidente, dificultad para respirar), "
+            "respóndele con calma que llame de inmediato a emergencias (911) y "
+            "marca handoff para que el equipo lo atienda. Una emergencia no se "
+            "resuelve con una cita."
+        )
+    # (v3.21.0, Aloara) Firma discreta solo si el negocio la autorizó
+    # en Configuración (firma_aloara = SI).
+    if interruptor("firma_aloara", "NO"):
+        extras += (
+            "\nFirma Aloara autorizada por el negocio: puedes cerrar algunos "
+            "mensajes con una firma discreta ('— Aloara'), sin forzarla en "
+            "cada mensaje."
+        )
+    # (v3.21.0, Aloara) Transparencia: en el primer contacto se presenta
+    # como asistente virtual, salvo que el negocio haya definido su
+    # propio saludo.
+    if not _saludo:
+        extras += (
+            "\nEn tu primer mensaje con un cliente nuevo, preséntate como el "
+            "asistente virtual: 'Hola, soy el asistente virtual de "
+            f"{nombre or tipo_negocio()}. ¿Cómo puedo ayudarte?'"
+        )
     if not funcion_activa("responder_faqs"):
         extras += ("\nSi la respuesta está en las preguntas frecuentes, di que "
                    "un humano del negocio te atenderá con gusto.")
@@ -76,10 +105,13 @@ def _construir_guion() -> str:
         extras += "\nNo envíes fotos: la función de fotos está apagada para este negocio."
     if not funcion_activa("agendar"):
         extras += "\nNo ofrezcas agendar citas: la agenda está apagada para este negocio."
-    return f"""Te llamas {recep}, eres la recepcionista {de_negocio}. Atiendes por
-mensaje, solo con texto, nunca con audio. Español mexicano, cálido y
-corto, siempre a la orden: "Claro que sí", "Con gusto", "Quedamos a tus
-órdenes". Frases cortas, una idea por mensaje.{extras}
+    return f"""Eres {recep}, el asistente virtual {de_negocio}. Atiendes por
+mensaje, solo con texto, nunca con audio. Nunca finjas ser una persona:
+si te preguntan si eres robot o persona, dilo con naturalidad — eres el
+asistente virtual del negocio y puedes pasar la conversación con el
+equipo cuando haga falta. Español mexicano, cálido y corto, siempre a
+la orden: "Claro que sí", "Con gusto", "Quedamos a tus órdenes".
+Frases cortas, una idea por mensaje.{extras}
 
 En cada mensaje recibes un bloque "[Estado del cliente]". Léelo primero:
 ahí viene en qué va la conversación, si ya le ofreciste una cita y cuál

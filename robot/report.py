@@ -1,10 +1,16 @@
-"""Reporte semanal: lunes 08:00, por correo. Nunca manda WhatsApp.
+"""Aloara Weekly y resumen de la mañana: por correo. Nunca manda WhatsApp.
 
-Lee los últimos 7 días de Conversaciones y Clientes, cuenta con
-logic.contar_semana (los números salen de las hojas, no se inventan),
-Gemini escribe un resumen limpio con una idea útil y una sugerencia,
-se manda por Gmail al dueño y se guarda una fila en la pestaña Reporte.
-Si no hay datos, los contadores salen en cero y el correo lo dice.
+Identidad Aloara (v3.21.0): "Siempre presente." El reporte semanal sale
+los lunes 08:00 y el mensual el día 1 del mes, ambos con la voz y el
+diseño Aloara (Forest #123D36, Intelligence #36B89C, Mineral #F1F5F3,
+Carbon #141B19, Manrope). El resumen de la mañana sale diario 08:00.
+
+Lee los últimos 7 días (o el mes anterior) de Conversaciones y Clientes,
+cuenta con logic.contar_semana (los números salen de las hojas, no se
+inventan), Gemini escribe un resumen limpio con una idea útil y una
+sugerencia, se manda por Gmail al dueño y se guarda una fila en la
+pestaña Reporte. Si no hay datos, los contadores salen en cero y el
+correo lo dice.
 """
 
 from __future__ import annotations
@@ -217,6 +223,7 @@ def generar_resumen_manana() -> dict:
     el registro del trabajo programado.
 
     (v3.6) Paquete básico: sin reportes. Se omite sin mandar nada.
+    (v3.21.0, Aloara) Voz y diseño Aloara: "Tu día comienza en orden."
     """
     if not funcion_activa("reportes"):
         return {"omitido": True, "motivo": "paquete sin reportes"}
@@ -298,8 +305,9 @@ def generar_resumen_manana() -> dict:
         return f"{titulo}:\n" + "".join(f"- {l}\n" for l in lineas)
 
     cuerpo = (
-        f"Resumen de la mañana — {fecha_bonita}\n\n"
-        "Anoche (últimas 24 h):\n"
+        f"Tu día, en perspectiva — {fecha_bonita}\n\n"
+        "Tu día comienza en orden.\n\n"
+        "Así estuvo la noche (últimas 24 h):\n"
         f"Mensajes atendidos: {conteo['mensajes_atendidos']}\n"
         f"Clientes nuevos: {conteo['clientes_calificados']}\n"
         f"Citas agendadas: {conteo['citas_agendadas']}\n"
@@ -314,8 +322,19 @@ def generar_resumen_manana() -> dict:
         + _bloque("Propuestas sin contestar", propuestas)
         + "\n"
         + _bloque(f"Citas de hoy ({fecha_bonita})", citas_hoy)
+        + "\nAloara · Siempre presente.\n"
     )
-    enviar_correo(settings.owner_email, f"Resumen de la mañana — {fecha_bonita}", cuerpo)
+    html = _html_resumen_manana(
+        fecha_bonita=fecha_bonita, conteo=conteo,
+        valor_24h=_valor_24h, con_precio_24h=_con_precio_24h,
+        pendientes=pendientes, propuestas=propuestas, citas_hoy=citas_hoy,
+    )
+    enviar_correo(
+        settings.owner_email,
+        f"Tu día, en perspectiva — {fecha_bonita}",
+        cuerpo,
+        html=html,
+    )
     return {
         "fecha": fecha_bonita,
         **conteo,
@@ -323,6 +342,103 @@ def generar_resumen_manana() -> dict:
         "propuestas": propuestas,
         "citas_hoy": citas_hoy,
     }
+
+
+def _html_resumen_manana(*, fecha_bonita: str, conteo: dict,
+                         valor_24h: int = 0, con_precio_24h: int = 0,
+                         pendientes: list[str] | None = None,
+                         propuestas: list[str] | None = None,
+                         citas_hoy: list[str] | None = None) -> str:
+    """Versión HTML del resumen de la mañana, con la identidad Aloara.
+    Misma información que el texto; sin dato, la línea no sale."""
+    def e(v) -> str:
+        return _html.escape(str(v or ""))
+
+    _fuente = "'Manrope', Arial, Helvetica, sans-serif"
+    _forest = "#123D36"
+    _gris = "#64746C"
+
+    def _filas_numeros() -> str:
+        filas = [
+            ("Mensajes atendidos", str(conteo.get("mensajes_atendidos", 0))),
+            ("Clientes nuevos", str(conteo.get("clientes_calificados", 0))),
+            ("Citas agendadas", str(conteo.get("citas_agendadas", 0))),
+            ("Casos pasados a una persona", str(conteo.get("handoffs", 0))),
+        ]
+        if con_precio_24h:
+            filas.append(
+                ("Valor estimado agendado",
+                 f"${valor_24h:,} MXN ({con_precio_24h} citas con precio conocido)")
+            )
+        return "".join(
+            f'<div style="padding:10px 0; font-size:15px;'
+            f'{" border-bottom:1px solid #E3EAE7;" if i < len(filas) - 1 else ""}">'
+            f'{e(etiqueta)}<span style="float:right; font-weight:bold; '
+            f'color:{_forest};">{e(dato)}</span></div>'
+            for i, (etiqueta, dato) in enumerate(filas)
+        )
+
+    def _seccion(titulo: str, lineas: list[str] | None) -> str:
+        if not lineas:
+            cuerpo = f'<div style="font-size:14px; color:{_gris}; margin-top:8px;">Ninguno.</div>'
+        else:
+            cuerpo = "".join(
+                f'<div style="font-size:14px; line-height:1.65; margin-top:8px;">'
+                f'· {e(l)}</div>'
+                for l in lineas
+            )
+        return (
+            f'<div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; '
+            f'color:{_forest}; font-weight:bold; margin-top:30px;">{e(titulo)}</div>'
+            f'{cuerpo}'
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu día, en perspectiva — {e(fecha_bonita)}</title>
+</head>
+<body style="margin:0; padding:0; background:#F1F5F3; font-family:{_fuente}; color:#141B19;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F3; padding:40px 16px;">
+<tr><td align="center">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#FFFFFF; border-radius:16px;">
+
+  <tr><td style="padding:28px 36px 0 36px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="font-size:18px; font-weight:bold; color:{_forest};">aloara.</td>
+        <td align="right" style="font-size:13px; color:{_gris};">{e(fecha_bonita)}</td>
+      </tr>
+    </table>
+    <div style="border-top:1px solid #E3EAE7; margin-top:18px;"></div>
+  </td></tr>
+
+  <tr><td style="padding:30px 36px 0 36px;">
+    <div style="font-size:24px; line-height:1.3; font-weight:bold; color:{_forest};">Tu día comienza en orden.</div>
+    <div style="font-size:15px; line-height:1.7; color:#33413C; margin-top:10px;">Así estuvo la noche (últimas 24 h).</div>
+    <div style="margin-top:14px;">{_filas_numeros()}</div>
+    {_seccion("Pendientes para hoy (necesitan una persona)", pendientes)}
+    {_seccion("Propuestas sin contestar", propuestas)}
+    {_seccion(f"Citas de hoy ({fecha_bonita})", citas_hoy)}
+  </td></tr>
+
+  <tr><td style="padding:32px 36px 30px 36px;">
+    <div style="border-top:1px solid #E3EAE7; padding-top:18px;">
+      <div style="font-size:13px; color:{_gris};">Aloara · Siempre presente.</div>
+    </div>
+  </td></tr>
+
+</table>
+
+</td></tr>
+</table>
+
+</body>
+</html>"""
 
 
 def _fecha_corta(valor: str) -> str:
@@ -346,10 +462,12 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
                           citas_con_precio: int = 0,
                           fuera_horario: int | None = None,
                           volvieron: int = 0,
-                          delta: int | None = None) -> str:
-    """Versión HTML del reporte semanal (v3.20.8): diseño v3 aprobado
-    por Jose — el número ES el titular, jerarquía por tipografía y
+                          delta: int | None = None,
+                          periodo: str = "semanal") -> str:
+    """Versión HTML del reporte (v3.20.8 diseño v3; v3.21.0 identidad
+    Aloara): el número ES el titular, jerarquía por tipografía y
     espacios, sin cajas densas. Misma información que el texto.
+    `periodo` ("semanal"/"mensual") solo cambia las etiquetas.
 
     Los datos salen de las hojas; lo estimado va marcado como
     estimado. Todo el texto del negocio se escapa antes de meterlo
@@ -358,12 +476,22 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
     def e(v) -> str:
         return _html.escape(str(v or ""))
 
+    _es_mes = periodo == "mensual"
+    _palabra = "mes" if _es_mes else "semana"
+    _kicker = "Tu resumen mensual" if _es_mes else "Tu resumen semanal"
+    _kicker_agendo = "ESTE MES TU ROBOT AGENDÓ" if _es_mes else "ESTA SEMANA TU ROBOT AGENDÓ"
+    _kicker_linea = "TU MES EN UNA LÍNEA" if _es_mes else "TU SEMANA EN UNA LÍNEA"
+    _kicker_numeros = "TU MES EN NÚMEROS" if _es_mes else "TU SEMANA EN NÚMEROS"
+    _fuente = "'Manrope', Arial, Helvetica, sans-serif"
+    _forest = "#123D36"
+    _gris = "#64746C"
+
     # --- El número: titular. Sin precio conocido no se inventa $. ---
     if citas_con_precio:
         _numero_grande = (
             f"${valor:,}"
-            ' <span style="font-size:22px; font-weight:normal; '
-            'color:#8A99A3;">MXN</span>'
+            f' <span style="font-size:22px; font-weight:normal; '
+            f'color:{_gris};">MXN</span>'
         )
     else:
         _numero_grande = f"{citas_n}"
@@ -371,26 +499,26 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
     _linea_perdida = ""
     if fuera_horario:
         _linea_perdida = (
-            '<div style="font-size:15px; line-height:1.65; color:#44565F; '
+            '<div style="font-size:15px; line-height:1.65; color:#33413C; '
             f'margin-top:8px;">{fuera_horario} llegaron fuera de tu horario. '
             'Sin el robot, eran clientes perdidos.</div>'
         )
 
     def _filas_citas() -> str:
         if not citas:
-            return ('<div style="font-size:15px; color:#8A99A3; '
+            return (f'<div style="font-size:15px; color:{_gris}; '
                     'margin-top:14px;">Ninguna esta semana.</div>')
         filas = []
         for i, f in enumerate(citas):
             estilo = "padding:12px 0; font-size:15px;"
             if i < len(citas) - 1:
-                estilo += " border-bottom:1px solid #F0F3F5;"
+                estilo += " border-bottom:1px solid #E3EAE7;"
             filas.append(
                 f'<div style="{estilo}">'
                 f'{e(f.get("nombre") or f.get("telefono"))}'
-                f' <span style="color:#8A99A3;">· '
+                f' <span style="color:{_gris};">· '
                 f'{e(f.get("motivo") or "cita")}</span>'
-                f'<span style="float:right; color:#8A99A3;">'
+                f'<span style="float:right; color:{_gris};">'
                 f'{e(formatear_cita_bonita(str(f.get("fecha_cita", ""))))}'
                 '</span></div>'
             )
@@ -404,7 +532,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
             items.append(
                 '<div style="font-size:15px; line-height:1.65; margin-top:14px;">'
                 f'<strong>{e(f.get("nombre") or f.get("telefono"))}</strong> '
-                f'<span style="color:#8A99A3;">— '
+                f'<span style="color:{_gris};">— '
                 f'{e(f.get("motivo") or "sin motivo")}'
                 f' ({e(_fecha_corta(str(f.get("fecha", ""))))})</span></div>'
             )
@@ -420,10 +548,10 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
             partes.append(
                 '<div style="font-size:15px; line-height:1.65; margin-top:18px;">'
                 f'<strong>{nombre}</strong> '
-                f'<span style="color:#8A99A3;">preguntó por {motivo} '
+                f'<span style="color:{_gris};">preguntó por {motivo} '
                 'y no agendó.</span></div>'
-                '<div style="font-size:14px; line-height:1.65; color:#33424D; '
-                'background:#F4F8FA; border-radius:10px; padding:12px 16px; '
+                '<div style="font-size:14px; line-height:1.65; color:#33413C; '
+                'background:#F1F5F3; border-radius:10px; padding:12px 16px; '
                 'margin-top:8px;">'
                 f'«Hola {e(f.get("nombre") or "")}, vi que preguntaste por '
                 f'{motivo}. ¿Te aparto un lugar esta semana?»</div>'
@@ -434,7 +562,7 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
         _bloque_atencion = _bloque_humanos() + _bloque_recuperar()
     else:
         _bloque_atencion = (
-            '<div style="font-size:15px; color:#8A99A3; margin-top:14px;">'
+            f'<div style="font-size:15px; color:{_gris}; margin-top:14px;">'
             'Nada pendiente esta semana.</div>'
         )
 
@@ -462,14 +590,15 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
              str(fuera_horario))
         )
     if delta is not None:
+        _etiqueta_delta = "Citas vs mes pasado" if _es_mes else "Citas vs semana pasada"
         _filas_numeros.append(
-            ("Citas vs semana pasada", f"{delta:+d}")
+            (_etiqueta_delta, f"{delta:+d}")
         )
     _filas_numeros_html = "".join(
         f'<div style="padding:10px 0; font-size:15px;'
-        f'{" border-bottom:1px solid #F0F3F5;" if i < len(_filas_numeros) - 1 else ""}">'
+        f'{" border-bottom:1px solid #E3EAE7;" if i < len(_filas_numeros) - 1 else ""}">'
         f'{e(etiqueta)}<span style="float:right; font-weight:bold; '
-        f'color:#2E5266;">{e(dato)}</span></div>'
+        f'color:{_forest};">{e(dato)}</span></div>'
         for i, (etiqueta, dato) in enumerate(_filas_numeros)
     )
 
@@ -478,11 +607,11 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tu semana en {e(nombre_neg)} — {e(semana)}</title>
+<title>Tu {_palabra} en {e(nombre_neg)} — {e(semana)}</title>
 </head>
-<body style="margin:0; padding:0; background:#F7F9FA; font-family:Arial, Helvetica, sans-serif; color:#1F2A33;">
+<body style="margin:0; padding:0; background:#F1F5F3; font-family:{_fuente}; color:#141B19;">
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FA; padding:40px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F3; padding:40px 16px;">
 <tr><td align="center">
 
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background:#FFFFFF; border-radius:16px;">
@@ -490,44 +619,45 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
   <tr><td style="padding:28px 36px 0 36px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="font-size:15px; font-weight:bold; color:#2E5266;">{e(nombre_neg)}</td>
-        <td align="right" style="font-size:13px; color:#8A99A3;">{e(semana)}</td>
+        <td style="font-size:18px; font-weight:bold; color:{_forest};">aloara.</td>
+        <td align="right" style="font-size:13px; color:{_gris};">{e(semana)}</td>
       </tr>
     </table>
-    <div style="border-top:1px solid #E7ECEE; margin-top:20px;"></div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#36B89C; font-weight:bold; margin-top:14px;">{_kicker} · {e(nombre_neg)}</div>
+    <div style="border-top:1px solid #E3EAE7; margin-top:14px;"></div>
   </td></tr>
 
   <tr><td style="padding:36px 36px 0 36px;">
-    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#8A99A3; font-weight:bold;">Esta semana tu robot agendó</div>
-    <div style="font-size:60px; line-height:1; font-weight:bold; color:#2E5266; margin-top:10px;">{_numero_grande}</div>
-    <div style="font-size:15px; line-height:1.65; color:#44565F; margin-top:14px;">{citas_n} cita{_plural_citas} confirmada{_plural_citas}. {atendidos} conversaciones atendidas, {resueltas} resueltas sin pasar a humano.</div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:{_gris}; font-weight:bold;">{_kicker_agendo}</div>
+    <div style="font-size:60px; line-height:1; font-weight:bold; color:{_forest}; margin-top:10px;">{_numero_grande}</div>
+    <div style="font-size:15px; line-height:1.65; color:#33413C; margin-top:14px;">{citas_n} cita{_plural_citas} confirmada{_plural_citas}. {atendidos} conversaciones atendidas, {resueltas} resueltas sin pasar a humano.</div>
     {_linea_perdida}
   </td></tr>
 
   <tr><td style="padding:40px 36px 0 36px;">
-    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">CITAS CONFIRMADAS</div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:{_forest}; font-weight:bold;">CITAS CONFIRMADAS</div>
     {_filas_citas()}
   </td></tr>
 
   <tr><td style="padding:40px 36px 0 36px;">
-    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">NECESITA TU ATENCIÓN</div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:{_forest}; font-weight:bold;">NECESITA TU ATENCIÓN</div>
     {_bloque_atencion}
   </td></tr>
 
   <tr><td style="padding:40px 36px 0 36px;">
-    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">TU SEMANA EN UNA LÍNEA</div>
-    <div style="font-size:15px; line-height:1.75; color:#33424D; margin-top:12px;">{e(resumen)}</div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:{_forest}; font-weight:bold;">{_kicker_linea}</div>
+    <div style="font-size:15px; line-height:1.75; color:#33413C; margin-top:12px;">{e(resumen)}</div>
   </td></tr>
 
   <tr><td style="padding:40px 36px 0 36px;">
-    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#2E5266; font-weight:bold;">TU SEMANA EN NÚMEROS</div>
+    <div style="font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:{_forest}; font-weight:bold;">{_kicker_numeros}</div>
     <div style="margin-top:6px;">{_filas_numeros_html}</div>
   </td></tr>
 
   <tr><td style="padding:40px 36px 32px 36px;">
-    <div style="border-top:1px solid #E7ECEE; padding-top:20px;">
-      <div style="font-size:13px; color:#8A99A3;">Sereno · tu recepcionista digital, trabajando 24/7.</div>
-      <div style="font-size:12px; color:#B4C0C7; margin-top:4px;">Valores estimados con base en tus precios.</div>
+    <div style="border-top:1px solid #E3EAE7; padding-top:20px;">
+      <div style="font-size:13px; color:{_gris};">Aloara · Siempre presente.</div>
+      <div style="font-size:12px; color:#9DB0A8; margin-top:4px;">Valores estimados con base en tus precios.</div>
     </div>
   </td></tr>
 
@@ -540,33 +670,73 @@ def _html_reporte_semanal(*, nombre_neg: str, semana: str, citas: list[dict],
 </html>"""
 
 
-def generar_reporte_semanal() -> dict:
-    """Hace el reporte de los últimos 7 días y lo manda. Devuelve los contadores.
+def _ventana_periodo(periodo: str) -> tuple[datetime, datetime, str, str]:
+    """Ventana del reporte: (desde, hasta, etiqueta_visible, etiqueta_reporte).
 
-    (v3.7) Los TRES tipos de alerta del dueño en UN solo correo
-    semanal, estilo "reporte de valor" (lo que Jose pidió del chat
-    de ChatGPT): citas confirmadas, necesitaron humano, y resumen
-    con números que prueban el valor. Sin avalancha de correos: el
-    dueño ve todo el lunes a las 08:00, sin entrar a ningún lado.
-    Los números salen de las hojas; lo estimado va marcado como
-    estimado. Paquete básico: sin reportes, se omite sin mandar nada.
+    Semanal: últimos 7 días; etiqueta "2026-11-17 a 2026-11-24" en
+    ambos lugares. Mensual: el mes calendario anterior en la zona
+    del negocio; etiqueta visible "Noviembre 2026" y en Reporte
+    "MES 2026-11" (para que el delta semanal no la confunda).
+    """
+    if periodo == "mensual":
+        ahora_local = datetime.now(ZoneInfo(settings.timezone))
+        inicio_mes = ahora_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        desde = (inicio_mes - timedelta(days=1)).replace(day=1)
+        hasta = inicio_mes
+        etiqueta = f"{_MESES[desde.month - 1]} {desde.year}"
+        etiqueta_reporte = f"MES {desde:%Y-%m}"
+        return desde, hasta, etiqueta, etiqueta_reporte
+    hasta = datetime.now(timezone.utc)
+    desde = hasta - timedelta(days=7)
+    etiqueta = f"{desde.date()} a {hasta.date()}"
+    return desde, hasta, etiqueta, etiqueta
+
+
+def _delta_mes(filas_reporte: list[dict], desde: datetime, citas_n: int) -> int | None:
+    """Diferencia de citas vs el mes anterior, desde la pestaña Reporte.
+    None si no hay fila del mes previo: sin dato no se afirma nada."""
+    esperada = f"MES {(desde - timedelta(days=1)):%Y-%m}"
+    for f in filas_reporte or []:
+        if str(f.get("semana", "")).strip() == esperada:
+            try:
+                prev = int(float(str(f.get("citas_agendadas", "")).strip()))
+            except (ValueError, TypeError):
+                return None
+            return citas_n - prev
+    return None
+
+
+def _generar_reporte(periodo: str = "semanal") -> dict:
+    """Hace el reporte del periodo (semanal o mensual) y lo manda.
+    Devuelve los contadores.
+
+    (v3.7) Los TRES tipos de alerta del dueño en UN solo correo,
+    estilo "reporte de valor" (lo que Jose pidió del chat de
+    ChatGPT): citas confirmadas, necesitaron humano, y resumen con
+    números que prueban el valor. Sin avalancha de correos: el dueño
+    ve todo el lunes a las 08:00 (semanal) o el día 1 (mensual), sin
+    entrar a ningún lado. Los números salen de las hojas; lo estimado
+    va marcado como estimado. Paquete básico: sin reportes, se omite
+    sin mandar nada.
+
+    (v3.21.0, Aloara) Identidad Aloara en voz y diseño; el mensual
+    reutiliza exactamente la misma maquinaria con otra ventana.
     """
     if not funcion_activa("reportes"):
         return {"omitido": True, "motivo": "paquete sin reportes"}
-    hasta = datetime.now(timezone.utc)
-    desde = hasta - timedelta(days=7)
+    desde, hasta, semana, etiqueta_reporte = _ventana_periodo(periodo)
     conversaciones = leer_pestana("Conversaciones")
     clientes = leer_pestana("Clientes")
     conteo = contar_semana(conversaciones, clientes, desde, hasta)
 
-    # Tipo 1: citas confirmadas esta semana (lista con fecha bonita).
+    # Tipo 1: citas confirmadas en el periodo (lista con fecha bonita).
     citas = [
         f for f in clientes
         if _en_ventana(f, desde, hasta)
         and str(f.get("estatus", "")).strip() == "agendado"
         and str(f.get("fecha_cita", "")).strip()
     ]
-    # Tipo 2: necesitaron atención humana esta semana.
+    # Tipo 2: necesitaron atención humana en el periodo.
     humanos = [
         f for f in clientes
         if _en_ventana(f, desde, hasta)
@@ -631,8 +801,12 @@ def generar_reporte_semanal() -> dict:
         _filas_reporte = leer_pestana("Reporte")
     except Exception:
         _filas_reporte = []
-    delta = delta_citas_semana_anterior(
-        _filas_reporte, desde, hasta, conteo["citas_agendadas"])
+    if periodo == "mensual":
+        delta = _delta_mes(
+            _filas_reporte, desde, conteo["citas_agendadas"])
+    else:
+        delta = delta_citas_semana_anterior(
+            _filas_reporte, desde, hasta, conteo["citas_agendadas"])
 
     # Métricas de valor: confirmados vs estimados, sin inventar.
     atendidos = conteo["mensajes_atendidos"]
@@ -646,7 +820,9 @@ def generar_reporte_semanal() -> dict:
         and str(f.get("robot_respondio", "")).strip() == "no"
     )
 
-    semana = f"{desde.date()} a {hasta.date()}"
+    _es_mes = periodo == "mensual"
+    _palabra = "mes" if _es_mes else "semana"
+    _siguiente = "próximo mes" if _es_mes else "próxima semana"
     motivos = (
         ", ".join(f"{m} ({n})" for m, n in conteo["motivos_top"])
         or "sin motivos registrados"
@@ -661,15 +837,16 @@ def generar_reporte_semanal() -> dict:
         f"Clientes que volvieron y agendaron: {volvieron}\n"
     )
     if delta is not None:
-        _lineas_retorno += f"Citas vs semana pasada: {delta:+d}\n"
+        _etq_delta = "Citas vs mes pasado" if _es_mes else "Citas vs semana pasada"
+        _lineas_retorno += f"{_etq_delta}: {delta:+d}\n"
     # (v3.0) json_mode=False: el resumen es PROSA, no JSON. En la v2.13
     # generar_texto pedía JSON siempre y el correo del lunes llegaba
     # con el texto envuelto en llaves.
     resumen = generar_texto(
-        "Escribe un resumen semanal corto y elegante para el dueño de un negocio, "
+        f"Escribe un resumen {_palabra} corto y elegante para el dueño de un negocio, "
         "en español, con calma y sin exagerar. Usa SOLO estos datos, no inventes nada. "
-        "Termina con una idea útil y una sugerencia para la próxima semana.\n\n"
-        f"Semana: {semana}\n"
+        f"Termina con una idea útil y una sugerencia para la {_siguiente}.\n\n"
+        f"{'Mes' if _es_mes else 'Semana'}: {semana}\n"
         f"Mensajes atendidos por el robot: {conteo['mensajes_atendidos']}\n"
         f"Clientes calificados: {conteo['clientes_calificados']}\n"
         f"Citas agendadas: {conteo['citas_agendadas']}\n"
@@ -689,7 +866,7 @@ def generar_reporte_semanal() -> dict:
             for f in citas
         )
     else:
-        lineas_citas = "Ninguna esta semana."
+        lineas_citas = f"Ninguna este {_palabra}."
     if humanos:
         lineas_humanos = "\n".join(
             f"- {f.get('nombre') or f.get('telefono')} — {f.get('motivo') or 'sin motivo'}"
@@ -697,7 +874,7 @@ def generar_reporte_semanal() -> dict:
             for f in humanos
         )
     else:
-        lineas_humanos = "Ninguna esta semana."
+        lineas_humanos = f"Ninguna este {_palabra}."
     if recuperar:
         lineas_recuperar = "\n".join(
             f"- {f.get('nombre') or f.get('telefono')} preguntó por {f.get('motivo')}."
@@ -706,7 +883,7 @@ def generar_reporte_semanal() -> dict:
             for f in recuperar
         )
     else:
-        lineas_recuperar = "Nadie por recuperar esta semana."
+        lineas_recuperar = f"Nadie por recuperar este {_palabra}."
 
     # (v3.20.8) Cuerpo de texto con la misma jerarquía que el HTML
     # v3: el número primero, luego citas, atención y resumen.
@@ -735,18 +912,19 @@ def generar_reporte_semanal() -> dict:
         )
     _lineas_valor += f"- Clientes que volvieron y agendaron: {volvieron}\n"
     if delta is not None:
-        _lineas_valor += f"- Citas vs semana pasada: {delta:+d}\n"
+        _lineas_valor += f"- {_etq_delta}: {delta:+d}\n"
 
     cuerpo = (
-        f"Tu semana en {nombre_neg} — {semana}\n\n"
-        f"Esta semana tu robot agendó {citas_n} cita{_plural}{_titular_valor}.\n"
+        f"Tu {_palabra} en {nombre_neg} — {semana}\n\n"
+        f"{'Este mes' if _es_mes else 'Esta semana'} tu robot agendó "
+        f"{citas_n} cita{_plural}{_titular_valor}.\n"
         f"{atendidos} conversaciones atendidas, {resueltas} ({pct}%) "
         "resueltas sin pasar a humano.\n"
         f"{_linea_fuera}\n"
         f"📅 CITAS CONFIRMADAS ({len(citas)})\n{lineas_citas}\n\n"
         f"🙋 NECESITARON ATENCIÓN HUMANA ({len(humanos)})\n{lineas_humanos}\n\n"
         f"💬 CLIENTES POR RECUPERAR ({len(recuperar)})\n{lineas_recuperar}\n\n"
-        "📊 TU SEMANA EN NÚMEROS\n"
+        f"📊 TU {'MES' if _es_mes else 'SEMANA'} EN NÚMEROS\n"
         f"- Conversaciones atendidas: {atendidos}\n"
         f"- Resueltas sin pasar a humano: {resueltas} ({pct}%)\n"
         f"- Citas confirmadas: {conteo['citas_agendadas']}\n"
@@ -768,16 +946,16 @@ def generar_reporte_semanal() -> dict:
         horas=horas, sin_respuesta=sin_respuesta, resumen=resumen,
         confirmaciones=confirmaciones, valor=valor,
         citas_con_precio=citas_con_precio, fuera_horario=fuera_horario,
-        volvieron=volvieron, delta=delta,
+        volvieron=volvieron, delta=delta, periodo=periodo,
     )
     enviar_correo(
         correo_dueno(),
-        f"Tu semana en {nombre_neg} — citas, humanos y resumen",
+        f"Tu {_palabra} en {nombre_neg} — citas, humanos y resumen",
         cuerpo,
         html=html,
     )
     guardar_reporte(
-        semana,
+        etiqueta_reporte,
         conteo["mensajes_atendidos"],
         conteo["clientes_calificados"],
         conteo["citas_agendadas"],
@@ -785,8 +963,19 @@ def generar_reporte_semanal() -> dict:
         resumen,
     )
     return {
-        "semana": semana, **conteo, "resumen": resumen,
+        "semana": semana, "periodo": periodo, **conteo, "resumen": resumen,
         "valor_estimado": valor, "citas_con_precio": citas_con_precio,
         "fuera_de_horario": fuera_horario, "volvieron": volvieron,
         "delta_citas": delta,
     }
+
+
+def generar_reporte_semanal() -> dict:
+    """Aloara Weekly: el reporte de los últimos 7 días, los lunes 08:00."""
+    return _generar_reporte("semanal")
+
+
+def generar_reporte_mensual() -> dict:
+    """Reporte mensual: el mes calendario anterior, el día 1 a las 08:00.
+    "Un mes de nuevas posibilidades" (Aloara)."""
+    return _generar_reporte("mensual")

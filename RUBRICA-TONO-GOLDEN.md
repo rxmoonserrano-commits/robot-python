@@ -14,7 +14,7 @@ cd ~/Desktop/"robot-python 6" && grep VERSION app.py
 cd ~/Desktop/"robot-python 6" && python3 test_conversaciones_doradas.py
 ```
 
-- El primer comando confirma que la carpeta es la v3.20.15 (`VERSION = "3.20.15"`). Si tu Mac la nombró distinto, usa el nombre exacto de la carpeta del zip.
+- El primer comando confirma que la carpeta es la v3.21.0 (`VERSION = "3.21.0"`). Si tu Mac la nombró distinto, usa el nombre exacto de la carpeta del zip.
 
 - Sale código 0 si todo pasó, 1 si algo falló (imprime el caso
   exacto), 2 si falta la clave en tu `.env`.
@@ -27,7 +27,7 @@ python3 test_conversaciones_doradas.py
 ```
 
 - Tarda unos minutos (llama a Gemini de verdad).
-- El zip fresco para tu Mac: `robot-python-v3.20.15.zip` (descomprímelo
+- El zip fresco para tu Mac: `robot-python-v3.21.0.zip` (descomprímelo
   en el Escritorio; queda en `~/Desktop/"robot-python 6"`).
 
 ## Rúbrica (1 a 5 por respuesta)

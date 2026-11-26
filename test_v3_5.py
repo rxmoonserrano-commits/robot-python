@@ -224,8 +224,7 @@ try:
          and negocio_mod.interruptor("enviar_fotos") is False)
     prompt = agent_mod.guion()
     caso("(c) El guion usa el perfil de la hoja y los extras",
-         "Te llamas Lupita" in prompt
-         and "de Taquería El Faro" in prompt
+         "Eres Lupita, el asistente virtual de Taquería El Faro" in prompt
          and "Tono breve" in prompt
          and "¡Qué tal! Soy Lupita, ¿en qué te ayudo?" in prompt
          and "Ya cerramos, pero te aparto tu lugar para mañana." in prompt

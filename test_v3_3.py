@@ -456,7 +456,7 @@ def main():
     ]
     enviados = []
 
-    def _correo_falso(destinatario, asunto, cuerpo):
+    def _correo_falso(destinatario, asunto, cuerpo, html=None):
         enviados.append((destinatario, asunto, cuerpo))
 
     with patch.object(report_mod, "leer_pestana",
@@ -477,7 +477,7 @@ def main():
          and "Pedro" in cuerpo,
          f"cuerpo: {cuerpo[:400]!r}")
     caso("(d) Resumen: el asunto es el de la mañana, no el semanal",
-         enviados and enviados[0][1].startswith("Resumen de la mañana"),
+         enviados and enviados[0][1].startswith("Tu día, en perspectiva"),
          f"asunto: {enviados[0][1] if enviados else ''!r}")
 
     # ---- (f) Anti-abuso ----

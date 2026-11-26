@@ -383,9 +383,9 @@ def e3():
         and "TU SEMANA EN UNA LÍNEA" in html
         and "Resumen de prueba." in html
         and "6 llegaron fuera de tu horario" in html
-        and "Sereno · tu recepcionista digital" in html
+        and "Aloara · Siempre presente" in html
         and "Valores estimados con base en tus precios." in html
-        and "font-family:Arial" in html
+        and "Manrope" in html
     )
     return ok, html[:300]
 

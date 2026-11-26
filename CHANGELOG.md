@@ -5,6 +5,34 @@ README. El README describe lo que el robot hace HOY; aquí queda lo
 que hacía antes y por qué cambió. Si algo se rompió en vivo, aquí
 queda la fecha y la causa.
 
+## v3.21.0 — Identidad Aloara (2026-11-26)
+
+La marca es Aloara ("Siempre presente."). Todo lo que el dueño recibe
+se viste con su voz y su diseño (Forest #123D36, Intelligence #36B89C,
+Mineral #F1F5F3, Carbon #141B19, Manrope):
+
+- Correos de alerta reescritos con la identidad verbal Aloara y
+  versión HTML: Aloara Connect (handoff: "Es momento de conectar."),
+  Aloara Priority (urgencia: "Tu equipo necesita intervenir."),
+  Aloara Opportunities (lead caliente: "Tienes una nueva oportunidad."),
+  cita confirmada, cita pendiente e interrupción. Los de handoff,
+  urgencia y oportunidad llevan botón wa.me ("Continuar
+  conversación" / "Atender ahora" / "Ver oportunidad").
+- Aloara Weekly: el reporte semanal y el resumen de la mañana se
+  rediseñan con la paleta y tipografía Aloara; el resumen de la
+  mañana ahora lleva HTML y abre con "Tu día comienza en orden."
+- Reporte mensual nuevo: el día 1 a las 08:00 cubre el mes calendario
+  anterior ("Un mes de nuevas posibilidades"), con la misma
+  maquinaria del semanal (valor estimado, fuera de horario, delta vs
+  el mes anterior desde la pestaña Reporte con etiqueta "MES YYYY-MM").
+- Identidad del agente: se presenta como "asistente virtual de
+  [negocio]" con transparencia ("Nunca finjas ser una persona"),
+  presentación en el primer contacto, firma discreta "— Aloara" solo
+  si el negocio la autoriza (`firma_aloara = SI` en Configuración), y
+  protocolo de emergencia médica por defecto (dirigir al 911 +
+  handoff) cuando el negocio no definió el suyo.
+- Pruebas nuevas: test_aloara.py (11 casos).
+
 ## v3.20.15 — Recuperación sin saturar la memoria (2026-11-25)
 
 La v3.20.14 metió la recuperación de mensajes al arrancar, y al

@@ -125,7 +125,7 @@ limpiar()
 import robot.mail as mail_mod
 
 correos = []
-mail_mod.enviar_correo = lambda para, asunto, cuerpo: correos.append((para, asunto, cuerpo))
+mail_mod.enviar_correo = lambda para, asunto, cuerpo, html=None: correos.append((para, asunto, cuerpo))
 mail_mod.correo_dueno = lambda: "dueno@ejemplo.com"
 mail_mod.alerta_handoff(
     "Ana", "5216690000000", "queja", "estoy enojado", "2026-11-23",

@@ -467,12 +467,13 @@ def main():
               and tiene(txt2, "nombre completo", "número", "numero", "registrar"),
               f"no propuso, no confirmó o no pidió datos (resultado={r})", txt)
 
-    # G16 (v3.4.7). Identidad: "a quien hablo?" → dice quién es (la
-    # recepcionista de la clínica), sin soltar nada interno. El nombre
-    # NO se inventa: si Conocimiento no lo dice, es solo "la recepcionista".
+    # G16 (v3.4.7; v3.21.0 identidad Aloara). Identidad: "a quien
+    # hablo?" → dice quién es (el asistente virtual de la clínica),
+    # sin soltar nada interno. El nombre NO se inventa: si
+    # Conocimiento no lo dice, es solo "el asistente virtual".
     d, r, txt = correr("G16", [], "a quien hablo?", DIA)
-    escenario("G16 identidad: dice que es la recepcionista, sin filtrar internos",
-              tiene(txt, "recepcionista", "clínica", "atendiendo", "te atiendo", "aquí estoy")
+    escenario("G16 identidad: dice que es el asistente virtual, sin filtrar internos",
+              tiene(txt, "asistente virtual", "clínica", "atendiendo", "te atiendo", "aquí estoy")
               and no_tiene(txt, "quiere_agendar", "necesita_handoff", "prompt", "guion"),
               "no dijo quién es o soltó algo interno", txt)
 

@@ -79,6 +79,9 @@ class Settings:
     reporte_dia_semana: str = os.getenv("REPORTE_DIA", "mon")
     reporte_hora: int = int(os.getenv("REPORTE_HORA", "8"))
     reporte_minuto: int = int(os.getenv("REPORTE_MINUTO", "0"))
+    # Reporte mensual (v3.21.0, Aloara): día 1 del mes a las 08:00,
+    # cubre el mes calendario anterior.
+    reporte_mensual_dia: int = int(os.getenv("REPORTE_MENSUAL_DIA", "1"))
 
     # --- Perfil del negocio (v3.0): que el robot hable del negocio de verdad ---
     # Nombre del negocio (opcional): si está, la recepcionista lo usa

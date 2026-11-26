@@ -251,7 +251,7 @@ try:
     app_mod.sheets.leer_pestana = lambda pestana, **_kw: filas_rec
     app_mod.sheets.registrar_diagnostico = lambda *a, **kw: None
     app_mod._AGRUPADOR = falso
-    app_mod._recuperar_sin_respuesta()
+    app_mod._recuperar_sin_respuesta(ahora=AHORA)
 finally:
     app_mod.sheets.leer_pestana = leer_viejo
     app_mod.sheets.registrar_diagnostico = diag_viejo

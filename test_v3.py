@@ -179,8 +179,8 @@ try:
          negocio_mod.frase_cierre() == "El negocio ya cerró por hoy, pero yo te atiendo igual",
          negocio_mod.frase_cierre())
     prompt = agent_mod.guion()
-    caso("(c) El guion usa el perfil: Ana, recepcionista de una clínica",
-         "Te llamas Ana" in prompt and "recepcionista de una clínica" in prompt
+    caso("(c) El guion usa el perfil: Ana, asistente virtual de una clínica",
+         "Eres Ana, el asistente virtual de una clínica" in prompt
          and "El negocio ya cerró por hoy, pero yo te atiendo igual" in prompt
          and "La clínica ya cerró" not in prompt,
          prompt[:200])
@@ -198,8 +198,8 @@ try:
     caso("(c) Con nombre, la frase usa el nombre real",
          negocio_mod.frase_cierre() == "En Clínica Dental Sonrisa ya cerraron por hoy, pero yo te atiendo igual",
          negocio_mod.frase_cierre())
-    caso("(c) Con nombre, el guion dice de qué negocio es recepcionista",
-         "recepcionista de Clínica Dental Sonrisa" in agent_mod.guion(),
+    caso("(c) Con nombre, el guion dice de qué negocio es asistente virtual",
+         "el asistente virtual de Clínica Dental Sonrisa" in agent_mod.guion(),
          agent_mod.guion()[:200])
 finally:
     _quitar_perfil(orig)
@@ -207,8 +207,7 @@ finally:
 orig = _poner_perfil(nombre="", tipo="un restaurante", recep="Luis")
 try:
     caso("(c) Otro giro y otro nombre: el guion cambia, el código no",
-         "Te llamas Luis" in agent_mod.guion()
-         and "recepcionista de un restaurante" in agent_mod.guion(),
+         "Eres Luis, el asistente virtual de un restaurante" in agent_mod.guion(),
          agent_mod.guion()[:200])
 finally:
     _quitar_perfil(orig)
@@ -413,8 +412,8 @@ raiz = os.path.dirname(os.path.abspath(__file__))
 app_txt = open(os.path.join(raiz, "app.py"), encoding="utf-8").read()
 env_txt = open(os.path.join(raiz, ".env.example"), encoding="utf-8").read()
 inst_txt = open(os.path.join(raiz, "instalar.py"), encoding="utf-8").read()
-caso("(g) La app es la versión 3.20.15",
-     'version="3.20.15"' in app_txt or "VERSION = \"3.20.15\"" in app_txt,
+caso("(g) La app es la versión 3.21.0",
+     'version="3.21.0"' in app_txt or "VERSION = \"3.21.0\"" in app_txt,
      "versión no actualizada")
 caso("(g) .env.example trae modelos vivos, no los retirados",
      "gemini-4-hydrogen" in env_txt and "gemini-3.8-flash" in env_txt

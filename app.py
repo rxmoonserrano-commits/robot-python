@@ -50,11 +50,11 @@ from robot.config import settings
 from robot.logic import Dependencias, atender_boton, atender_mensaje
 from robot.registro import aviso, configurar as configurar_registro, error, info
 from robot.vigilancia import LOTE_LENTO_SEGUNDOS, con_vigilancia
-from robot.report import generar_reporte_semanal, generar_resumen_manana
+from robot.report import generar_reporte_semanal, generar_reporte_mensual, generar_resumen_manana
 
 configurar_registro()
 
-VERSION = "3.20.15"
+VERSION = "3.21.0"
 
 
 # El ciclo de vida del servidor. FastAPI ya no recomienda @app.on_event
@@ -868,6 +868,12 @@ scheduler.add_job(
     replace_existing=True,
 )
 scheduler.add_job(
+    generar_reporte_mensual,
+    CronTrigger(day=settings.reporte_mensual_dia, hour=settings.reporte_hora, minute=settings.reporte_minuto),
+    id="reporte-mensual",
+    replace_existing=True,
+)
+scheduler.add_job(
     enviar_recordatorios_programados,
     IntervalTrigger(hours=1),
     id="recordatorios",
@@ -966,7 +972,7 @@ def _esperar_salud_para_recuperar(intentos: int = 60,
         time.sleep(espera_segundos)
 
 
-def _recuperar_sin_respuesta() -> None:
+def _recuperar_sin_respuesta(ahora=None) -> None:
     """(v3.20.14) Recupera mensajes que un reinicio dejó sin respuesta.
 
     El buzón en disco (buzon.json) solo guarda lotes PENDIENTES (en la
@@ -980,10 +986,12 @@ def _recuperar_sin_respuesta() -> None:
     que cada lote termine) y sin textos duplicados: la primera
     versión metía todos los lotes a la vez al arrancar y el pico de
     memoria reiniciaba el servicio en bucle.
+    `ahora` es para pruebas (la ventana de 12 h se mide contra él);
+    en producción va None y se usa la hora real.
     """
     try:
         filas = sheets.leer_pestana("Conversaciones")
-        pendientes = _mensajes_sin_respuesta(filas)
+        pendientes = _mensajes_sin_respuesta(filas, ahora=ahora)
         if not pendientes:
             return
         total = 0

@@ -18,7 +18,7 @@ marca URGENTE en el CRM y correo con el porqué).
 (i) extra_json: la urgencia sobrevive al reinicio (guardar → leer)
     y las propuestas viejas siguen cargando.
 (j) _fila_espejo: Urgencia SI/NO y Notas con el porqué.
-(k) mail.alerta_cita_urgente: asunto y cuerpo con 🚨 y la razón.
+(k) mail.alerta_cita_urgente: asunto y cuerpo Aloara Priority.
 (l) sheets._CITAS_COLUMNAS: 16 columnas, la última es Urgencia.
 (m) Urgencia con profesional: la oferta lleva "con la Dra. Ruiz".
 
@@ -493,11 +493,11 @@ def test_k_correo_urgente():
                                      razon="Urgencia del cliente: me duele mucho la muela")
     finally:
         mail_mod.enviar_correo = original
-    caso("(k) Correo urgente: asunto con 🚨 y 'cita con urgencia'",
-         correos and "🚨" in correos[0][1] and "cita con urgencia" in correos[0][1].lower(),
+    caso("(k) Correo urgente: asunto Aloara Priority y cuerpo con el porqué",
+         correos and "Atención prioritaria requerida" in correos[0][1]
+         and "Tu equipo necesita intervenir" in correos[0][2]
+         and "me duele mucho la muela" in correos[0][2],
          f"{correos}")
-    caso("(k) Correo urgente: el cuerpo trae el porqué",
-         correos and "me duele mucho la muela" in correos[0][2], f"{correos}")
 
 
 # ------------------------------------------------------------------
