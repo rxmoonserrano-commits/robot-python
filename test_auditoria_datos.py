@@ -153,7 +153,7 @@ def _a1():
     finally:
         sheets_mod._CACHE.clear()
     rango = servicio.valores.gets[0] if servicio.valores.gets else ""
-    ok = len(resultado) == 1500 and "10000" in str(rango)
+    ok = len(resultado) == 1500 and "!A:Z" in str(rango)
     return ok, f"filas={len(resultado)} rango={rango}"
 
 

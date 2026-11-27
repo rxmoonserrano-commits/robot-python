@@ -75,6 +75,23 @@ _CACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
+class _FilaHoja(dict):
+    """Diccionario normal con la posición real, sin añadir columnas a la hoja."""
+
+    def __init__(self, valores: dict, numero_fila: int):
+        super().__init__(valores)
+        self.numero_fila = numero_fila
+
+
+def _numero_fila(fila: dict, indice: int) -> int:
+    # Fakes antiguos devuelven diccionarios simples sin filas vacías.
+    return getattr(fila, "numero_fila", indice + 2)
+
+
+def _copiar_filas(filas: list[dict]) -> list[dict]:
+    return [_FilaHoja(f, f.numero_fila) if isinstance(f, _FilaHoja) else dict(f) for f in filas]
+
+
 def _clave_cache(pestana: str, spreadsheet_id: str | None = None) -> tuple[str, str]:
     return (spreadsheet_id or settings.sheet_id, pestana)
 
@@ -97,16 +114,14 @@ def leer_pestana(pestana: str, spreadsheet_id: str | None = None) -> list[dict]:
     with _CACHE_LOCK:
         guardado = _CACHE.get(clave)
         if guardado and time.monotonic() - guardado[0] < _CACHE_TTL_SEGUNDOS:
-            return list(guardado[1])
+            return _copiar_filas(guardado[1])
     servicio = _servicio_sheets()
     resultado = (
         servicio.values()
-        # (v3.20.4, auditoría de datos) Antes A1:Z1000: al pasar las
-        # 1000 filas, Conversaciones perdía el historial viejo en
-        # silencio y Clientes dejaba de ver clientes (duplicados).
-        # 10000 filas cubre meses de operación; más allá, rotación
-        # de la hoja (propuesta, no implementada).
-        .get(spreadsheetId=clave[0], range=f"{pestana}!A1:Z10000")
+        # No ocultar filas después de un límite fijo: se perderían clientes,
+        # pausas y propuestas. El coste crece con la hoja; archivar el
+        # histórico requiere un procedimiento externo.
+        .get(spreadsheetId=clave[0], range=f"{pestana}!A:Z")
         .execute()
     )
     valores = resultado.get("values", [])
@@ -115,13 +130,14 @@ def leer_pestana(pestana: str, spreadsheet_id: str | None = None) -> list[dict]:
     else:
         encabezados = [h.strip() for h in valores[0]]
         filas = []
-        for fila in valores[1:]:
+        for numero, fila in enumerate(valores[1:], start=2):
             if not any(str(c).strip() for c in fila):
                 continue
-            filas.append({h: (fila[i] if i < len(fila) else "") for i, h in enumerate(encabezados)})
+            datos = {h: (fila[i] if i < len(fila) else "") for i, h in enumerate(encabezados)}
+            filas.append(_FilaHoja(datos, numero))
     with _CACHE_LOCK:
         _CACHE[clave] = (time.monotonic(), filas)
-    return list(filas)
+    return _copiar_filas(filas)
 
 
 def _columna_letra(n: int) -> str:
@@ -317,7 +333,7 @@ def actualizar_cita_espejo(telefono: str, fecha_cita: str, estado: str | None = 
         for i, f in enumerate(filas):
             if (str(f.get("Teléfono", "") or "").strip() == objetivo
                     and str(f.get("Fecha", "") or "")[:10] == dia):
-                numero = i + 2  # +1 encabezado, +1 base 1
+                numero = _numero_fila(f, i)
                 fila_vieja = f
         if numero is None:
             return
@@ -547,7 +563,7 @@ def _fila_cliente_por_telefono(telefono: str) -> tuple[int, dict] | None:
     for i, fila in enumerate(leer_pestana("Clientes")):
         if str(fila.get("telefono", "")).strip() == str(telefono).strip():
             completa = {k: str(fila.get(k, "") or "") for k in _COLUMNAS_CLIENTES}
-            return i + 2, completa
+            return _numero_fila(fila, i), completa
     return None
 
 
@@ -662,7 +678,7 @@ def guardar_memoria_cliente(telefono: str, resumen: str = "", interes: str = "",
         return
     numero_fila, _ = encontrado
     filas = leer_pestana("Clientes")
-    fila = filas[numero_fila - 2] if 0 <= numero_fila - 2 < len(filas) else {}
+    fila = next((f for i, f in enumerate(filas) if _numero_fila(f, i) == numero_fila), {})
     nuevos: dict[str, str] = {}
     if str(resumen or "").strip():
         nuevos["resumen_conversacion"] = str(resumen).strip()[:300]
@@ -850,7 +866,7 @@ def guardar_propuesta(telefono: str, propuesta: dict) -> None:
             servicio = _servicio_sheets()
             servicio.values().update(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:I{i + 2}",
+                range=f"Propuestas!A{_numero_fila(fila, i)}:I{_numero_fila(fila, i)}",
                 valueInputOption="RAW",
                 body={"values": [fila_dato]},
             ).execute()
@@ -866,7 +882,7 @@ def borrar_propuesta(telefono: str) -> None:
             servicio = _servicio_sheets()
             servicio.values().clear(
                 spreadsheetId=settings.sheet_id,
-                range=f"Propuestas!A{i + 2}:I{i + 2}",
+                range=f"Propuestas!A{_numero_fila(fila, i)}:I{_numero_fila(fila, i)}",
             ).execute()
             _invalidar_cache("Propuestas")
             return

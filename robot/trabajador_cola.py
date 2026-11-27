@@ -6,6 +6,7 @@ lote terminado únicamente después de que el callback retorna sin error.
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 from datetime import datetime, timezone
@@ -40,12 +41,23 @@ class TrabajadorCola:
         telefonos = list(dict.fromkeys(str(f[2]["mensaje"].get("from") or "") for f in filas))
         for telefono in telefonos:
             mensajes = [f for f in filas if str(f[2]["mensaje"].get("from") or "") == telefono]
-            def orden(fila):
+            # Solo ordenar por timestamp cuando TODOS lo tienen válido.
+            # Si falta alguno, no sabemos dónde ubicarlo temporalmente:
+            # preservamos el orden de recepción (filas de la hoja), sin
+            # saltar un texto anterior para procesar primero un botón.
+            tiempos = []
+            for fila in mensajes:
                 try:
-                    return (0, float(fila[2]["mensaje"].get("timestamp")), fila[0])
-                except (TypeError, ValueError):
-                    return (1, 0.0, fila[0])
-            mensajes.sort(key=orden)
+                    valor = float(fila[2]["mensaje"].get("timestamp"))
+                    if not math.isfinite(valor) or valor <= 0:
+                        raise ValueError("timestamp inválido")
+                    tiempos.append(valor)
+                except (TypeError, ValueError, OverflowError):
+                    tiempos = []
+                    break
+            if tiempos:
+                mensajes = [fila for _, fila in sorted(
+                    zip(tiempos, mensajes), key=lambda par: (par[0], par[1][0]))]
             lote = []
             for fila in mensajes:
                 tipo = fila[2]["mensaje"].get("type", "")

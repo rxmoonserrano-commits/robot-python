@@ -591,11 +591,17 @@ def _procesar_lote_durable(filas: list[tuple[int, str, dict]]) -> None:
                 nombre = contacto.get("profile", {}).get("name", "") or nombre
     tipo = mensaje_primero.get("type", "")
     if tipo == "interactive":
-        boton_id = mensaje_primero.get("interactive", {}).get("button_reply", {}).get("id", "")
-        if not boton_id:
-            raise ValueError("Respuesta interactiva sin botón")
-        atender_boton(_DEPS, telefono, nombre, boton_id)
-        return
+        interactivo = mensaje_primero.get("interactive")
+        interactivo = interactivo if isinstance(interactivo, dict) else {}
+        seleccion = interactivo.get("button_reply") or interactivo.get("list_reply") or {}
+        seleccion = seleccion if isinstance(seleccion, dict) else {}
+        boton_id = str(seleccion.get("id") or "").strip()
+        if boton_id:
+            atender_boton(_DEPS, telefono, nombre, boton_id)
+            return
+        # Un tipo interactivo desconocido no debe bloquear el chat para
+        # siempre. Se procesa abajo como contenido no legible; si una
+        # excepción llega al trabajador, se conserva para reintento.
     textos = []
     for _, _, contenido in filas:
         mensaje = contenido["mensaje"]

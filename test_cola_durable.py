@@ -129,6 +129,43 @@ class TestColaDurable(unittest.TestCase):
         self.assertEqual(vistos, ["522222"])
         self.assertEqual(self.cola.siguiente()[1], "a")
 
+    def test_orden_con_timestamps_incompletos_respeta_recepcion_y_boton(self):
+        texto = mensaje("texto")
+        boton = ({"id": "boton", "from": "521111", "type": "interactive", "timestamp": "100", "interactive": {"button_reply": {"id": "confirmar_cita"}}}, {})
+        self.cola.guardar([texto, boton])
+        lotes = []
+        trabajador = TrabajadorCola(self.cola, lambda filas: lotes.append([f[1] for f in filas]), espera_segundos=0)
+        self.assertTrue(trabajador.paso())
+        self.assertTrue(trabajador.paso())
+        self.assertEqual(lotes, [["texto"], ["boton"]])
+
+    def test_orden_con_timestamps_validos_usa_tiempo_de_meta(self):
+        primero = mensaje("recibido-primero")
+        segundo = mensaje("ocurrio-primero")
+        primero[0]["timestamp"] = "102"
+        segundo[0]["timestamp"] = "101"
+        self.cola.guardar([primero, segundo])
+        lotes = []
+        trabajador = TrabajadorCola(self.cola, lambda filas: lotes.append([f[1] for f in filas]), espera_segundos=0)
+        self.assertTrue(trabajador.paso())
+        self.assertEqual(lotes, [["ocurrio-primero", "recibido-primero"]])
+
+    def test_limite_cero_no_devuelve_pendientes(self):
+        self.cola.guardar([mensaje("a")])
+        self.assertEqual(self.cola.pendientes(limite=0), [])
+
+    def test_solo_se_persiste_el_nombre_del_remitente(self):
+        entrada = mensaje("a")
+        entrada[1]["contacts"] = [
+            {"wa_id": "522222", "profile": {"name": "Otro", "email": "privado@example.test"}},
+            {"wa_id": "521111", "profile": {"name": "Ana", "email": "privado@example.test"}, "metadata": "sensible"},
+        ]
+        self.cola.guardar([entrada])
+        contenido = self.cola.siguiente()[2]
+        self.assertEqual(contenido["contacts"], [{"wa_id": "521111", "profile": {"name": "Ana"}}])
+        self.assertNotIn("privado@example.test", str(self.servicio.filas))
+        self.assertNotIn("sensible", str(self.servicio.filas))
+
     def test_no_termina_una_fila_reordenada(self):
         self.cola.guardar([mensaje("a")])
         with self.assertRaises(RuntimeError):

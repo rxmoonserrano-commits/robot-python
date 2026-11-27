@@ -16,9 +16,10 @@
 > omitida como aprobada.
 >
 > La pausa por teléfono depende de poder escribir y leer la pestaña
-> Conversaciones; también está sujeta al límite actual de 10 000 filas
-> leído por el código. Los botones se silencian durante la pausa. Las
-> pausas globales antiguas guardadas en Control siguen aplicándose. Por
+> Conversaciones. Las lecturas de Sheets ya no tienen el antiguo límite
+> de 10 000 filas, pero su coste y latencia crecen con el histórico y no
+> hay archivado automático. Los botones se silencian durante la pausa.
+> Las pausas globales antiguas guardadas en Control siguen aplicándose. Por
 > eso, durante un handoff urgente no se ofrece una cita con botones que
 > quedarían bloqueados; el equipo debe revisar la agenda.
 >

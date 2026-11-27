@@ -11,17 +11,15 @@ Dos cosas, nada más:
 2. Firma de Meta (META_APP_SECRET): cada POST al webhook trae el
    header X-Hub-Signature-256, un HMAC-SHA256 del cuerpo con el
    secreto de la app. Si el secreto está configurado y la firma no
-   coincide, el mensaje se rechaza (403) sin procesarse: nadie puede
-   mandar mensajes falsos para que el robot conteste. Si el secreto
-   NO está configurado, el endpoint de WhatsApp rechaza la solicitud
-   con 503; este módulo mantiene su comportamiento anterior para otros
-   llamadores que quieran aplicar una política distinta.
+   coincide, el mensaje se rechaza (403) sin procesarse. Sin secreto,
+   la verificación también falla; el endpoint responde con 503.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 
 
 def token_admin_ok(token_dado: str | None, token_esperado: str) -> bool:
@@ -32,18 +30,19 @@ def token_admin_ok(token_dado: str | None, token_esperado: str) -> bool:
     """
     if not token_esperado or not token_dado:
         return False
-    return hmac.compare_digest(str(token_dado), str(token_esperado))
+    return hmac.compare_digest(str(token_dado).encode("utf-8"), str(token_esperado).encode("utf-8"))
 
 
 def verificar_firma_meta(cuerpo: bytes, firma: str | None, secreto: str) -> bool:
     """¿Este webhook viene de Meta de verdad?
 
-    Sin secreto configurado devuelve True (se acepta con aviso, ver
-    salud.py). Con secreto, la firma tiene que ser sha256=<hmac>.
+    Sin secreto configurado falla cerrada. La firma debe contener
+    exactamente un HMAC SHA-256 hexadecimal; datos malformados no lanzan.
     """
-    if not secreto:
-        return True
-    if not firma or not firma.startswith("sha256="):
+    if not secreto or not isinstance(firma, str) or not firma.startswith("sha256="):
+        return False
+    recibido = firma[len("sha256="):]
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", recibido):
         return False
     esperado = hmac.new(secreto.encode(), cuerpo, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(firma[len("sha256="):], esperado)
+    return hmac.compare_digest(recibido.lower(), esperado)

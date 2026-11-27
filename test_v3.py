@@ -156,8 +156,8 @@ caso("(b) La firma de Meta se verifica: buena pasa, mala no",
      and verificar_firma_meta(b"otro cuerpo", firma_buena, "secreto-meta") is False
      and verificar_firma_meta(cuerpo, None, "secreto-meta") is False
      and verificar_firma_meta(cuerpo, "sin-prefijo", "secreto-meta") is False)
-caso("(b) Sin secreto de Meta, se acepta (con aviso en salud)",
-     verificar_firma_meta(cuerpo, None, "") is True)
+caso("(b) Sin secreto de Meta, la verificación falla cerrada",
+     verificar_firma_meta(cuerpo, None, "") is False)
 
 # ---------- (c) Perfil del negocio ----------
 

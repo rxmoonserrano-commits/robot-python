@@ -294,6 +294,16 @@ class FiabilidadPrioritaria(unittest.TestCase):
             app._procesar_lote_durable(boton)
         self.assertEqual(atender.call_args.args[3], "hablar_persona")
 
+    def test_interactivo_desconocido_no_bloquea_y_lista_pasa_su_id(self):
+        desconocido = [(5, "d", {"mensaje": {"from": "521111", "type": "interactive", "interactive": {"type": "otro"}}, "contacts": []})]
+        with patch.object(app, "atender_mensaje") as atender:
+            app._procesar_lote_durable(desconocido)
+        self.assertIn("no se puede leer", atender.call_args.args[3])
+        seleccion = [(6, "e", {"mensaje": {"from": "521111", "type": "interactive", "interactive": {"list_reply": {"id": "hablar_persona"}}}, "contacts": []})]
+        with patch.object(app, "atender_boton") as atender:
+            app._procesar_lote_durable(seleccion)
+        self.assertEqual(atender.call_args.args[3], "hablar_persona")
+
     def test_webhook_guarda_antes_de_confirmar_y_reintenta_si_falla(self):
         cuerpo = json.dumps({"entry": [{"changes": [{"value": {"messages": [{"id": "wamid.1", "from": "521111", "type": "text", "text": {"body": "hola"}}]}}]}]}).encode()
         signature = "sha256=" + hmac.new(b"secreto", cuerpo, hashlib.sha256).hexdigest()
@@ -315,6 +325,14 @@ class FiabilidadPrioritaria(unittest.TestCase):
         self.assertEqual(orden, [("guardado", "wamid.1"), ("avisado",)])
         with patch.object(app.settings, "meta_app_secret", "secreto"), patch.object(app._COLA, "guardar", side_effect=OSError("sin red")):
             self.assertEqual(asyncio.run(enviar()).status_code, 503)
+
+    def test_firma_y_token_malformados_no_lanzan_ni_se_aceptan(self):
+        from robot import seguridad
+        self.assertFalse(seguridad.verificar_firma_meta(b"cuerpo", None, ""))
+        self.assertFalse(seguridad.verificar_firma_meta(b"cuerpo", "sha256=" + "ñ" * 64, "secreto"))
+        self.assertFalse(seguridad.verificar_firma_meta(b"cuerpo", "sha256=1234", "secreto"))
+        self.assertFalse(seguridad.token_admin_ok("contraseña inválida ñ", "seguro"))
+        self.assertTrue(seguridad.token_admin_ok("clave ñ", "clave ñ"))
 
     def test_webhook_exige_secreto_y_firma(self):
         cuerpo = b'{"entry": []}'

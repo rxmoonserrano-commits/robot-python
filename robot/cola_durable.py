@@ -70,12 +70,22 @@ class ColaDurable:
             wamid = str(mensaje.get("id") or "").strip()
             if not wamid:
                 raise ValueError("Mensaje sin ID de Meta")
-            if not str(mensaje.get("from") or "").strip():
+            telefono = str(mensaje.get("from") or "").strip()
+            if not telefono:
                 raise ValueError("Mensaje sin remitente")
-            # Se guarda solo lo necesario para identificar el contacto,
-            # no el objeto completo de la notificación de Meta.
-            contenido = json.dumps({"mensaje": mensaje,
-                                    "contacts": valor.get("contacts", [])},
+            # El perfil se usa solo para obtener el nombre del remitente;
+            # no guardar contactos de terceros ni atributos adicionales.
+            contactos = valor.get("contacts")
+            contactos = contactos if isinstance(contactos, list) else []
+            perfil = []
+            for contacto in contactos:
+                if not isinstance(contacto, dict) or str(contacto.get("wa_id") or "") != telefono:
+                    continue
+                datos_perfil = contacto.get("profile")
+                nombre = datos_perfil.get("name", "") if isinstance(datos_perfil, dict) else ""
+                perfil.append({"wa_id": telefono, "profile": {"name": str(nombre or "")}})
+                break
+            contenido = json.dumps({"mensaje": mensaje, "contacts": perfil},
                                    ensure_ascii=False, separators=(",", ":"))
             if len(contenido) > 45000:
                 raise ValueError("Mensaje demasiado grande para una celda de Sheets")
@@ -107,6 +117,8 @@ class ColaDurable:
 
     def pendientes(self, limite: int = 50, excluir_telefonos: set[str] | None = None) -> list[tuple[int, str, dict]]:
         """Consulta pendientes por páginas, sin cargar toda la hoja en memoria."""
+        if limite <= 0:
+            return []
         excluir = excluir_telefonos or set()
         encontrados = []
         with self._candado:

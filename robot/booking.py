@@ -116,7 +116,46 @@ def hora_libre(inicio_iso: str, duracion_min: int | None = None) -> bool:
 # y cada cálculo cuesta una llamada a Calendar. 60 s es suficiente:
 # dos mensajes seguidos del mismo cliente no vuelven a preguntar.
 _HUECOS_TTL_SEGUNDOS = 60.0
-_HUECOS_CACHE: dict[str, tuple[float, list[str]]] = {}
+_HUECOS_CACHE_MAX = 128
+_HUECOS_CACHE: dict[str, tuple[float, list]] = {}
+_HUECOS_CACHE_LOCK = threading.RLock()
+_HUECOS_CACHE_GENERACION = 0
+
+
+def _copiar_huecos(huecos: list) -> list:
+    return [dict(h) if isinstance(h, dict) else h for h in huecos]
+
+
+def _cache_huecos_leer(clave: str) -> tuple[list | None, int]:
+    with _HUECOS_CACHE_LOCK:
+        guardado = _HUECOS_CACHE.get(clave)
+        if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
+            return _copiar_huecos(guardado[1]), _HUECOS_CACHE_GENERACION
+        _HUECOS_CACHE.pop(clave, None)
+        return None, _HUECOS_CACHE_GENERACION
+
+
+def _cache_huecos_guardar(clave: str, huecos: list, generacion: int) -> None:
+    with _HUECOS_CACHE_LOCK:
+        # Una reserva/cancelación pudo invalidar el resultado mientras
+        # la consulta de Calendar estaba en curso; no guardar ese dato.
+        if generacion != _HUECOS_CACHE_GENERACION:
+            return
+        actual = time.monotonic()
+        for vieja, (creada, _) in list(_HUECOS_CACHE.items()):
+            if actual - creada >= _HUECOS_TTL_SEGUNDOS:
+                _HUECOS_CACHE.pop(vieja, None)
+        _HUECOS_CACHE[clave] = (actual, _copiar_huecos(huecos))
+        while len(_HUECOS_CACHE) > _HUECOS_CACHE_MAX:
+            mas_antigua = min(_HUECOS_CACHE, key=lambda k: _HUECOS_CACHE[k][0])
+            _HUECOS_CACHE.pop(mas_antigua, None)
+
+
+def _cache_huecos_invalidar() -> None:
+    global _HUECOS_CACHE_GENERACION
+    with _HUECOS_CACHE_LOCK:
+        _HUECOS_CACHE.clear()
+        _HUECOS_CACHE_GENERACION += 1
 
 
 def proximos_huecos_libres(
@@ -138,15 +177,16 @@ def proximos_huecos_libres(
     La confirmación vuelve a revisar la hora (crear_cita): si un hueco
     se ocupó entre el cálculo y la confirmación, no se crea nada.
     """
+    if cantidad <= 0:
+        return []
     # Los horarios y el minuto actual forman parte de la consulta: no
     # reutilizar un hueco pasado ni horarios que el dueño acaba de editar.
     clave = (f"{settings.calendar_id}:{settings.timezone}:{settings.duracion_cita_minutos}:"
              f"{ahora.isoformat(timespec='minutes')}:{cantidad}:{dias}:"
              f"{sorted(horarios.items())}")
-    if usar_cache:
-        guardado = _HUECOS_CACHE.get(clave)
-        if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
-            return list(guardado[1])
+    guardado, generacion = _cache_huecos_leer(clave)
+    if usar_cache and guardado is not None:
+        return guardado
     local = ahora.astimezone(ZoneInfo(settings.timezone)) if ahora.tzinfo else ahora.replace(tzinfo=ZoneInfo(settings.timezone))
     duracion = settings.duracion_cita_minutos
     inicio_rango = local
@@ -192,7 +232,7 @@ def proximos_huecos_libres(
         if len(huecos) >= cantidad:
             break
     if usar_cache:
-        _HUECOS_CACHE[clave] = (time.monotonic(), list(huecos))
+        _cache_huecos_guardar(clave, huecos, generacion)
     return huecos
 
 
@@ -212,11 +252,10 @@ def proximos_huecos_por_profesional(
     que la versión por clínica; la revisión es conservadora: un
     evento ocupado bloquea a todos, nunca se duplican citas).
 
-    Sin profesionales o con error de Calendar devuelve []: quien
-    llama cae a la agenda por clínica. La confirmación vuelve a
-    revisar la hora (crear_cita), como siempre.
+    Sin profesionales devuelve []; un error de Calendar se propaga.
+    La confirmación vuelve a revisar la hora (crear_cita).
     """
-    if not profesionales:
+    if not profesionales or cantidad <= 0:
         return []
     clave = (
         f"pro:{settings.calendar_id}:{settings.timezone}:{settings.duracion_cita_minutos}:"
@@ -224,9 +263,9 @@ def proximos_huecos_por_profesional(
         + repr(sorted((str(p.get("nombre", "")), sorted(p.get("horarios", {}).items()))
                       for p in profesionales))
     )
-    guardado = _HUECOS_CACHE.get(clave)
-    if guardado and time.monotonic() - guardado[0] < _HUECOS_TTL_SEGUNDOS:
-        return [dict(h) for h in guardado[1]]
+    guardado, generacion = _cache_huecos_leer(clave)
+    if guardado is not None:
+        return guardado
     local = ahora.astimezone(ZoneInfo(settings.timezone)) if ahora.tzinfo else ahora.replace(tzinfo=ZoneInfo(settings.timezone))
     duracion = settings.duracion_cita_minutos
     inicio_rango = local
@@ -272,7 +311,7 @@ def proximos_huecos_por_profesional(
             break
     huecos.sort(key=lambda h: (h["inicio"], h["profesional"]))
     huecos = huecos[:cantidad]
-    _HUECOS_CACHE[clave] = (time.monotonic(), [dict(h) for h in huecos])
+    _cache_huecos_guardar(clave, huecos, generacion)
     return huecos
 
 
@@ -282,19 +321,43 @@ def _eventos_del_dia(servicio, inicio: datetime) -> list:
     Lo comparten cancelar_cita y existe_cita: una sola forma de
     listar el día, para que no diverjan.
     """
-    dia_inicio = inicio.replace(hour=0, minute=0, second=0, microsecond=0)
+    local = inicio.astimezone(ZoneInfo(settings.timezone))
+    dia_inicio = local.replace(hour=0, minute=0, second=0, microsecond=0)
     dia_fin = dia_inicio + timedelta(days=1)
-    return (
-        servicio.events()
-        .list(
-            calendarId=settings.calendar_id,
-            timeMin=dia_inicio.isoformat(),
-            timeMax=dia_fin.isoformat(),
-            singleEvents=True,
-        )
-        .execute()
-        .get("items", [])
-    )
+    argumentos = {
+        "calendarId": settings.calendar_id,
+        "timeMin": dia_inicio.isoformat(),
+        "timeMax": dia_fin.isoformat(),
+        "singleEvents": True,
+    }
+    eventos = []
+    tokens_vistos = set()
+    while True:
+        pagina = servicio.events().list(**argumentos).execute()
+        if not isinstance(pagina, dict) or not isinstance(pagina.get("items", []), list):
+            raise RuntimeError("Calendar devolvió una lista de eventos inválida")
+        eventos.extend(pagina.get("items", []))
+        token = pagina.get("nextPageToken")
+        if not token:
+            return eventos
+        if not isinstance(token, str) or token in tokens_vistos:
+            raise RuntimeError("Calendar devolvió una paginación inválida")
+        tokens_vistos.add(token)
+        argumentos["pageToken"] = token
+
+
+def _evento_de_cita(evento: dict, telefono: str, inicio: datetime) -> bool:
+    """Solo el evento exacto de este teléfono y este instante es evidencia."""
+    if not isinstance(evento, dict):
+        return False
+    titulo = str(evento.get("summary", ""))
+    if not titulo.startswith("Cita ") or not titulo.endswith(f" — {telefono}"):
+        return False
+    try:
+        comienzo = (evento.get("start") or {}).get("dateTime", "")
+        return _a_datetime(comienzo) == inicio
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
@@ -308,25 +371,20 @@ def cancelar_cita(telefono: str, fecha_cita_iso: str) -> bool:
     inicio = _a_datetime(fecha_cita_iso)
     servicio = _servicio_calendar()
     eventos = _eventos_del_dia(servicio, inicio)
-    coincidencias = []
-    for evento in eventos:
-        titulo = str(evento.get("summary", ""))
-        comienzo = (evento.get("start") or {}).get("dateTime", "")
-        if not titulo.startswith("Cita ") or not titulo.endswith(f" — {telefono}"):
-            continue
-        try:
-            if _a_datetime(comienzo) == inicio:
-                coincidencias.append(evento)
-        except (TypeError, ValueError):
-            continue
+    coincidencias = [evento for evento in eventos
+                     if _evento_de_cita(evento, str(telefono), inicio)]
     if len(coincidencias) > 1:
         raise ValueError("Hay varias citas coincidentes; se necesita revisión humana")
     if not coincidencias:
         return False
-    servicio.events().delete(
-        calendarId=settings.calendar_id, eventId=coincidencias[0]["id"]
-    ).execute()
-    _HUECOS_CACHE.clear()
+    _cache_huecos_invalidar()
+    try:
+        servicio.events().delete(
+            calendarId=settings.calendar_id, eventId=coincidencias[0]["id"]
+        ).execute()
+    finally:
+        # Incluso si se corta la red, Calendar pudo haber aplicado el borrado.
+        _cache_huecos_invalidar()
     return True
 
 
@@ -339,20 +397,12 @@ def existe_cita(telefono: str, fecha_iso: str) -> bool:
     positiva: si algo falla, levanta la excepción y el llamador
     decide (la reconciliación la trata como "sin evidencia").
     """
+    if not str(telefono).isdigit():
+        raise ValueError("Teléfono inválido")
     inicio = _a_datetime(fecha_iso)
     servicio = _servicio_calendar()
     eventos = _eventos_del_dia(servicio, inicio)
-    hora = inicio.strftime("%H:%M")
-    for evento in eventos:
-        if str(telefono) not in str(evento.get("summary", "")):
-            continue
-        start = (evento.get("start") or {}).get("dateTime", "")
-        try:
-            if _a_datetime(start).strftime("%H:%M") == hora:
-                return True
-        except Exception:  # noqa: BLE001 - evento ilegible no es evidencia
-            continue
-    return False
+    return any(_evento_de_cita(evento, str(telefono), inicio) for evento in eventos)
 
 
 def crear_cita(
@@ -391,20 +441,24 @@ def _crear_cita(
     if nota:
         descripcion += f"\n{nota}"
     servicio = _servicio_calendar()
-    evento = (
-        servicio.events()
-        .insert(
-            calendarId=settings.calendar_id,
-            body={
-                "summary": f"Cita {nombre} — {telefono}",
-                "description": descripcion,
-                "start": {"dateTime": inicio.isoformat(), "timeZone": settings.timezone},
-                "end": {"dateTime": fin.isoformat(), "timeZone": settings.timezone},
-            },
+    _cache_huecos_invalidar()
+    try:
+        evento = (
+            servicio.events()
+            .insert(
+                calendarId=settings.calendar_id,
+                body={
+                    "summary": f"Cita {nombre} — {telefono}",
+                    "description": descripcion,
+                    "start": {"dateTime": inicio.isoformat(), "timeZone": settings.timezone},
+                    "end": {"dateTime": fin.isoformat(), "timeZone": settings.timezone},
+                },
+            )
+            .execute()
         )
-        .execute()
-    )
-    _HUECOS_CACHE.clear()
+    finally:
+        # El resultado puede ser incierto aunque la petición haya fallado.
+        _cache_huecos_invalidar()
     return {
         "inicio": inicio.isoformat(),
         "fin": fin.isoformat(),
